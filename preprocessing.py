@@ -151,16 +151,17 @@ def tokenize(corpus_df):
 
     :param corpus_df: A pandas DataFrame instance with the columns {OP_COMMENT, REPLY, LABEL}. The OP_COMMENT
         and REPLY columns consist of text entries while LABEL is {0, 1}.
-    :return: A dataframe with the same columns as the original corpus_df parameter, but with OP_COMMENT and
-        REPLY tokenized.
+    :return: A two-tuple containing pandas DataFrame instances representing n examples (X, y)
+        * X -- A DataFrame containing two columns, (OP_COMMENT, REPLY). Each column contains tokenized versions
+            of the original strings. X contains n rows.
+        * y -- A DataFrame of binary labels in {0, 1} representing whether the REPLY was awarded a delta by OP.
     """
-    tokenized_corpus = corpus_df.copy(deep=True)
     tokenizer = transformers.BertTokenizer.from_pretrained(BERT_BASE_CASED)
-    tokenized_op_comments = tokenized_corpus[OP_COMMENT].apply(lambda s: tokenizer.tokenize(s))
-    tokenized_reply = tokenized_corpus[REPLY].apply(lambda s: tokenizer.tokenize(s))
-    tokenized_corpus[OP_COMMENT] = tokenized_op_comments
-    tokenized_corpus[REPLY] = tokenized_reply
-    return tokenized_corpus
+    # Ensure that each sequence of tokens is padded/truncated to transformer model limit.
+    X = corpus_df[[OP_COMMENT, REPLY]]
+    tokenized_X = X.apply(lambda utterance: tokenizer(utterance.values.tolist(), truncation=True, padding=True))
+    y = corpus_df[LABEL]
+    return tokenized_X, y
 
 
 if __name__ == "__main__":
@@ -171,5 +172,4 @@ if __name__ == "__main__":
         corpus_df.to_json(dataset_path)
     else:
         corpus_df = pd.read_json(dataset_path)
-    tokenized_dataset = tokenize(corpus_df)
-    print(tokenized_dataset)
+    X, y = tokenize(corpus_df)
