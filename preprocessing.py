@@ -1,12 +1,17 @@
 import os.path
 import pandas as pd
 import numpy as np
+
+from datasets import Dataset
 import transformers
+from transformers import BertForSequenceClassification, Trainer, TrainingArguments
+
 import torch
 from convokit import Corpus, download
-from sklearn.model_selection import train_test_split
-from transformers import DistilBertForSequenceClassification, Trainer, TrainingArguments
 
+
+TRAIN = "train"
+TEST = "test"
 
 # Tokenization constants
 BERT_BASE_CASED = "bert-base-cased"
@@ -95,7 +100,6 @@ def balance_pos_and_neg_labels(positive_labeled, negative_labeled):
     """
     pos_len = len(positive_labeled)
     neg_len = len(negative_labeled)
-
     min_len = min(pos_len, neg_len)
     sampled_positive_labals = np.random.choice(positive_labeled, min_len)
     sampled_negative_labels = np.random.choice(negative_labeled, min_len)
@@ -160,61 +164,31 @@ def tokenize(corpus_df):
 
     :param corpus_df: A pandas DataFrame instance with the columns {OP_COMMENT, REPLY, LABEL}. The OP_COMMENT
         and REPLY columns consist of text entries while LABEL is {0, 1}.
-    :return: A two-tuple containing pandas DataFrame instances representing n examples (X, y)
-        * X -- A DataFrame containing three columns, (INPUT_IDS, TOKEN_TYPE_IDS, ATTENTION_MASK). Each column contains
-            tokenized versions of the original strings. X contains n rows.
-        * y -- A DataFrame of binary labels in {0, 1} representing whether the REPLY was awarded a delta by OP.
+    :return:
     """
     tokenizer = transformers.BertTokenizer.from_pretrained(BERT_BASE_CASED)
-    # Ensure that each sequence of tokens is padded/truncated to transformer model limit.
-    X = corpus_df[[OP_COMMENT, REPLY]]
+    op_comments = list(corpus_df[OP_COMMENT])
+    replies = list(corpus_df[REPLY])
     verbosity = transformers.logging.get_verbosity()
+    # Ensure that each sequence of tokens is padded/truncated to transformer model limit.
     transformers.logging.set_verbosity_error()
-    tokenized_X = X.apply(
-        lambda utterance: tokenizer(utterance[0], utterance[1], truncation=True),
-        axis=1)
+    dataset = tokenizer(op_comments, replies, padding=True, truncation=True)
     transformers.logging.set_verbosity(verbosity)
-    y = corpus_df[LABEL]
-    return tokenized_X, y
+    dataset[LABEL] = list(corpus_df[LABEL])
+    return dataset
 
 
 class CMVDataset(torch.utils.data.Dataset):
-    def __init__(self, encodings, labels):
-        """
-
-        :param encodings: A DataFrame containing three columns, (INPUT_IDS, TOKEN_TYPE_IDS, ATTENTION_MASK).
-            Each column contains tokenized versions of the original strings. X contains n rows.
-        :param labels: A DataFrame of binary labels in {0, 1} representing whether the REPLY was awarded a delta by OP.
-        """
-        self.encodings = encodings
-        self.labels = labels
+    def __init__(self, cmv_dataset):
+        self.cmv_dataset = cmv_dataset.to_dict()
+        self.num_examples = cmv_dataset.num_rows
 
     def __getitem__(self, idx):
-        """
-
-        :param idx: An integer index of an example in the dataaset.
-        :return: A dictionary of the form {key: features, label: labels}.
-            * features is a dictionary with the string keys 'INPUT_IDS', 'TOKEN_TYPE_IDS' and 'ATTENTION_MASK' mapping
-             to the corresponding tensors.
-            * labels is a tensor scalar containing the binary label of the idx'th example in the dataset.
-        """
-        print(f'dataset_length: {self.__len__()}')
-        print(f'idx: {idx}')
-        print(f'label: {self.labels.get(idx)}')
-        item = {key: {
-            INPUT_IDS: torch.tensor(val[INPUT_IDS]),
-            TOKEN_TYPE_IDS: torch.tensor(val[TOKEN_TYPE_IDS]),
-            ATTENTION_MASK: torch.tensor(val[ATTENTION_MASK])
-        } for key, val in self.encodings.items()}
-        item['labels'] = torch.tensor(self.labels.get(idx))
+        item = {key: torch.tensor(val[idx]) for key, val in self.cmv_dataset.items()}
         return item
 
     def __len__(self):
-        """
-
-        :return: The number of examples contained in this dataset.
-        """
-        return len(self.labels)
+        return self.num_examples
 
 
 if __name__ == "__main__":
@@ -225,10 +199,9 @@ if __name__ == "__main__":
         corpus_df.to_json(dataset_path)
     else:
         corpus_df = pd.read_json(dataset_path)
-    X, y = tokenize(corpus_df)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-    train_dataset = CMVDataset(X_train, y_train)
-    test_dataset = CMVDataset(X_test, y_test)
+    dataset = Dataset.from_dict(tokenize(corpus_df)).train_test_split()
+    train_dataset = CMVDataset(dataset[TRAIN])
+    test_dataset = CMVDataset(dataset[TEST])
     training_args = TrainingArguments(
         output_dir='./results',  # output directory
         num_train_epochs=3,  # total number of training epochs
@@ -239,9 +212,7 @@ if __name__ == "__main__":
         logging_dir='./logs',  # directory for storing logs
         logging_steps=10,
     )
-
-    model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased")
-
+    model = BertForSequenceClassification.from_pretrained(BERT_BASE_CASED, num_labels=2)
     trainer = Trainer(
         model=model,  # the instantiated 🤗 Transformers model to be trained
         args=training_args,  # training arguments, defined above
