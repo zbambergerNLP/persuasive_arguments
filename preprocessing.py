@@ -4,33 +4,10 @@ import numpy as np
 
 from datasets import Dataset
 import transformers
-from transformers import BertForSequenceClassification, Trainer, TrainingArguments
 
 import torch
 from convokit import Corpus, download
-
-
-TRAIN = "train"
-TEST = "test"
-
-# Tokenization constants
-BERT_BASE_CASED = "bert-base-cased"
-
-# BERT constants
-INPUT_IDS = 'input_ids'
-TOKEN_TYPE_IDS = 'token_type_ids'
-ATTENTION_MASK = 'attention_mask'
-
-# CMV Dataset
-CONVOKIT_DATASET_NAME = 'winning-args-corpus'
-CMV_DATASET_NAME = 'cmv_delta_prediction.json'
-SUCCESS = 'success'
-REPLIES = 'replies'
-
-# Pandas column names
-OP_COMMENT = 'op_comment'
-REPLY = 'reply'
-LABEL = 'label'
+import constants
 
 
 def find_comment_id_by_shortened_id(cmv_corpus, shortened_comment_id):
@@ -58,7 +35,7 @@ def find_ids_of_related_to_conversation_utterances(cmv_corpus, conversation_id, 
     related_utterances = set()
 
     if direct_reply_only:
-        for shortened_comment_id in cmv_corpus.utterances[conversation_id].meta[REPLIES]:
+        for shortened_comment_id in cmv_corpus.utterances[conversation_id].meta[constants.REPLIES]:
             full_comment_id = find_comment_id_by_shortened_id(cmv_corpus, shortened_comment_id)
             related_utterances.add(full_comment_id)
     else:
@@ -69,9 +46,10 @@ def find_ids_of_related_to_conversation_utterances(cmv_corpus, conversation_id, 
     return related_utterances
 
 
-def divide_to_positive_and_negative_lists(related_utterances):
+def divide_to_positive_and_negative_lists(cmv_corpus, related_utterances):
     """
 
+    :param cmv_corpus: A convokit corpus instance as described in https://convokit.cornell.edu/documentation/model.html.
     :param related_utterances: A set of utterance IDs representing utterances within a thread which respond to OP's
         initial opinion.
     :return: A tuple containing two sets -- (positive_labeled_utterances, negative_labeled_utterances).
@@ -82,7 +60,7 @@ def divide_to_positive_and_negative_lists(related_utterances):
     negative_labeled_utterances = set()
 
     for comment_id in related_utterances:
-        success = cmv_corpus.utterances[comment_id].meta[SUCCESS]
+        success = cmv_corpus.utterances[comment_id].meta[constants.SUCCESS]
         if success == 1:
             positive_labeled_utterances.add(comment_id)
         elif success == 0:
@@ -145,7 +123,7 @@ def preprocess_corpus(cmv_corpus, direct_reply_only=False):
         related_utterances = find_ids_of_related_to_conversation_utterances(cmv_corpus,
                                                                             conversation_id,
                                                                             direct_reply_only=direct_reply_only)
-        pos_list, neg_list = divide_to_positive_and_negative_lists(related_utterances)
+        pos_list, neg_list = divide_to_positive_and_negative_lists(cmv_corpus, related_utterances)
         balanced_pos, balanced_neg = balance_pos_and_neg_labels(pos_list, neg_list)
         op, rep, lab = generate_data_points_from_related_utterances(cmv_corpus,
                                                                     conversation_id,
@@ -155,7 +133,7 @@ def preprocess_corpus(cmv_corpus, direct_reply_only=False):
         reply += rep
         label += lab
 
-    corpus_df = pd.DataFrame({OP_COMMENT: op_comment, REPLY: reply, LABEL: label})
+    corpus_df = pd.DataFrame({constants.OP_COMMENT: op_comment, constants.REPLY: reply, constants.LABEL: label})
     return corpus_df
 
 
@@ -164,17 +142,20 @@ def tokenize(corpus_df):
 
     :param corpus_df: A pandas DataFrame instance with the columns {OP_COMMENT, REPLY, LABEL}. The OP_COMMENT
         and REPLY columns consist of text entries while LABEL is {0, 1}.
-    :return:
+    :return: a datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
+        corresponding values.
     """
-    tokenizer = transformers.BertTokenizer.from_pretrained(BERT_BASE_CASED)
-    op_comments = list(corpus_df[OP_COMMENT])
-    replies = list(corpus_df[REPLY])
+    tokenizer = transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
+    op_comments = list(corpus_df[constants.OP_COMMENT])
+    replies = list(corpus_df[constants.REPLY])
+
     verbosity = transformers.logging.get_verbosity()
-    # Ensure that each sequence of tokens is padded/truncated to transformer model limit.
     transformers.logging.set_verbosity_error()
+    # Ensure that each sequence of tokens is padded/truncated to transformer model limit.
     dataset = tokenizer(op_comments, replies, padding=True, truncation=True)
     transformers.logging.set_verbosity(verbosity)
-    dataset[LABEL] = list(corpus_df[LABEL])
+
+    dataset[constants.LABEL] = list(corpus_df[constants.LABEL])
     return dataset
 
 
@@ -191,32 +172,17 @@ class CMVDataset(torch.utils.data.Dataset):
         return self.num_examples
 
 
-if __name__ == "__main__":
-    dataset_path = os.path.join(os.getcwd(), CMV_DATASET_NAME)
-    if not (CMV_DATASET_NAME in os.listdir(os.getcwd())):
-        cmv_corpus = Corpus(filename=download(CONVOKIT_DATASET_NAME))
+def get_cmv_dataset(dataset_name):
+    """
+
+    :param dataset_name: The name with which the CMV dataset json object is saved (in the local directory).
+    :return: A transformers.Dataset instance containing a CMV dataset.
+    """
+    dataset_path = os.path.join(os.getcwd(), dataset_name)
+    if not (dataset_name in os.listdir(os.getcwd())):
+        cmv_corpus = Corpus(filename=download(constants.CONVOKIT_DATASET_NAME))
         corpus_df = preprocess_corpus(cmv_corpus)
         corpus_df.to_json(dataset_path)
     else:
         corpus_df = pd.read_json(dataset_path)
-    dataset = Dataset.from_dict(tokenize(corpus_df)).train_test_split()
-    train_dataset = CMVDataset(dataset[TRAIN])
-    test_dataset = CMVDataset(dataset[TEST])
-    training_args = TrainingArguments(
-        output_dir='./results',  # output directory
-        num_train_epochs=3,  # total number of training epochs
-        per_device_train_batch_size=16,  # batch size per device during training
-        per_device_eval_batch_size=64,  # batch size for evaluation
-        warmup_steps=500,  # number of warmup steps for learning rate scheduler
-        weight_decay=0.01,  # strength of weight decay
-        logging_dir='./logs',  # directory for storing logs
-        logging_steps=10,
-    )
-    model = BertForSequenceClassification.from_pretrained(BERT_BASE_CASED, num_labels=2)
-    trainer = Trainer(
-        model=model,  # the instantiated 🤗 Transformers model to be trained
-        args=training_args,  # training arguments, defined above
-        train_dataset=train_dataset,  # training dataset
-        eval_dataset=test_dataset  # evaluation dataset
-    )
-    trainer.train()
+    return Dataset.from_dict(tokenize(corpus_df))
