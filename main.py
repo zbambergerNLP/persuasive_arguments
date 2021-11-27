@@ -4,6 +4,7 @@ import transformers
 import constants
 import argparse
 
+
 parser = argparse.ArgumentParser(
     description='Process flags for fine-tuning transformers on an argumentation downstream task.')
 parser.add_argument('--dataset_name',
@@ -14,7 +15,7 @@ parser.add_argument('--dataset_name',
 
 parser.add_argument('--model_checkpoint_name',
                     type=str,
-                    default=constants.DISTILBERT_BASE_CASED,
+                    default=constants.BERT_BASE_CASED,
                     required=False,
                     help="The name of the checkpoint from which we load our model and tokenizer.")
 parser.add_argument('--num_training_ephocs',
@@ -78,11 +79,14 @@ if __name__ == "__main__":
     print(f'weight_decay: {weight_decay}')
     print(f'logging_steps: {logging_steps}')
 
-
-    dataset = preprocessing.get_cmv_dataset(dataset_name).train_test_split()
+    dataset = preprocessing.get_cmv_dataset(
+        dataset_name=dataset_name,
+        tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
+    )
+    dataset = dataset.train_test_split()
     train_dataset = preprocessing.CMVDataset(dataset[constants.TRAIN])
     test_dataset = preprocessing.CMVDataset(dataset[constants.TEST])
-    training_args = transformers.TrainingArguments(
+    configuration = transformers.TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=num_training_ephocs,
         per_device_train_batch_size=per_device_train_batch_size,
@@ -93,14 +97,14 @@ if __name__ == "__main__":
         logging_steps=logging_steps,
     )
     model = transformers.BertForSequenceClassification.from_pretrained(
-        cls=model_checkpoint_name,
+        model_checkpoint_name,
         num_labels=constants.NUM_LABELS)
     trainer = transformers.Trainer(
         model=model,
-        args=training_args,
+        args=configuration,
         train_dataset=train_dataset,
         eval_dataset=test_dataset,
-        compute_metrics=metrics.compute_metrics
+        compute_metrics=metrics.compute_metrics,
     )
     trainer.train()
     trainer.evaluate()

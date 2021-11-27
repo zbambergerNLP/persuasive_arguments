@@ -137,15 +137,15 @@ def preprocess_corpus(cmv_corpus, direct_reply_only=False):
     return corpus_df
 
 
-def tokenize(corpus_df):
+def tokenize(corpus_df, tokenizer):
     """
 
     :param corpus_df: A pandas DataFrame instance with the columns {OP_COMMENT, REPLY, LABEL}. The OP_COMMENT
         and REPLY columns consist of text entries while LABEL is {0, 1}.
+    :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
     :return: a datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
         corresponding values.
     """
-    tokenizer = transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
     op_comments = list(corpus_df[constants.OP_COMMENT])
     replies = list(corpus_df[constants.REPLY])
 
@@ -172,10 +172,11 @@ class CMVDataset(torch.utils.data.Dataset):
         return self.num_examples
 
 
-def get_cmv_dataset(dataset_name):
+def get_cmv_dataset(dataset_name, tokenizer):
     """
 
     :param dataset_name: The name with which the CMV dataset json object is saved (in the local directory).
+    :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
     :return: A transformers.Dataset instance containing a CMV dataset.
     """
     dataset_path = os.path.join(os.getcwd(), dataset_name)
@@ -185,4 +186,4 @@ def get_cmv_dataset(dataset_name):
         corpus_df.to_json(dataset_path)
     else:
         corpus_df = pd.read_json(dataset_path)
-    return Dataset.from_dict(tokenize(corpus_df))
+    return Dataset.from_dict(tokenize(corpus_df=corpus_df, tokenizer=tokenizer))

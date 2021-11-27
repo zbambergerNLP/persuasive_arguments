@@ -1,9 +1,10 @@
+import transformers
+
 TRAIN = "train"
 TEST = "test"
 
 # Checkpoint constants
 BERT_BASE_CASED = "bert-base-cased"
-DISTILBERT_BASE_CASED = "distilbert-base-cased"
 
 # Metrics Constants:
 ACCURACY = "accuracy"
