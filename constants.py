@@ -1,5 +1,3 @@
-import transformers
-
 TRAIN = "train"
 TEST = "test"
 
