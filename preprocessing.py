@@ -82,5 +82,7 @@ def preprocess_corpus(corpus, direct_reply_only=False):
 if __name__ == "__main__":
     corpus = Corpus(filename=download("winning-args-corpus"))
     corpus_df = preprocess_corpus(corpus)
+    print(f'corpus_df len is: {len(corpus_df)}')
+    print(corpus_df.head(50))
 
 
