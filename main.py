@@ -106,5 +106,6 @@ if __name__ == "__main__":
         eval_dataset=test_dataset,
         compute_metrics=metrics.compute_metrics,
     )
+    trainer.save_model()
     trainer.train()
     trainer.evaluate()
