@@ -1,0 +1,88 @@
+T1	main_claim 0 129	CMV: The theatrical cuts of Lord of the Rings are superior to the extended cuts and should be considered the definitive versions.
+A1	Type1 T1 evaluation_emotional
+T2	premise 131 198	I'll preface this by saying I'm a fan of both the books and movies.
+A2	Type3 T2 pathos
+T3	claim 199 237	I like them both for different reasons
+A3	Type2 T3 evaluation_emotional
+T4	claim 244 296	gun to my head I probably slightly prefer the films.
+A4	Type2 T4 evaluation_emotional
+T5	claim 338 405	IMO, the extended cuts seriously throw off the pacing of the films.
+A5	Type2 T5 evaluation_rational
+T6	premise 406 468	When watching the theatrical cuts, I get swept into the story.
+A6	Type3 T6 logos_pathos
+T7	premise 469 559	When watching the extended cuts, I get distracted, and reminded that I'm watching a movie.
+A7	Type3 T7 logos_pathos
+T8	premise 560 600	They break the fourth wall, if you will.
+A8	Type3 T8 logos_pathos
+T9	premise 602 631	Peter Jackson agrees with me:
+A9	Type3 T9 pathos
+T10	premise 887 1030	The main objection to this, of course, will be that the extended cuts are able to include more scenes from the books, and are therefore better.
+A10	Type3 T10 logos_pathos
+T11	claim 1031 1206	Personally, I think it's a huge mistake to judge the quality of an adaptation by how closely it mirrors the source material, rather than by the strength of it's story telling.
+A11	Type2 T11 evaluation_emotional
+T12	claim 1207 1381	The LOTR movies are some of the best adaptations of all time *precisely because* they left a whole lot of the books un-filmed, and a whole lot more on the cutting room floor.
+A12	Type2 T12 evaluation_rational
+T13	premise 1382 1539	They stretched some scenes from brief chapters into center pieces (Helms's Deep) and cut out some of the more... esoteric portions completely (Tom Bombadil).
+A13	Type3 T13 ethos_logos
+T14	claim 1541 1671	Basically, I'm glad Jackson opted to make excellent **movies,** instead of attempting a shot for shot visualization of a **book,**
+A14	Type2 T14 evaluation_rational
+T15	claim 1676 1737	I think the extended cuts subvert his success in that regard.
+A15	Type2 T15 evaluation_rational
+T16	claim 1739 1772	Books and movies are not the same
+A16	Type2 T16 interpretation
+T17	claim 1943 2017	This is much more important than it's faithfulness to the source material.
+A17	Type2 T17 evaluation_emotional
+T18	claim 2018 2076	I believe this is true for all adaptations, not just LOTR.
+A18	Type2 T18 evaluation_emotional
+T19	claim 2130 2213	I want to point out that I absolutely **could not** stand to read the LotR trilogy.
+A19	Type2 T19 evaluation_emotional
+T20	premise 2214 2226	And I tried.
+A20	Type3 T20 ethos
+T21	premise 2227 2270	I loved The Hobbit, even though it got slow
+A21	Type3 T21 pathos
+T22	premise 2277 2400	I found Tolkien's prose to be far too slow-paced and filled with inane babbling about things too far removed from the plot.
+A22	Type3 T22 pathos
+T23	claim 2402 2430	I loved the extended edition
+A23	Type2 T23 evaluation_emotional
+T24	premise 2439 2523	I get more engaged in an audio-visual medium than I do into books, as a general rule
+A24	Type3 T24 logos_pathos
+T25	premise 2643 2729	the extended trilogy let me really grasp the world of Middle Earth for the first time.
+A25	Type3 T25 logos_pathos
+T26	premise 2735 2879	I'm the sort of person who, despite not really liking to read, will read summaries about the world surrounding my favorite movies or video games
+A26	Type3 T26 ethos_pathos
+T27	premise 2890 2985	these are things I *want to know* but typically aren't in the film/game, so I endure the chore.
+A27	Type3 T27 pathos
+T28	claim 2986 3068	I *love* that the extended edition helped with this, especially in this situation,
+A28	Type2 T28 evaluation_emotional
+T29	premise 3077 3242	most of the answers to that on the internet before were "If you want to know more you should just read the damn books, scrub!" because nerds are like that sometimes.
+A29	Type3 T29 logos_pathos
+T30	claim 3476 3543	As a book reader, I'll still be sticking to theatrical cuts though.
+A30	Type2 T30 evaluation_rational
+R1	support Arg1:T2 Arg2:T3
+R2	agreement Arg1:T3 Arg2:T1
+R3	agreement Arg1:T12 Arg2:T1
+R4	support Arg1:T13 Arg2:T12
+R5	support Arg1:T14 Arg2:T12
+R6	agreement Arg1:T15 Arg2:T1
+R7	agreement Arg1:T17 Arg2:T1
+R8	agreement Arg1:T18 Arg2:T1
+R9	rebuttal Arg1:T19 Arg2:T1
+R10	support Arg1:T20 Arg2:T19
+R11	agreement Arg1:T4 Arg2:T1
+R12	support Arg1:T21 Arg2:T19
+R13	support Arg1:T22 Arg2:T19
+R14	rebuttal Arg1:T23 Arg2:T1
+R15	support Arg1:T24 Arg2:T23
+R16	support Arg1:T25 Arg2:T23
+R17	support Arg1:T26 Arg2:T25
+R18	support Arg1:T27 Arg2:T25
+R19	rebuttal Arg1:T28 Arg2:T1
+R20	support Arg1:T29 Arg2:T28
+R21	rebuttal Arg1:T30 Arg2:T19
+R22	agreement Arg1:T5 Arg2:T1
+R23	support Arg1:T6 Arg2:T5
+R24	support Arg1:T7 Arg2:T5
+R25	support Arg1:T8 Arg2:T5
+R26	support Arg1:T9 Arg2:T5
+R27	support Arg1:T10 Arg2:T5
+R28	agreement Arg1:T11 Arg2:T1

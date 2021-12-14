@@ -1,0 +1,91 @@
+<?xml version="1.0"?>
+<thread ID="2quzrj">
+<title>CMV: Instead of "bands" for income tax there should be a continuous formula for tax rates</title>
+<source>http://www.reddit.com/r/changemyview/comments/2quzrj/cmv_instead_of_bands_for_income_tax_there_should/</source>
+<OP author="thai_tong">
+Rather than having a fixed number of income tax bands there should be a continuous function relating your salary to the rate of tax that you pay.
+
+(In the following example I’m making up numbers to demonstrate a point so it wont be accurate)
+
+I don’t think it makes sense to tax someone 10% on their first $30k and 20% on their next $30k. It would be better to break it down further so that they are taxed 10% on the first $30k, 15% on the next $15k and 20% on the next $15k. Tax rate should be increased bit by bit as someone’s salary increases rather than having big jumps in tax rate. With a single formula there are no jumps and this leads to a fairer tax system.
+
+Here’s a graph of a function which I came up with http://imgur.com/CTr8Tmf the very rich pay 50% tax on their salary and those earning $0 pay 0% tax. Of course no one earns $0 but this could easily be adjusted so that minimum wage earners pay $0 and those slightly above minimum pay very little.
+
+One of Adam Smith’s canons of taxation is that the tax system should be simple or understandable by the public. This means that the bands system is more attractive because of its simplicity but I do not think that it is too complicated to be practical. The function would not require more than +,-,×,÷  so a simple calculator could do the job. The example I gave a graph of is just 50*(1-1/(1+c*S^3 ))  where S is salary and c is a constant that determines how quickly the result reaches 50% tax rate.
+
+The taxing function could be evaluated and the public could be supplied with other formulae for answers to questions like “If I get a raise from $40k to $45k how much does my income go up by?” so the taxing system remains simple to the public.
+
+CMV
+
+edit: My view has now been changed :)
+_____
+
+&gt; *Hello, users of CMV! This is a footnote from your moderators. We'd just like to remind you of a couple of things. Firstly, please remember to* ***[read through our rules](http://www.reddit.com/r/changemyview/wiki/rules)***. *If you see a comment that has broken one, it is more effective to report it than downvote it. Speaking of which,* ***[downvotes don't change views](http://www.reddit.com/r/changemyview/wiki/guidelines#wiki_upvoting.2Fdownvoting)****! If you are thinking about submitting a CMV yourself, please have a look through our* ***[popular topics wiki](http://www.reddit.com/r/changemyview/wiki/populartopics)*** *first. Any questions or concerns? Feel free to* ***[message us](http://www.reddit.com/message/compose?to=/r/changemyview)***. *Happy CMVing!*
+</OP>
+<reply id="cn9slix" author="caw81">
+Bands you can have a simple table and look up what you owe.  Very clear and people can understand it.
+
+With a continuous formula you have to understand it and potentially use a calculator to figure out the values (as you would need for yours).  Too complex for the general population with no gain.
+</reply>
+<reply id="cn9tb7k" author="thai_tong">
+While my formula is not *very* clear to the public I do think that it is simple enough to be used by anyone with a primary school education. We could also publish tables with, say, 20 points on the function and people could look up their tax rate to an accuracy of ±2% which is reasonably accurate.
+
+You say that it provides no gain but as I said in a reply to /u/Slicy_McGimpFag's comment it redistributes the tax burden more towards the richer people and so the tax could be reduced for the poor without reducing government revenue
+</reply>
+<reply id="cn9tye3" author="caw81">
+&gt; I do think that it is simple enough to be used by anyone with a primary school education. 
+
+You have an exponent and require order of operations - for the general adult public with a primary school education this is not simple.
+
+&gt; We could also publish tables with, say, 20 points on the function and people could look up their tax rate to an accuracy of ±2% which is reasonably accurate.
+
+And the number would be wrong so what is the point of this?
+
+&gt;  it redistributes the tax burden more towards the richer people and so the tax could be reduced for the poor 
+
+Its relative rich and poor.  So one of the top rates is for salaries between $186,350 and $405,100.  Are we really going to change things because someone who makes $190,000/yr pays the same rate (but not the same dollar amount) as someone who makes $300,000/yr?  Is this an issue?
+</reply>
+<reply id="cn9vnzw" author="thai_tong">
+&gt;You have an exponent and require order of operations - for the general adult public with a primary school education this is not simple.
+
+You're right, I forgot that wasn't taught in primary school. Is secondary school education too much to expect? I believe it is free in America
+
+&gt;And the number would be wrong so what is the point of this?
+
+It gives a good degree of accuracy for the minimal effort of reading a table, if you required more accuracy the function is not too difficult to evaluate. Someone else mentioned all the tax website tools available, if you had access to the internet then you could get a tool to do this for you without secondary school education. Yes it is a more complicated system but I don't think it is so complicated that it would be a major downside.
+
+&gt;Its relative rich and poor. So one of the top rates is for salaries between $186,350 and $405,100. Are we really going to change things because someone who makes $190,000/yr pays the same rate (but not the same dollar amount) as someone who makes $300,000/yr? Is this an issue?
+
+I do think that the 190k earner should pay a lower rate than the 300k earner but regardless, we can't treat the rich as people with bottomless pockets that we can put all the tax burden onto, the people who are near the top income bracket should also take some of the burden.
+</reply>
+<reply id="cn9w42o" author="caw81">
+&gt; Is secondary school education too much to expect?
+
+Unfortunately it is too much to ask the average adult.  Its too far in the past (Quick what is the atomic number of zinc?  You did know that in secondary school) and on average people aren't good at math (http://educationnext.org/with-a-math-proficiency-rate-of-32-percent-u-s-ranks-number-32/ "Thirty-two percent of U.S. students in the class of 2011 were proficient in mathematics when they were in 8th grade, according to the official U. S. report card on student achievement.")
+
+&gt; It gives a good degree of accuracy for the minimal effort of reading a table, 
+
+As opposed to 100% accuracy, like we have now?
+
+&gt; if you had access to the internet then you could get a tool to do this for you without secondary school education. 
+
+Another hurdle for the poor that the rich don't have - taxes are harder to figure out because I don't have Internet at home.  They could go to a library, but they have the hurdle of doing taxes at a certain place and time.
+
+&gt; Yes it is a more complicated system but I don't think it is so complicated that it would be a major downside.
+
+Again, for what?  So the rich has a percentage that is different from the even richer?  Is this a problem that we need a more complicated system to solve?
+
+
+</reply>
+<reply id="cn9wp8o" author="thai_tong">
+&gt;As opposed to 100% accuracy, like we have now?
+
+I was never proposing that it would be as simple to find the amount you taxed, but that the additional effort was not unreasonable (or the accuracy from the same effort was not unreasonable)
+
+&gt;Again, for what? So the rich has a percentage that is different from the even richer? Is this a problem that we need a more complicated system to solve?
+
+This is not the main attraction of the system, I gave 2 benefits in reply to /u/Slicy_McGimpFag's comment
+
+I did not realise that proficiency in maths was so low in the US and with the extra obstacles for the poor in paying their tax you've changed my view &amp;#8710;
+</reply>
+</thread>

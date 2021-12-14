@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<thread ID="2qrbaf">
+<title><claim type="evaluation_emotional">CMV: The theatrical cuts of Lord of the Rings are superior to the extended cuts and should be considered the definitive versions.</claim></title>
+<source>http://www.reddit.com/r/changemyview/comments/2qrbaf/cmv_the_theatrical_cuts_of_lord_of_the_rings_are/</source>
+<OP author="RYouNotEntertained">
+
+<premise type="pathos" id="0" rel="support" ref="1">I'll preface this by saying I'm a fan of both the books and movies.</premise>
+<claim type="evaluation_emotional" id="1" rel="agreement" ref="title">I like them both for different reasons</claim>, but <claim type="evaluation_emotional" id="2" rel="agreement" ref="title">gun to my head I probably slightly prefer the films.</claim>
+
+(The hobbit movies can S my D though.)
+
+<claim type="evaluation_rational" id="3" rel="agreement" ref="title">IMO, the extended cuts seriously throw off the pacing of the films.</claim>
+<premise type="logos_pathos" id="4" rel="support" ref="3">When watching the theatrical cuts, I get swept into the story.</premise>
+<premise type="logos_pathos" id="5" rel="support" ref="3">When watching the extended cuts, I get distracted, and reminded that I'm watching a movie.</premise>
+<premise type="logos_pathos" id="6" rel="support" ref="3">They break the fourth wall, if you will.</premise>
+
+<premise type="pathos" id="7" rel="support" rid="a" ref="3">Peter Jackson agrees with me:</premise>
+
+&gt; The theatrical versions are the definitive versions. I regard the extended cuts as being a novelty for the fans that really want to see the extra material.
+
+&gt; I felt that I was sacrificing pacing and momentum in order for these scenes to go in. 
+
+<premise type="logos_pathos" id="8" rel="support" rid="a" ref="3">The main objection to this, of course, will be that the extended cuts are able to include more scenes from the books, and are therefore better.</premise>
+<claim type="evaluation_emotional" id="9" rel="agreement" ref="title">Personally, I think it's a huge mistake to judge the quality of an adaptation by how closely it mirrors the source material, rather than by the strength of it's story telling.</claim>
+<claim type="evaluation_rational" id="10" rel="agreement" ref="title">The LOTR movies are some of the best adaptations of all time *precisely because* they left a whole lot of the books un-filmed, and a whole lot more on the cutting room floor.</claim>
+<premise type="ethos_logos" id="11" rel="support" ref="10">They stretched some scenes from brief chapters into center pieces (Helms's Deep) and cut out some of the more... esoteric portions completely (Tom Bombadil).</premise>
+
+<claim type="evaluation_rational" id="12" rel="support" ref="10">Basically, I'm glad Jackson opted to make excellent **movies,** instead of attempting a shot for shot visualization of a **book,**</claim> and <claim type="evaluation_rational" id="13" rel="agreement" ref="title">I think the extended cuts subvert his success in that regard.</claim>
+
+<claim type="interpretation" id="14">Books and movies are not the same</claim>, and in general, **the more an adaptation respects the inherent differences between the various media it's adapting to and from, the better the final product will be.**
+<claim type="evaluation_emotional" id="16" rel="agreement" ref="title">This is much more important than it's faithfulness to the source material.</claim>
+<claim type="evaluation_emotional" id="17" rel="agreement" ref="title">I believe this is true for all adaptations, not just LOTR.</claim>
+Feel free to C my V on this larger point as well.
+
+</OP>
+
+<reply id="cn8sn1f" author="urbeker">
+<claim type="evaluation_rational" id="18" rel="undercutter" ref="title"> How could such a subjective view as the superiority of a cut of three films be argued against? </claim> 
+<premise type="ethos_logos" id="19" rel="support" ref="18"> I prefer the pacing in the shorter cut and the director agrees with me is hardly something that can be rigorously argued against. </premise>
+
+<claim type="evaluation_rational" id="20" rel="rebuttal_attack" ref="title"> I would argue that the better one depends on context. </claim> 
+<premise type="ethos" id="21" rel="support" ref="20"> I enjoyed the theatrical cut when I first watched it but the extended was probably better when I had a lot of free time and wanted to watch a favourite movie in a different way. </premise>
+
+</reply>
+
+<reply id="cn8svx2" author="RYouNotEntertained">
+<premise type="logos" id="22" rel="support" ref="23"> This sub is currently engaged in a 46 comment thread about whether or not [men should sit down to urinate.] </premise> (http://www.reddit.com/r/changemyview/comments/2qq013/cmv_men_should_sit_down_to_urinate_in_any_private/)
+
+<claim type="interpretation" id="23" rel="rebuttal_attack" ref="18"> I'm sure we can find a way to argue about movies ;) </claim>
+
+</reply>
+</thread>
