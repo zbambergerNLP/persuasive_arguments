@@ -7,12 +7,27 @@ import argparse
 
 parser = argparse.ArgumentParser(
     description='Process flags for fine-tuning transformers on an argumentation downstream task.')
+parser.add_argument('--fine_tune_model',
+                    type=bool,
+                    default=False,
+                    required=False,
+                    help='Whether or not a pre-trained transformer language model should undergo fine-tuning.')
+parser.add_argument('--probe_model_on_premise_modes',
+                    type=bool,
+                    default=True,
+                    required=False,
+                    help=('Whether or not a pre-trained transformer language model should be trained and evaluated'
+                          'on a probing task.\nIn this case, the probing task involves classifying the argumentation '
+                          'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
+parser.add_argument('--fine_tuned_model_path',
+                    type=str,
+                    required=False,
+                    help='The path fine-tuned model trained on the argument persuasiveness prediction task.')
 parser.add_argument('--dataset_name',
                     type=str,
                     default=constants.CMV_DATASET_NAME,
                     required=False,
                     help='The name of the file in which the downstream dataset is stored.')
-
 parser.add_argument('--model_checkpoint_name',
                     type=str,
                     default=constants.BERT_BASE_CASED,
@@ -57,6 +72,9 @@ parser.add_argument('--logging_steps',
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    fine_tune_model = args.fine_tune_model
+    probe_model_on_premise_modes = args.probe_model_on_premise_modes
+    fine_tuned_model_path = args.fine_tuned_model_path
     dataset_name = args.dataset_name
     model_checkpoint_name = args.model_checkpoint_name
     num_training_ephocs = args.num_training_ephocs
@@ -69,6 +87,7 @@ if __name__ == "__main__":
     logging_steps = args.logging_steps
 
     print(f'dataset_name: {dataset_name}')
+    print(f'fine-tuning model: {fine_tune_model}')
     print(f'model_checkpoint_name: {model_checkpoint_name}')
     print(f'num_training_ephocs: {num_training_ephocs}')
     print(f'output_dir: {output_dir}')
@@ -78,34 +97,45 @@ if __name__ == "__main__":
     print(f'warmup_steps: {warmup_steps}')
     print(f'weight_decay: {weight_decay}')
     print(f'logging_steps: {logging_steps}')
+    if fine_tune_model:
+        model = transformers.BertForSequenceClassification.from_pretrained(
+            model_checkpoint_name,
+            num_labels=constants.NUM_CMV_LABELS)
+        dataset = preprocessing.get_cmv_dataset(
+            dataset_name=dataset_name,
+            tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
+        )
+        dataset = dataset.train_test_split()
+        train_dataset = preprocessing.CMVDataset(dataset[constants.TRAIN])
+        test_dataset = preprocessing.CMVDataset(dataset[constants.TEST])
+        configuration = transformers.TrainingArguments(
+            output_dir=output_dir,
+            num_train_epochs=num_training_ephocs,
+            per_device_train_batch_size=per_device_train_batch_size,
+            per_device_eval_batch_size=per_device_eval_batch_size,
+            warmup_steps=warmup_steps,
+            weight_decay=weight_decay,
+            logging_dir=logging_dir,
+            logging_steps=logging_steps,
+        )
+        trainer = transformers.Trainer(
+            model=model,
+            args=configuration,
+            train_dataset=train_dataset,
+            eval_dataset=test_dataset,
+            compute_metrics=metrics.compute_metrics,
+        )
+        trainer.train()
+        trainer.save_model()
+        metrics = trainer.evaluate()
+    if probe_model_on_premise_modes:
+        # TODO(zbamberger): Load a previously fine-tuned model here as opposed to a generic pre-trained model.
+        model = transformers.BertForSequenceClassification.from_pretrained(
+            model_checkpoint_name,
+            num_labels=constants.INITIAL_PREMISE_TYPES_TO_CONSIDER)
+        dataset = preprocessing.get_cmv_probing_dataset(
+            tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED))
+        dataset = dataset.train_test_split()
+        train_dataset = preprocessing.CMVPremiseModes(dataset[constants.TRAIN])
+        test_dataset = preprocessing.CMVPremiseModes(dataset[constants.TEST])
 
-    dataset = preprocessing.get_cmv_dataset(
-        dataset_name=dataset_name,
-        tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
-    )
-    dataset = dataset.train_test_split()
-    train_dataset = preprocessing.CMVDataset(dataset[constants.TRAIN])
-    test_dataset = preprocessing.CMVDataset(dataset[constants.TEST])
-    configuration = transformers.TrainingArguments(
-        output_dir=output_dir,
-        num_train_epochs=num_training_ephocs,
-        per_device_train_batch_size=per_device_train_batch_size,
-        per_device_eval_batch_size=per_device_eval_batch_size,
-        warmup_steps=warmup_steps,
-        weight_decay=weight_decay,
-        logging_dir=logging_dir,
-        logging_steps=logging_steps,
-    )
-    model = transformers.BertForSequenceClassification.from_pretrained(
-        model_checkpoint_name,
-        num_labels=constants.NUM_LABELS)
-    trainer = transformers.Trainer(
-        model=model,
-        args=configuration,
-        train_dataset=train_dataset,
-        eval_dataset=test_dataset,
-        compute_metrics=metrics.compute_metrics,
-    )
-    trainer.save_model()
-    trainer.train()
-    trainer.evaluate()

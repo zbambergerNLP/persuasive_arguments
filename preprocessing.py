@@ -1,12 +1,13 @@
+import numpy as np
 import os.path
 import pandas as pd
-import numpy as np
 
+from convokit import Corpus, download
 from datasets import Dataset
+import torch
 import transformers
 
-import torch
-from convokit import Corpus, download
+import cmv_modes.preprocessing_cmv_ampersand as cmv_probing
 import constants
 
 
@@ -15,7 +16,8 @@ def find_comment_id_by_shortened_id(cmv_corpus, shortened_comment_id):
 
     :param cmv_corpus: A convokit corpus instance as described in https://convokit.cornell.edu/documentation/model.html.
     :param shortened_comment_id: A string
-    :return:
+    :raises Exception if shortened_comment_id is not found within they cmv_corpus.
+    :return: The utterance ID corresponding to the shortened comment ID.
     """
     for key in cmv_corpus.utterances.keys():
         if key[3:] == shortened_comment_id:
@@ -137,13 +139,13 @@ def preprocess_corpus(cmv_corpus, direct_reply_only=False):
     return corpus_df
 
 
-def tokenize(corpus_df, tokenizer):
+def tokenize_for_downstream_task(corpus_df, tokenizer):
     """
 
     :param corpus_df: A pandas DataFrame instance with the columns {OP_COMMENT, REPLY, LABEL}. The OP_COMMENT
         and REPLY columns consist of text entries while LABEL is {0, 1}.
     :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
-    :return: a datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
+    :return: A datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
         corresponding values.
     """
     op_comments = list(corpus_df[constants.OP_COMMENT])
@@ -159,6 +161,22 @@ def tokenize(corpus_df, tokenizer):
     return dataset
 
 
+def tokenize_for_premise_mode_probing(corpus_df, tokenizer):
+    """
+
+    :param corpus_df: A pandas DataFrame instance with the columns {PREMISE_TEXT, PREMISE_MODE}. The PREMISE_MODE
+        consists of text entries, while PREMISE_MODE is en entry in {LOGOS, ETHOS, PATHOS}.
+    :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
+    :return: A datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
+        corresponding values.
+    """
+    premise_text = list(corpus_df[constants.PREMISE_TEXT])
+    dataset = tokenizer(premise_text, padding=True, truncation=True)
+    dataset[constants.LABEL] = list(
+        constants.PREMISE_MODE_TO_INT[premise_mode] for premise_mode in corpus_df[constants.PREMISE_MODE])
+    return dataset
+
+
 class CMVDataset(torch.utils.data.Dataset):
     def __init__(self, cmv_dataset):
         self.cmv_dataset = cmv_dataset.to_dict()
@@ -166,6 +184,19 @@ class CMVDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         item = {key: torch.tensor(val[idx]) for key, val in self.cmv_dataset.items()}
+        return item
+
+    def __len__(self):
+        return self.num_examples
+
+
+class CMVPremiseModes(torch.utils.data.Dataset):
+    def __init__(self, cmv_premise_mode_dataset):
+        self.cmv_premise_mode_dataset = cmv_premise_mode_dataset.to_dict()
+        self.num_examples = cmv_premise_mode_dataset.num_rows
+
+    def __getitem__(self, idx):
+        item = {key: torch.tensor(val[idx]) for key, val in self.cmv_premise_mode_dataset.items()}
         return item
 
     def __len__(self):
@@ -186,4 +217,19 @@ def get_cmv_dataset(dataset_name, tokenizer):
         corpus_df.to_json(dataset_path)
     else:
         corpus_df = pd.read_json(dataset_path)
-    return Dataset.from_dict(tokenize(corpus_df=corpus_df, tokenizer=tokenizer))
+    return Dataset.from_dict(tokenize_for_downstream_task(corpus_df=corpus_df, tokenizer=tokenizer))
+
+
+def get_cmv_probing_dataset(tokenizer):
+    """
+
+    :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
+    :return: A transformers.Dataset instance containing a mapping from argumentative premises to the argumentative
+        modes they employ.
+    """
+    corpus_df = cmv_probing.get_cmv_modes_corpus()
+    # TODO(zbamberger): Configure this function such that we can create a variety of probing tasks from the CMV premise
+    #  dataset.
+    corpus_df_subset = corpus_df[
+        corpus_df[constants.PREMISE_MODE].isin([constants.ETHOS, constants.LOGOS, constants.PATHOS])]
+    return Dataset.from_dict(tokenize_for_premise_mode_probing(corpus_df=corpus_df_subset, tokenizer=tokenizer))

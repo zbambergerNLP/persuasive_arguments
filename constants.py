@@ -20,7 +20,32 @@ CONVOKIT_DATASET_NAME = 'winning-args-corpus'
 CMV_DATASET_NAME = 'cmv_delta_prediction.json'
 SUCCESS = 'success'
 REPLIES = 'replies'
-NUM_LABELS = 2
+NUM_CMV_LABELS = 2
+
+# CMV Premise Mode Dataset
+PREMISE_TEXT = 'premise_text'
+PREMISE_MODE = 'premise_mode'
+
+# Argumentative modes for premises
+ETHOS = 'ethos'
+LOGOS = 'logos'
+PATHOS = 'pathos'
+ETHOS_LOGOS = 'ethos_logos'
+ETHOS_PATHOS = 'ethos_pathos'
+LOGOS_PATHOS = 'logos_pathos'
+ETHOS_LOGOS_PATHOS = 'ethos_logos_pathos'
+PREMISE_EMPTY = ''
+PREMISE_INTERPRETATION = 'interpretation'
+PREMISE_MODE_TO_INT = {ETHOS: 0,
+                       LOGOS: 1,
+                       PATHOS: 2,
+                       ETHOS_LOGOS: 3,
+                       ETHOS_PATHOS: 4,
+                       LOGOS_PATHOS: 5,
+                       ETHOS_LOGOS_PATHOS: 6,
+                       PREMISE_EMPTY: 7,
+                       PREMISE_INTERPRETATION: 8}
+INITIAL_PREMISE_TYPES_TO_CONSIDER = 3
 
 # Pandas column names
 OP_COMMENT = 'op_comment'
