@@ -20,11 +20,7 @@ CONVOKIT_DATASET_NAME = 'winning-args-corpus'
 CMV_DATASET_NAME = 'cmv_delta_prediction.json'
 SUCCESS = 'success'
 REPLIES = 'replies'
-NUM_CMV_LABELS = 2
-
-# CMV Premise Mode Dataset
-PREMISE_TEXT = 'premise_text'
-PREMISE_MODE = 'premise_mode'
+NUM_LABELS = 2
 
 # Argumentative modes for premises
 ETHOS = 'ethos'
@@ -51,3 +47,13 @@ INITIAL_PREMISE_TYPES_TO_CONSIDER = 3
 OP_COMMENT = 'op_comment'
 REPLY = 'reply'
 LABEL = 'label'
+
+
+# CMV Premise Mode Dataset
+PREMISE_TEXT = 'premise_text'
+PREMISE_MODE = 'premise_mode'
+PREMISE_DIR_PATH_MAPPING = {
+    ETHOS: 'ethos_hidden_states',
+    LOGOS: 'logos_hidden_states',
+    PATHOS: 'pathos_hidden_states',
+}
