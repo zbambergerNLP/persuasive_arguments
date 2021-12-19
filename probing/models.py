@@ -3,10 +3,8 @@ import json
 import numpy as np
 import datasets
 import sklearn
-
 import transformers
 import torch
-
 import constants
 import preprocessing
 
@@ -52,9 +50,9 @@ class MLP(torch.nn.Module):
             num_batches = 0
             for i, data in enumerate(train_loader, 0):
                 optimizer.zero_grad()
+                targets = data['label']
                 outputs = self(data['hidden_state'])
                 preds = torch.argmax(outputs, dim=1)
-                targets = data['label']
                 loss = loss_function(outputs, torch.nn.functional.one_hot(targets, 2).float())
                 loss.backward()
                 optimizer.step()
@@ -163,7 +161,8 @@ def probe_model_with_premise_mode(premise_mode,
                                   generate_new_probing_dataset=False,
                                   learning_rate=1e-4,
                                   training_batch_size=16,
-                                  eval_batch_size=64):
+                                  eval_batch_size=64,
+                                  num_epochs=20):
     """
 
     :param premise_mode:
@@ -174,10 +173,15 @@ def probe_model_with_premise_mode(premise_mode,
     :param learning_rate:
     :param training_batch_size:
     :param eval_batch_size:
+    :param num_epochs:
     :return:
     """
     probing_dir_path = os.path.join(current_path, 'probing')
+    if not os.path.exists(probing_dir_path):
+        os.mkdir(probing_dir_path)
     premise_mode_probing_dir_path = os.path.join(probing_dir_path, constants.PREMISE_DIR_PATH_MAPPING[premise_mode])
+    if not os.path.exists(premise_mode_probing_dir_path):
+        os.mkdir(premise_mode_probing_dir_path)
     if generate_new_probing_dataset:
         save_hidden_layer_outputs(
             fine_tuned_model_path=fine_tuned_model_path,
@@ -187,16 +191,16 @@ def probe_model_with_premise_mode(premise_mode,
         load_hidden_layer_outputs(probing_dir_path=premise_mode_probing_dir_path))
     probing_model = MLP()
     loss_function = torch.nn.BCELoss()
-    optimizer = torch.optim.Adam(probing_model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.SGD(probing_model.parameters(), lr=learning_rate)
     train_loader = torch.utils.data.DataLoader(
         premise_mode_hidden_state_dataset_train, batch_size=training_batch_size, shuffle=True, num_workers=1)
     test_loader = torch.utils.data.DataLoader(
         premise_mode_hidden_state_dataset_test, batch_size=eval_batch_size, shuffle=True, num_workers=1)
-    probing_model.train_probe(train_loader, optimizer, loss_function)
+    probing_model.train_probe(train_loader, optimizer, loss_function, num_epochs=num_epochs)
     confusion_matrix, classification_report = (
         probing_model.eval_probe(test_loader=test_loader))
     eval_metrics = {
-        'confusion_matrix': confusion_matrix,
-        'classification_report': classification_report
+        constants.CONFUSION_MATRIX: confusion_matrix,
+        constants.CLASSIFICATION_REPORT: classification_report
     }
     return probing_model, eval_metrics

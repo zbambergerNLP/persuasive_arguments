@@ -9,6 +9,8 @@ ACCURACY = "accuracy"
 PRECISION = "precision"
 RECALL = "recall"
 F1 = "f1 measure"
+CONFUSION_MATRIX = "confusion_matrix"
+CLASSIFICATION_REPORT = "classification_report"
 
 # BERT constants
 INPUT_IDS = 'input_ids'

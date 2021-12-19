@@ -27,7 +27,7 @@ parser.add_argument('--probe_model_on_premise_modes',
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
 parser.add_argument('--generate_new_probing_dataset',
                     type=bool,
-                    default=True,
+                    default=False,
                     required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
@@ -160,24 +160,27 @@ if __name__ == "__main__":
                                                          current_path,
                                                          fine_tuned_model_path,
                                                          generate_new_probing_dataset=generate_new_probing_dataset,
-                                                         learning_rate=1e-4,
+                                                         learning_rate=1e-3,
                                                          training_batch_size=16,
                                                          eval_batch_size=64))
+        print(ethos_eval_metrics[constants.CLASSIFICATION_REPORT])
         logos_probing_model, logos_eval_metrics = (
             probing_models.probe_model_with_premise_mode(constants.LOGOS,
                                                          logos_dataset,
                                                          current_path,
                                                          fine_tuned_model_path,
                                                          generate_new_probing_dataset=False,
-                                                         learning_rate=1e-2,
+                                                         learning_rate=1e-3,
                                                          training_batch_size=16,
                                                          eval_batch_size=64))
+        print(logos_eval_metrics[constants.CLASSIFICATION_REPORT])
         pathos_probing_model, pathos_eval_metrics = (
             probing_models.probe_model_with_premise_mode(constants.PATHOS,
                                                          pathos_dataset,
                                                          current_path,
                                                          fine_tuned_model_path,
                                                          generate_new_probing_dataset=False,
-                                                         learning_rate=1e-2,
+                                                         learning_rate=1e-3,
                                                          training_batch_size=16,
                                                          eval_batch_size=64))
+        print(pathos_eval_metrics[constants.CLASSIFICATION_REPORT])
