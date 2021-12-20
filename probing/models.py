@@ -211,7 +211,8 @@ def probe_model_with_premise_mode(premise_mode,
         hidden_states_train = premise_mode_hidden_state_dataset_train.cmv_premise_mode_dataset[constants.HIDDEN_STATE]
         targets_train = premise_mode_hidden_state_dataset_train.cmv_premise_mode_dataset[constants.LABEL]
         model = (
-            sklearn.linear_model.LogisticRegression(random_state=0).fit(hidden_states_train, targets_train))
+            sklearn.linear_model.LogisticRegression(random_state=0, multi_class='ovr').fit(
+                hidden_states_train, targets_train))
         hidden_states_eval = premise_mode_hidden_state_dataset_test.cmv_premise_mode_dataset[constants.HIDDEN_STATE]
         targets_eval = premise_mode_hidden_state_dataset_test.cmv_premise_mode_dataset[constants.LABEL]
         preds_eval = model.predict(hidden_states_eval)
