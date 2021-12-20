@@ -59,3 +59,9 @@ PREMISE_DIR_PATH_MAPPING = {
     LOGOS: 'logos_hidden_states',
     PATHOS: 'pathos_hidden_states',
 }
+
+# Probe Modeling
+PROBING = "probing"
+LOGISTIC_REGRESSION = 'logistic_regression'
+MLP = "mlp"
+HIDDEN_STATE = "hidden_state"

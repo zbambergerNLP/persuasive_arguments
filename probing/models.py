@@ -159,10 +159,11 @@ def probe_model_with_premise_mode(premise_mode,
                                   current_path,
                                   fine_tuned_model_path,
                                   generate_new_probing_dataset=False,
+                                  probing_model=constants.LOGISTIC_REGRESSION,
                                   learning_rate=1e-4,
                                   training_batch_size=16,
                                   eval_batch_size=64,
-                                  num_epochs=20):
+                                  num_epochs=20,):
     """
 
     :param premise_mode:
@@ -170,13 +171,14 @@ def probe_model_with_premise_mode(premise_mode,
     :param current_path:
     :param fine_tuned_model_path:
     :param generate_new_probing_dataset:
+    :param probing_model:
     :param learning_rate:
     :param training_batch_size:
     :param eval_batch_size:
     :param num_epochs:
     :return:
     """
-    probing_dir_path = os.path.join(current_path, 'probing')
+    probing_dir_path = os.path.join(current_path, constants.PROBING)
     if not os.path.exists(probing_dir_path):
         os.mkdir(probing_dir_path)
     premise_mode_probing_dir_path = os.path.join(probing_dir_path, constants.PREMISE_DIR_PATH_MAPPING[premise_mode])
@@ -189,18 +191,34 @@ def probe_model_with_premise_mode(premise_mode,
             probing_dir_path=premise_mode_probing_dir_path)
     premise_mode_hidden_state_dataset_train, premise_mode_hidden_state_dataset_test = (
         load_hidden_layer_outputs(probing_dir_path=premise_mode_probing_dir_path))
-    probing_model = MLP()
-    loss_function = torch.nn.BCELoss()
-    optimizer = torch.optim.SGD(probing_model.parameters(), lr=learning_rate)
-    train_loader = torch.utils.data.DataLoader(
-        premise_mode_hidden_state_dataset_train, batch_size=training_batch_size, shuffle=True, num_workers=1)
-    test_loader = torch.utils.data.DataLoader(
-        premise_mode_hidden_state_dataset_test, batch_size=eval_batch_size, shuffle=True, num_workers=1)
-    probing_model.train_probe(train_loader, optimizer, loss_function, num_epochs=num_epochs)
-    confusion_matrix, classification_report = (
-        probing_model.eval_probe(test_loader=test_loader))
-    eval_metrics = {
-        constants.CONFUSION_MATRIX: confusion_matrix,
-        constants.CLASSIFICATION_REPORT: classification_report
-    }
-    return probing_model, eval_metrics
+
+    if probing_model == constants.MLP:
+        model = MLP()
+        loss_function = torch.nn.BCELoss()
+        optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+        train_loader = torch.utils.data.DataLoader(
+            premise_mode_hidden_state_dataset_train, batch_size=training_batch_size, shuffle=True, num_workers=1)
+        test_loader = torch.utils.data.DataLoader(
+            premise_mode_hidden_state_dataset_test, batch_size=eval_batch_size, shuffle=True, num_workers=1)
+        probing_model.train_probe(train_loader, optimizer, loss_function, num_epochs=num_epochs)
+        confusion_matrix, classification_report = (
+            probing_model.eval_probe(test_loader=test_loader))
+        eval_metrics = {
+            constants.CONFUSION_MATRIX: confusion_matrix,
+            constants.CLASSIFICATION_REPORT: classification_report
+        }
+    elif probing_model == constants.LOGISTIC_REGRESSION:
+        hidden_states_train = premise_mode_hidden_state_dataset_train.cmv_premise_mode_dataset[constants.HIDDEN_STATE]
+        targets_train = premise_mode_hidden_state_dataset_train.cmv_premise_mode_dataset[constants.LABEL]
+        model = (
+            sklearn.linear_model.LogisticRegression(random_state=0).fit(hidden_states_train, targets_train))
+        hidden_states_eval = premise_mode_hidden_state_dataset_test.cmv_premise_mode_dataset[constants.HIDDEN_STATE]
+        targets_eval = premise_mode_hidden_state_dataset_test.cmv_premise_mode_dataset[constants.LABEL]
+        preds_eval = model.predict(hidden_states_eval)
+        confusion_matrix = sklearn.metrics.confusion_matrix(targets_eval, preds_eval)
+        classification_report = sklearn.metrics.classification_report(targets_eval, preds_eval)
+        eval_metrics = {
+            constants.CONFUSION_MATRIX: confusion_matrix,
+            constants.CLASSIFICATION_REPORT: classification_report
+        }
+    return model, eval_metrics

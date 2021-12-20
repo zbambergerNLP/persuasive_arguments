@@ -6,10 +6,8 @@ import constants
 import probing.models as probing_models
 import argparse
 
-# TODO(zbamberger): Resolve Runtime Error when using wandb while probing.
-# import wandb
-#
-# wandb.init(project="persuasive_arguments", entity="zbamberger")
+import wandb
+wandb.init(project="persuasive_arguments", entity="zbamberger")
 
 parser = argparse.ArgumentParser(
     description='Process flags for fine-tuning transformers on an argumentation downstream task.')
@@ -32,6 +30,11 @@ parser.add_argument('--generate_new_probing_dataset',
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
+parser.add_argument('--probing_model',
+                    type=str,
+                    default='logistic_regression',
+                    required=False,
+                    help="The string name of the model type used for probing.")
 parser.add_argument('--fine_tuned_model_path',
                     type=str,
                     required=False,
@@ -88,6 +91,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     fine_tune_model = args.fine_tune_model
     probe_model_on_premise_modes = args.probe_model_on_premise_modes
+    probing_model = args.probing_model
     fine_tuned_model_path = args.fine_tuned_model_path
     dataset_name = args.dataset_name
     model_checkpoint_name = args.model_checkpoint_name
@@ -151,7 +155,7 @@ if __name__ == "__main__":
         metrics = trainer.evaluate()
     if probe_model_on_premise_modes:
         current_path = os.getcwd()
-        probing_dir_path = os.path.join(current_path, 'probing')
+        probing_dir_path = os.path.join(current_path, constants.PROBING)
         ethos_dataset, logos_dataset, pathos_dataset = preprocessing.get_cmv_probing_datasets(
             tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED))
         ethos_probing_model, ethos_eval_metrics = (
@@ -160,6 +164,7 @@ if __name__ == "__main__":
                                                          current_path,
                                                          fine_tuned_model_path,
                                                          generate_new_probing_dataset=generate_new_probing_dataset,
+                                                         probing_model=probing_model,
                                                          learning_rate=1e-3,
                                                          training_batch_size=16,
                                                          eval_batch_size=64))
@@ -170,6 +175,7 @@ if __name__ == "__main__":
                                                          current_path,
                                                          fine_tuned_model_path,
                                                          generate_new_probing_dataset=False,
+                                                         probing_model=probing_model,
                                                          learning_rate=1e-3,
                                                          training_batch_size=16,
                                                          eval_batch_size=64))
@@ -180,6 +186,7 @@ if __name__ == "__main__":
                                                          current_path,
                                                          fine_tuned_model_path,
                                                          generate_new_probing_dataset=False,
+                                                         probing_model=probing_model,
                                                          learning_rate=1e-3,
                                                          training_batch_size=16,
                                                          eval_batch_size=64))
