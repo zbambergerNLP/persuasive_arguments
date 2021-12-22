@@ -56,14 +56,9 @@ def get_claim_and_premise_mode_corpus():
                         if "ref" in premise.attrs:
                             claim_id = premise.attrs["ref"]
                             claim = bs_data.find(id=claim_id)
-                            if not claim:
-                                claim = bs_data.find(id=claim_id)
+                            claims_lst.append(claim.contents[0]) if claim else claims_lst.append('')
                         else:
-                            claim = None
-                        if claim is None:
                             claims_lst.append('')
-                        else:
-                            claims_lst.append(claim.contents[0])
                         premises_lst.append(premise.contents[0])
                         label_lst.append(premise.attrs[TYPE])
     return pd.DataFrame({
