@@ -25,7 +25,7 @@ parser.add_argument('--probe_model_on_premise_modes',
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
 parser.add_argument('--generate_new_probing_dataset',
                     type=bool,
-                    default=False,
+                    default=True,
                     required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
@@ -35,6 +35,17 @@ parser.add_argument('--probing_model',
                     default='logistic_regression',
                     required=False,
                     help="The string name of the model type used for probing.")
+parser.add_argument('--fine_tune_model_on_premise_modes',
+                    type=bool,
+                    default=True,
+                    required=False,
+                    help='Fine tune the model specified in `model_checkpoint_name` on the probing datasets.')
+parser.add_argument('--probe_claim_and_premise_pair',
+                    type=bool,
+                    default=True,
+                    required=False,
+                    help='True if the probing dataset consists of a (claim, supporting_premise) pair. False if the '
+                         'probing dataset consists strictly of premises.')
 parser.add_argument('--fine_tuned_model_path',
                     type=str,
                     required=False,
@@ -92,6 +103,8 @@ if __name__ == "__main__":
     fine_tune_model = args.fine_tune_model
     probe_model_on_premise_modes = args.probe_model_on_premise_modes
     probing_model = args.probing_model
+    fine_tune_model_on_premise_modes = args.fine_tune_model_on_premise_modes
+    probe_claim_and_premise_pair = args.probe_claim_and_premise_pair
     fine_tuned_model_path = args.fine_tuned_model_path
     dataset_name = args.dataset_name
     model_checkpoint_name = args.model_checkpoint_name
@@ -111,6 +124,8 @@ if __name__ == "__main__":
     print(f'probe_model_on_premise_modes: {probe_model_on_premise_modes}')
     if probe_model_on_premise_modes:
         print(f'generate_new_probing_dataset: {generate_new_probing_dataset}')
+        print(f'probing_model: {probing_model}')
+        print(f'fine_tune_model_on_premise_modes: {fine_tune_model_on_premise_modes}')
     else:
         print(f'num_training_ephocs: {num_training_ephocs}')
         print(f'output_dir: {output_dir}')
@@ -121,21 +136,21 @@ if __name__ == "__main__":
         print(f'weight_decay: {weight_decay}')
         print(f'logging_steps: {logging_steps}')
 
+    configuration = transformers.TrainingArguments(
+        output_dir=output_dir,
+        num_train_epochs=num_training_ephocs,
+        per_device_train_batch_size=per_device_train_batch_size,
+        per_device_eval_batch_size=per_device_eval_batch_size,
+        warmup_steps=warmup_steps,
+        weight_decay=weight_decay,
+        logging_dir=logging_dir,
+        logging_steps=logging_steps,
+        report_to=["wandb"],
+    )
+    model = transformers.BertForSequenceClassification.from_pretrained(
+        model_checkpoint_name,
+        num_labels=constants.NUM_LABELS)
     if fine_tune_model:
-        configuration = transformers.TrainingArguments(
-            output_dir=output_dir,
-            num_train_epochs=num_training_ephocs,
-            per_device_train_batch_size=per_device_train_batch_size,
-            per_device_eval_batch_size=per_device_eval_batch_size,
-            warmup_steps=warmup_steps,
-            weight_decay=weight_decay,
-            logging_dir=logging_dir,
-            logging_steps=logging_steps,
-            report_to=["wandb"],
-        )
-        model = transformers.BertForSequenceClassification.from_pretrained(
-            model_checkpoint_name,
-            num_labels=constants.NUM_LABELS)
         dataset = preprocessing.get_cmv_dataset(
             dataset_name=dataset_name,
             tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
@@ -153,12 +168,41 @@ if __name__ == "__main__":
         trainer.train()
         trainer.save_model()
         metrics = trainer.evaluate()
-    if probe_model_on_premise_modes:
-        current_path = os.getcwd()
-        probing_dir_path = os.path.join(current_path, constants.PROBING)
+
+    # We are now considering model performance on argumentative probing tasks.
+    current_path = os.getcwd()
+    probing_dir_path = os.path.join(current_path, constants.PROBING)
+    if probe_claim_and_premise_pair:
+        ethos_dataset, logos_dataset, pathos_dataset = preprocessing.get_cmv_probing_datasets_with_claims(
+            tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED))
+    else:
         ethos_dataset, logos_dataset, pathos_dataset = preprocessing.get_cmv_probing_datasets(
             tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED))
-        ethos_probing_model, ethos_eval_metrics = (
+    if fine_tune_model_on_premise_modes:
+        ethos_model, ethos_eval_metrics = (
+            probing_models.fine_tune_model_on_premise_mode(current_path,
+                                                           premise_mode=constants.ETHOS,
+                                                           probing_dataset=ethos_dataset,
+                                                           model=model,
+                                                           model_configuration=configuration)
+        )
+        print(f'ethos_eval_metrics: {ethos_eval_metrics}')
+        logos_model, logos_eval_metrics = (
+            probing_models.fine_tune_model_on_premise_mode(current_path,
+                                                           premise_mode=constants.LOGOS,
+                                                           probing_dataset=logos_dataset,
+                                                           model=model,
+                                                           model_configuration=configuration))
+        print(f'logos_eval_metrics: {logos_eval_metrics}')
+        pathos_model, pathos_eval_metrics = (
+            probing_models.fine_tune_model_on_premise_mode(current_path,
+                                                           premise_mode=constants.PATHOS,
+                                                           probing_dataset=pathos_dataset,
+                                                           model=model,
+                                                           model_configuration=configuration))
+        print(f'pathos_eval_metrics: {pathos_eval_metrics}')
+    if probe_model_on_premise_modes:
+        ethos_probing_model, ethos_probing_eval_metrics = (
             probing_models.probe_model_with_premise_mode(constants.ETHOS,
                                                          ethos_dataset,
                                                          current_path,
@@ -168,8 +212,8 @@ if __name__ == "__main__":
                                                          learning_rate=1e-3,
                                                          training_batch_size=16,
                                                          eval_batch_size=64))
-        print(ethos_eval_metrics[constants.CLASSIFICATION_REPORT])
-        logos_probing_model, logos_eval_metrics = (
+        print(ethos_probing_eval_metrics[constants.CLASSIFICATION_REPORT])
+        logos_probing_model, logos_probing_eval_metrics = (
             probing_models.probe_model_with_premise_mode(constants.LOGOS,
                                                          logos_dataset,
                                                          current_path,
@@ -179,8 +223,8 @@ if __name__ == "__main__":
                                                          learning_rate=1e-3,
                                                          training_batch_size=16,
                                                          eval_batch_size=64))
-        print(logos_eval_metrics[constants.CLASSIFICATION_REPORT])
-        pathos_probing_model, pathos_eval_metrics = (
+        print(logos_probing_eval_metrics[constants.CLASSIFICATION_REPORT])
+        pathos_probing_model, pathos_probing_eval_metrics = (
             probing_models.probe_model_with_premise_mode(constants.PATHOS,
                                                          pathos_dataset,
                                                          current_path,
@@ -190,4 +234,4 @@ if __name__ == "__main__":
                                                          learning_rate=1e-3,
                                                          training_batch_size=16,
                                                          eval_batch_size=64))
-        print(pathos_eval_metrics[constants.CLASSIFICATION_REPORT])
+        print(pathos_probing_eval_metrics[constants.CLASSIFICATION_REPORT])

@@ -1,6 +1,24 @@
 TRAIN = "train"
 TEST = "test"
 
+# Flag names
+FINE_TUNE_MODEL = 'fine_tune_model'
+PROBE_MODEL_ON_PREMISE_MODES = 'probe_model_on_premise_modes'
+PROBING_MODEL = 'probing_model'
+FINE_TUNE_MODEL_ON_PREMISE_MODES = 'fine_tune_model_on_premise_modes'
+FINE_TUNED_MODEL_PATH = 'fine_tuned_model_path'
+DATASET_NAME = 'dataset_name'
+MODEL_CHECKPOINT_NAME = 'model_checkpoint_name'
+NUM_TRAINING_EPOCHS = 'num_training_ephocs'
+OUTPUT_DIR = 'output_dir'
+LOGGING_DIR = 'logging_dir'
+PER_DEVICE_TRAIN_BATCH_SIZE = 'per_device_train_batch_size'
+PER_DEVICE_EVAL_BATCH_SIZE = 'per_device_eval_batch_size'
+WARMUP_STEPS = 'warmup_steps'
+WEIGHT_DECAY = 'weight_decay'
+LOGGING_STEPS = 'logging_steps'
+GENERATE_NEW_PROBING_DATASET = 'generate_new_probing_dataset'
+
 # Checkpoint constants
 BERT_BASE_CASED = "bert-base-cased"
 
@@ -53,6 +71,7 @@ LABEL = 'label'
 
 # CMV Premise Mode Dataset
 PREMISE_TEXT = 'premise_text'
+CLAIM_TEXT = 'context_text'
 PREMISE_MODE = 'premise_mode'
 PREMISE_DIR_PATH_MAPPING = {
     ETHOS: 'ethos_hidden_states',

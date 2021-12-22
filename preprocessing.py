@@ -177,6 +177,23 @@ def tokenize_for_premise_mode_probing(corpus_df, tokenizer, mode):
     return dataset
 
 
+def tokenize_from_premise_mode_probing_with_claim(corpus_df, tokenizer, mode):
+    """
+
+    :param corpus_df: A pandas DataFrame instance with the columns {CLAIM_TEXT, PREMISE_TEXT, PREMISE_MODE}.
+        The PREMISE_MODE consists of text entries, while PREMISE_MODE is en entry in {LOGOS, ETHOS, PATHOS}.
+    :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
+    :param mode: A string in the set {'ethos', 'logos', 'pathos'}.
+    :return: A datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
+        corresponding values.
+    """
+    premise_text = list(corpus_df[constants.PREMISE_TEXT])
+    claim_text = list(corpus_df[constants.CLAIM_TEXT])
+    dataset = tokenizer(premise_text, claim_text, padding=True, truncation=True)
+    dataset[constants.LABEL] = [1 if mode in premise_mode else 0 for premise_mode in corpus_df[constants.PREMISE_MODE]]
+    return dataset
+
+
 class CMVDataset(torch.utils.data.Dataset):
     """
 
@@ -263,7 +280,7 @@ def get_cmv_probing_datasets(tokenizer):
     #  dataset.
     corpus_df = cmv_probing.get_cmv_modes_corpus()
     ethos_dataset = Dataset.from_dict(
-        tokenize_for_premise_mode_probing(
+        tokenize_from_premise_mode_probing_with_claim(
             corpus_df=corpus_df,
             tokenizer=tokenizer,
             mode=constants.ETHOS))
@@ -299,3 +316,45 @@ def get_cmv_probing_datasets(tokenizer):
     # TODO(zbamberger): Balance the probing datasets (i.e., justify ratio of positive and negative labels)
     #  before returning them.
     return ethos_dataset, logos_dataset, pathos_dataset
+
+
+def get_cmv_probing_datasets_with_claims(tokenizer):
+    corpus_df = cmv_probing.get_claim_and_premise_mode_corpus()
+    ethos_dataset = Dataset.from_dict(
+        tokenize_for_premise_mode_probing(
+            corpus_df=corpus_df,
+            tokenizer=tokenizer,
+            mode=constants.ETHOS))
+    ethos_dataset.set_format(type='torch',
+                             columns=[
+                                 constants.INPUT_IDS,
+                                 constants.TOKEN_TYPE_IDS,
+                                 constants.ATTENTION_MASK,
+                                 constants.LABEL])
+    logos_dataset = Dataset.from_dict(
+        tokenize_for_premise_mode_probing(
+            corpus_df=corpus_df,
+            tokenizer=tokenizer,
+            mode=constants.LOGOS))
+
+    logos_dataset.set_format(type='torch',
+                             columns=[
+                                 constants.INPUT_IDS,
+                                 constants.TOKEN_TYPE_IDS,
+                                 constants.ATTENTION_MASK,
+                                 constants.LABEL])
+    pathos_dataset = Dataset.from_dict(
+        tokenize_for_premise_mode_probing(
+            corpus_df=corpus_df,
+            tokenizer=tokenizer,
+            mode=constants.PATHOS))
+    pathos_dataset.set_format(type='torch',
+                              columns=[
+                                  constants.INPUT_IDS,
+                                  constants.TOKEN_TYPE_IDS,
+                                  constants.ATTENTION_MASK,
+                                  constants.LABEL])
+    # TODO(zbamberger): Balance the probing datasets (i.e., justify ratio of positive and negative labels)
+    #  before returning them.
+    return ethos_dataset, logos_dataset, pathos_dataset
+

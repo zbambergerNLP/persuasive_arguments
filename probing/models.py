@@ -7,6 +7,7 @@ import transformers
 import torch
 import constants
 import preprocessing
+import metrics
 
 SUFFIX = "json"
 
@@ -223,3 +224,35 @@ def probe_model_with_premise_mode(premise_mode,
             constants.CLASSIFICATION_REPORT: classification_report
         }
     return model, eval_metrics
+
+
+def fine_tune_model_on_premise_mode(current_path, premise_mode, probing_dataset, model, model_configuration):
+    """
+
+    :param current_path:
+    :param premise_mode:
+    :param probing_dataset:
+    :param model:
+    :param model_configuration:
+    :return:
+    """
+    probing_dir_path = os.path.join(current_path, constants.PROBING)
+    if not os.path.exists(probing_dir_path):
+        os.mkdir(probing_dir_path)
+    premise_mode_probing_dir_path = os.path.join(probing_dir_path, constants.PREMISE_DIR_PATH_MAPPING[premise_mode])
+    if not os.path.exists(premise_mode_probing_dir_path):
+        os.mkdir(premise_mode_probing_dir_path)
+    probing_dataset = probing_dataset.train_test_split()
+    train_dataset = preprocessing.CMVDataset(probing_dataset[constants.TRAIN])
+    test_dataset = preprocessing.CMVDataset(probing_dataset[constants.TEST])
+    trainer = transformers.Trainer(
+        model=model,
+        args=model_configuration,
+        train_dataset=train_dataset,
+        eval_dataset=test_dataset,
+        compute_metrics=metrics.compute_metrics,
+    )
+    trainer.train()
+    trainer.save_model()
+    eval_metrics = trainer.evaluate()
+    return trainer, eval_metrics
