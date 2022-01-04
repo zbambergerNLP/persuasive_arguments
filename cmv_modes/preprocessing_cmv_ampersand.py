@@ -3,7 +3,6 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import constants
 
-
 XML = "xml"
 PREMISE = "premise"
 TYPE = "type"
@@ -11,7 +10,6 @@ TYPE = "type"
 v1_path = os.path.join('cmv_modes', 'change-my-view-modes-master', 'v1.0')
 v2_path = os.path.join('cmv_modes', 'change-my-view-modes-master', 'v2.0')
 
-# TODO(zbamberger): Add support for CMV v2 by parsing .ann files as well as .xml files.
 cmv_modes_versions = [v1_path]
 cmv_modes_with_claims_versions = [v2_path]
 
@@ -21,6 +19,11 @@ sign_lst = [POSITIVE, NEGATIVE]
 
 
 def get_cmv_modes_corpus():
+    """Create a pandas dataframe used to probe language models an argumentative premise modes.
+
+    :return: A pandas DataFrame instance with two columns: [premise_text, premise_mode]. Both of these columns contain
+        string value. The premise mode is in the superset of {ethos, logos, pathos}.
+    """
     text = []
     label = []
     current_path = os.getcwd()
@@ -40,8 +43,15 @@ def get_cmv_modes_corpus():
 
 
 def get_claim_and_premise_mode_corpus():
+    """Create a pandas dataframe used to probe language models an argumentative premise modes (along with claims).
+
+    :return: A pandas DataFrame instance with three columns: [claim_text, premise_text, premise_mode].
+        The claim in the first column is the claim that the premise either supports or attacks. In reality, the claim
+        con occur either before or after the premise. For simplicity, we always prepend the claim to the premise. The
+        label is within the superset of {ethos, logos, pathos}.
+    """
     claims_lst = []
-    premises_lst= []
+    premises_lst = []
     label_lst = []
     current_path = os.getcwd()
     for sign in sign_lst:

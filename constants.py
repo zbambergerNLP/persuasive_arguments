@@ -80,6 +80,8 @@ PREMISE_DIR_PATH_MAPPING = {
 }
 
 # Probe Modeling
+PRETRAINED = "pretrained"
+FINE_TUNED = "fine_tuned"
 PROBING = "probing"
 LOGISTIC_REGRESSION = 'logistic_regression'
 MLP = "mlp"

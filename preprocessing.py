@@ -144,7 +144,8 @@ def tokenize_for_downstream_task(corpus_df, tokenizer):
 
     :param corpus_df: A pandas DataFrame instance with the columns {OP_COMMENT, REPLY, LABEL}. The OP_COMMENT
         and REPLY columns consist of text entries while LABEL is {0, 1}.
-    :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
+    :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
+        to token IDs.
     :return: A datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
         corresponding values.
     """
@@ -166,7 +167,8 @@ def tokenize_for_premise_mode_probing(corpus_df, tokenizer, mode):
 
     :param corpus_df: A pandas DataFrame instance with the columns {PREMISE_TEXT, PREMISE_MODE}. The PREMISE_MODE
         consists of text entries, while PREMISE_MODE is en entry in {LOGOS, ETHOS, PATHOS}.
-    :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
+    :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
+        to token IDs.
     :param mode: A string in the set {'ethos', 'logos', 'pathos'}.
     :return: A datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
         corresponding values.
@@ -182,7 +184,8 @@ def tokenize_from_premise_mode_probing_with_claim(corpus_df, tokenizer, mode):
 
     :param corpus_df: A pandas DataFrame instance with the columns {CLAIM_TEXT, PREMISE_TEXT, PREMISE_MODE}.
         The PREMISE_MODE consists of text entries, while PREMISE_MODE is en entry in {LOGOS, ETHOS, PATHOS}.
-    :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
+    :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
+        to token IDs.
     :param mode: A string in the set {'ethos', 'logos', 'pathos'}.
     :return: A datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
         corresponding values.
@@ -195,60 +198,33 @@ def tokenize_from_premise_mode_probing_with_claim(corpus_df, tokenizer, mode):
 
 
 class CMVDataset(torch.utils.data.Dataset):
-    """
+    """A Change My View specific wrapper to the Torch Dataset class."""
 
-    """
     def __init__(self, cmv_dataset):
-        """
-
-        :param cmv_dataset:
-        """
         self.cmv_dataset = cmv_dataset.to_dict()
         self.num_examples = cmv_dataset.num_rows
 
     def __getitem__(self, idx):
-        """
-
-        :param idx:
-        :return:
-        """
         item = {key: torch.tensor(val[idx]) for key, val in self.cmv_dataset.items()}
         return item
 
     def __len__(self):
-        """
-
-        :return:
-        """
         return self.num_examples
 
 
 class CMVPremiseModes(torch.utils.data.Dataset):
-    """
+    """A Change My View specific wrapper to the Torch Dataset class.
 
-    """
+     Unlike CMVDataset, premises are preceded by their respective claims."""
     def __init__(self, cmv_premise_mode_dataset):
-        """
-
-        :param cmv_premise_mode_dataset:
-        """
         self.cmv_premise_mode_dataset = cmv_premise_mode_dataset.to_dict()
         self.num_examples = cmv_premise_mode_dataset.num_rows
 
     def __getitem__(self, idx):
-        """
-
-        :param idx:
-        :return:
-        """
         item = {key: torch.tensor(val[idx]) for key, val in self.cmv_premise_mode_dataset.items()}
         return item
 
     def __len__(self):
-        """
-
-        :return:
-        """
         return self.num_examples
 
 
@@ -256,7 +232,9 @@ def get_cmv_dataset(dataset_name, tokenizer):
     """
 
     :param dataset_name: The name with which the CMV dataset json object is saved (in the local directory).
-    :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
+    :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
+        to token IDs.
+
     :return: A transformers.Dataset instance containing a CMV dataset.
     """
     dataset_path = os.path.join(os.getcwd(), dataset_name)
@@ -272,89 +250,76 @@ def get_cmv_dataset(dataset_name, tokenizer):
 def get_cmv_probing_datasets(tokenizer):
     """
 
-    :param tokenizer: The pre-trained tokenizer used to map words and word-pieces to token IDs.
+    :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
+        to token IDs.
     :return: A transformers.Dataset instance containing a mapping from argumentative premises to the argumentative
         modes they employ.
     """
-    # TODO(zbamberger): Configure this function such that we can create a variety of probing tasks from the CMV premise
-    #  dataset.
     corpus_df = cmv_probing.get_cmv_modes_corpus()
-    ethos_dataset = Dataset.from_dict(
-        tokenize_from_premise_mode_probing_with_claim(
-            corpus_df=corpus_df,
-            tokenizer=tokenizer,
-            mode=constants.ETHOS))
-    ethos_dataset.set_format(type='torch',
-                             columns=[
-                                 constants.INPUT_IDS,
-                                 constants.TOKEN_TYPE_IDS,
-                                 constants.ATTENTION_MASK,
-                                 constants.LABEL])
-    logos_dataset = Dataset.from_dict(
-        tokenize_for_premise_mode_probing(
-            corpus_df=corpus_df,
-            tokenizer=tokenizer,
-            mode=constants.LOGOS))
-
-    logos_dataset.set_format(type='torch',
-                             columns=[
-                                 constants.INPUT_IDS,
-                                 constants.TOKEN_TYPE_IDS,
-                                 constants.ATTENTION_MASK,
-                                 constants.LABEL])
-    pathos_dataset = Dataset.from_dict(
-        tokenize_for_premise_mode_probing(
-            corpus_df=corpus_df,
-            tokenizer=tokenizer,
-            mode=constants.PATHOS))
-    pathos_dataset.set_format(type='torch',
-                              columns=[
-                                 constants.INPUT_IDS,
-                                 constants.TOKEN_TYPE_IDS,
-                                 constants.ATTENTION_MASK,
-                                 constants.LABEL])
-    # TODO(zbamberger): Balance the probing datasets (i.e., justify ratio of positive and negative labels)
-    #  before returning them.
+    ethos_dataset = (
+        get_cmv_probing_datasets_for_mode(
+            corpus_df, tokenizer, mode=constants.ETHOS, labeling_func=tokenize_for_premise_mode_probing))
+    logos_dataset = (
+        get_cmv_probing_datasets_for_mode(
+            corpus_df, tokenizer, mode=constants.LOGOS, labeling_func=tokenize_for_premise_mode_probing))
+    pathos_dataset = (
+        get_cmv_probing_datasets_for_mode(
+            corpus_df, tokenizer, mode=constants.PATHOS, labeling_func=tokenize_for_premise_mode_probing))
     return ethos_dataset, logos_dataset, pathos_dataset
+
+
+def get_cmv_probing_datasets_for_mode(corpus_df, tokenizer, mode, labeling_func):
+    """
+
+    :param corpus_df: A pandas DataFrame instance with columns 'input_ids', 'token_type_ids', 'attention_mask', and
+        'label' and their corresponding values. The label is a string which might contain the substring 'mode'.
+    :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
+        to token IDs.
+    :param mode: A string describing the argumentation mode of the premise. Possible labels are a superset of
+        {"ethos", "logos", "pathos"}.
+    :param labeling_func:
+    :return: A transformers.Dataset instance with columns corresponding to 'input_ids', 'token_type_ids',
+        'attention_mask', and 'label' as well as their corresponding values. The label for this dataset is 1 if the
+        claim + premise pair contains the label `mode`, and 0 otherwise.
+    """
+    dataset = Dataset.from_dict(
+        labeling_func(
+            corpus_df=corpus_df,
+            tokenizer=tokenizer,
+            mode=mode))
+    dataset.set_format(type='torch',
+                       columns=[
+                           constants.INPUT_IDS,
+                           constants.TOKEN_TYPE_IDS,
+                           constants.ATTENTION_MASK,
+                           constants.LABEL])
+    return dataset
 
 
 def get_cmv_probing_datasets_with_claims(tokenizer):
+    """
+
+    :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
+        to token IDs.
+    :return: A 3-tuple consisting of (ethos_dataset, logos_dataset, pathos_dataset).
+        ethos_dataset: A transformers.Dataset instance with columns corresponding to BERT inputs and a label. The
+            sentences provided as an input are drawn from claim + premise pairs where the premises are classified as
+            ethos.
+        logos_dataset: A transformers.Dataset instance with columns corresponding to BERT inputs and a label. The
+            sentences provided as an input are drawn from claim + premise pairs where the premises are classified as
+            logos.
+        pathos_dataset: A transformers.Dataset instance with columns corresponding to BERT inputs and a label. The
+            sentences provided as an input are drawn from claim + premise pairs where the premises are classified as
+            pathos.
+    """
     corpus_df = cmv_probing.get_claim_and_premise_mode_corpus()
-    ethos_dataset = Dataset.from_dict(
-        tokenize_for_premise_mode_probing(
-            corpus_df=corpus_df,
-            tokenizer=tokenizer,
-            mode=constants.ETHOS))
-    ethos_dataset.set_format(type='torch',
-                             columns=[
-                                 constants.INPUT_IDS,
-                                 constants.TOKEN_TYPE_IDS,
-                                 constants.ATTENTION_MASK,
-                                 constants.LABEL])
-    logos_dataset = Dataset.from_dict(
-        tokenize_for_premise_mode_probing(
-            corpus_df=corpus_df,
-            tokenizer=tokenizer,
-            mode=constants.LOGOS))
-
-    logos_dataset.set_format(type='torch',
-                             columns=[
-                                 constants.INPUT_IDS,
-                                 constants.TOKEN_TYPE_IDS,
-                                 constants.ATTENTION_MASK,
-                                 constants.LABEL])
-    pathos_dataset = Dataset.from_dict(
-        tokenize_for_premise_mode_probing(
-            corpus_df=corpus_df,
-            tokenizer=tokenizer,
-            mode=constants.PATHOS))
-    pathos_dataset.set_format(type='torch',
-                              columns=[
-                                  constants.INPUT_IDS,
-                                  constants.TOKEN_TYPE_IDS,
-                                  constants.ATTENTION_MASK,
-                                  constants.LABEL])
-    # TODO(zbamberger): Balance the probing datasets (i.e., justify ratio of positive and negative labels)
-    #  before returning them.
+    ethos_dataset = (
+        get_cmv_probing_datasets_for_mode(
+            corpus_df, tokenizer, mode=constants.ETHOS, labeling_func=tokenize_from_premise_mode_probing_with_claim))
+    logos_dataset = (
+        get_cmv_probing_datasets_for_mode(
+            corpus_df, tokenizer, mode=constants.LOGOS, labeling_func=tokenize_from_premise_mode_probing_with_claim))
+    pathos_dataset = (
+        get_cmv_probing_datasets_for_mode(
+            corpus_df, tokenizer, mode=constants.PATHOS, labeling_func=tokenize_from_premise_mode_probing_with_claim))
     return ethos_dataset, logos_dataset, pathos_dataset
-
