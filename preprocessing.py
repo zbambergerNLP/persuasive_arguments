@@ -147,7 +147,7 @@ def tokenize_for_downstream_task(corpus_df, tokenizer):
     :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
         to token IDs.
     :return: A datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
-        corresponding values.
+        corresponding values. The returned dataset also consists of binary labels.
     """
     op_comments = list(corpus_df[constants.OP_COMMENT])
     replies = list(corpus_df[constants.REPLY])
@@ -171,11 +171,29 @@ def tokenize_for_premise_mode_probing(corpus_df, tokenizer, mode):
         to token IDs.
     :param mode: A string in the set {'ethos', 'logos', 'pathos'}.
     :return: A datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
-        corresponding values.
+        corresponding values. The returned dataset also consists of binary labels.
     """
     premise_text = list(corpus_df[constants.PREMISE_TEXT])
     dataset = tokenizer(premise_text, padding=True, truncation=True)
     dataset[constants.LABEL] = [1 if mode in premise_mode else 0 for premise_mode in corpus_df[constants.PREMISE_MODE]]
+    return dataset
+
+
+def tokenize_for_multi_class_premise_mode_probing(corpus_df, tokenizer):
+    """
+
+    :param corpus_df: A pandas DataFrame instance with the columns {PREMISE_TEXT, PREMISE_MODE}. The PREMISE_MODE
+        consists of text entries, while PREMISE_MODE is en entry in {LOGOS, ETHOS, PATHOS}.
+    :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
+        to token IDs.
+    :return: A datasets.Dataset instance with features 'input_ids', 'token_type_ids', and 'attention_mask' and their
+        corresponding values. The returned dataset has a label space with dimensionality equal to the cardinality of
+        the superset of {LOGOS, ETHOS, PATHOS}.
+    """
+    premise_text = list(corpus_df[constants.PREMISE_TEXT])
+    dataset = tokenizer(premise_text, padding=True, truncation=True)
+    dataset[constants.LABEL] = (
+        [constants.PREMISE_MODE_TO_INT[premise_mode] for premise_mode in corpus_df[constants.PREMISE_MODE]])
     return dataset
 
 
@@ -229,13 +247,14 @@ class CMVPremiseModes(torch.utils.data.Dataset):
 
 
 def get_cmv_dataset(dataset_name, tokenizer):
-    """
+    """Create a dataset mapping textual arguments to their persuasiveness label (whether or not the argument was awarded
+    a delta).
 
     :param dataset_name: The name with which the CMV dataset json object is saved (in the local directory).
     :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
         to token IDs.
-
-    :return: A transformers.Dataset instance containing a CMV dataset.
+    :return: A transformers.Dataset instance containing a CMV dataset mapping arguments to their binary persuasiveness
+        label.
     """
     dataset_path = os.path.join(os.getcwd(), dataset_name)
     if not (dataset_name in os.listdir(os.getcwd())):
@@ -248,7 +267,9 @@ def get_cmv_dataset(dataset_name, tokenizer):
 
 
 def get_cmv_probing_datasets(tokenizer):
-    """
+    """Transform a pandas dataframe containing a CMV premise mode corpus into three datasets. Each of these three
+    datasets (corresponding to ETHOS, LOGOS, and PATHOS) maps argumentative text to whether or not that text employs
+    the given argumentative mode.
 
     :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
         to token IDs.
@@ -268,8 +289,35 @@ def get_cmv_probing_datasets(tokenizer):
     return ethos_dataset, logos_dataset, pathos_dataset
 
 
-def get_cmv_probing_datasets_for_mode(corpus_df, tokenizer, mode, labeling_func):
+def get_multi_class_cmv_probing_dataset(corpus_df, tokenizer, labeling_func):
+    """Transform a dataframe (which maps argumentative text to the argumentative mode it employs) into a
+    transformers.Dataset instance. Argumentative mode labels are integers pointing to an element in the superset of
+    {ETHOS, LOGOS, PATHOS}.
+
+    :param corpus_df: A pandas DataFrame instance with columns 'input_ids', 'token_type_ids', 'attention_mask', and
+        'label' and their corresponding values. The label is a string which might contain the substring 'mode'.
+    :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
+        to token IDs.
+    :param labeling_func:
+    :return: A transformers.Dataset instance with columns corresponding to 'input_ids', 'token_type_ids',
+        'attention_mask', and 'label' as well as their corresponding values. The label for this dataset is 1 if the
+        claim + premise pair contains the label `mode`, and 0 otherwise.
     """
+    dataset = Dataset.from_dict(
+        labeling_func(
+            corpus_df=corpus_df,
+            tokenizer=tokenizer))
+    dataset.set_format(type='torch',
+                       columns=[
+                           constants.INPUT_IDS,
+                           constants.TOKEN_TYPE_IDS,
+                           constants.ATTENTION_MASK,
+                           constants.LABEL])
+    return dataset
+
+
+def get_cmv_probing_datasets_for_mode(corpus_df, tokenizer, mode, labeling_func):
+    """Create three datasets mapping argumentative text to whether or not that text entails a given argumentative mode.
 
     :param corpus_df: A pandas DataFrame instance with columns 'input_ids', 'token_type_ids', 'attention_mask', and
         'label' and their corresponding values. The label is a string which might contain the substring 'mode'.
@@ -296,8 +344,26 @@ def get_cmv_probing_datasets_for_mode(corpus_df, tokenizer, mode, labeling_func)
     return dataset
 
 
-def get_cmv_probing_datasets_with_claims(tokenizer):
+def get_multi_class_cmv_probing_dataset_with_claims(tokenizer):
+    """Transform a pandas dataframe containing a CMV premise mode corpus into three datasets. Each of these three
+    datasets (corresponding to ETHOS, LOGOS, and PATHOS) maps argumentative text to whether or not that text employs
+    the given argumentative mode.
+
+    :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
+        to token IDs.
+    :return: A transformer.Dataset instance with columns corresponding to BERT inputs and a label. The sentences
+        provided as an input are drawn from claim + premise pairs. The label is the enumerated argumentative mode
+        of the premise. The possible argumentative modes are a superset of {ETHOS, LOGOS, PATHOS}.
     """
+    corpus_df = cmv_probing.get_claim_and_premise_mode_corpus()
+    return get_multi_class_cmv_probing_dataset(corpus_df, tokenizer, tokenize_for_multi_class_premise_mode_probing)
+
+
+def get_cmv_probing_datasets_with_claims(tokenizer):
+    """Create three datasets mapping argumentative text to whether or not that text entails a given argumentative mode.
+
+    In this case, the argumentative text consists of both claims and premises (the claim precedes the premise that
+    supports or attacks it).
 
     :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
         to token IDs.
