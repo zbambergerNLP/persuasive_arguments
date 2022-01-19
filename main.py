@@ -17,9 +17,15 @@ parser.add_argument('--fine_tune_model',
                     required=False,
                     help='Whether or not a pre-trained transformer language model should undergo fine-tuning.')
 parser.add_argument('--probe_model_before_fine_tuning',
+                    type=bool,
                     default=True,
                     required=False,
                     help="Whether or not a pre-trained transformer language model should be probed before fine-tuning.")
+parser.add_argument('--learning_rate',
+                    type=float,
+                    default=0.001,
+                    required=False,
+                    help="Fine tuning learning rate.")
 parser.add_argument('--probe_model_on_premise_modes',
                     type=bool,
                     default=True,
@@ -29,7 +35,7 @@ parser.add_argument('--probe_model_on_premise_modes',
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
 parser.add_argument('--generate_new_probing_dataset',
                     type=bool,
-                    default=False,
+                    default=True,
                     # default=True,
                     required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
@@ -42,7 +48,7 @@ parser.add_argument('--probing_model',
                     help="The string name of the model type used for probing. Either logistic regression or MLP.")
 parser.add_argument('--fine_tune_model_on_premise_modes',
                     type=bool,
-                    default=True,
+                    default=False,
                     required=False,
                     help='Fine tune the model specified in `model_checkpoint_name` on the probing datasets.')
 parser.add_argument('--probe_claim_and_premise_pair',
@@ -53,7 +59,7 @@ parser.add_argument('--probe_claim_and_premise_pair',
                          'probing dataset consists strictly of premises.')
 parser.add_argument('--multi_class_cmv_probing',
                     type=bool,
-                    default=True,
+                    default=False,
                     required=False,
                     help='True if the label space for classifying premise mode (probing task) is the superset of '
                          '{"ethos", "logos", "pathos}. False if the label space is binary, where True indicates that'
@@ -117,8 +123,8 @@ parser.add_argument('--wandb_entity',
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    if args.wandb_entity:
-        wandb.init(project="persuasive_arguments", entity=args.wandb_entity)
+    # if args.wandb_entity:
+    #     wandb.init(project="persuasive_arguments", entity=args.wandb_entity)
 
     args_dict = vars(args)
     for parameter, value in args_dict.items():
@@ -159,7 +165,7 @@ if __name__ == "__main__":
                     model_configuration=configuration)
                 print(f'multi_class_eval_metrics: {multi_class_eval_metrics}')
         else:
-            if args.probe_claim_and_premise_paisr:
+            if args.probe_claim_and_premise_pair:
                 ethos_dataset, logos_dataset, pathos_dataset = preprocessing.get_cmv_probing_datasets_with_claims(
                     tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED))
             else:
@@ -196,8 +202,8 @@ if __name__ == "__main__":
                                                     generate_new_probing_dataset=args.generate_new_probing_dataset,
                                                     probing_model=args.probing_model,
                                                     learning_rate=args.learning_rate,
-                                                    training_batch_size=args.training_batch_size,
-                                                    eval_batch_size=args.eval_batch_size)
+                                                    training_batch_size=args.per_device_train_batch_size,
+                                                    eval_batch_size=args.per_device_eval_batch_size)
                 probing.probe_model_on_premise_mode(mode=constants.LOGOS,
                                                     dataset=logos_dataset,
                                                     current_path=current_path,
@@ -206,8 +212,8 @@ if __name__ == "__main__":
                                                     generate_new_probing_dataset=args.generate_new_probing_dataset,
                                                     probing_model=args.probing_model,
                                                     learning_rate=args.learning_rate,
-                                                    training_batch_size=args.training_batch_size,
-                                                    eval_batch_size=args.eval_batch_size)
+                                                    training_batch_size=args.per_device_train_batch_size,
+                                                    eval_batch_size=args.per_device_eval_batch_size)
                 probing.probe_model_on_premise_mode(mode=constants.PATHOS,
                                                     dataset=pathos_dataset,
                                                     current_path=current_path,
@@ -216,5 +222,5 @@ if __name__ == "__main__":
                                                     generate_new_probing_dataset=args.generate_new_probing_dataset,
                                                     probing_model=args.probing_model,
                                                     learning_rate=args.learning_rate,
-                                                    training_batch_size=args.training_batch_size,
-                                                    eval_batch_size=args.eval_batch_size)
+                                                    training_batch_size=args.per_device_train_batch_size,
+                                                    eval_batch_size=args.per_device_eval_batch_size)

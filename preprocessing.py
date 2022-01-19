@@ -254,7 +254,7 @@ def get_cmv_dataset(dataset_name, tokenizer):
     :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
         to token IDs.
     :return: A transformers.Dataset instance containing a CMV dataset mapping arguments to their binary persuasiveness
-        label.
+            label.
     """
     dataset_path = os.path.join(os.getcwd(), dataset_name)
     if not (dataset_name in os.listdir(os.getcwd())):
@@ -379,6 +379,13 @@ def get_cmv_probing_datasets_with_claims(tokenizer):
             pathos.
     """
     corpus_df = cmv_probing.get_claim_and_premise_mode_corpus()
+
+    # print('this is the pandas dataframe I was looking for!')
+    # corpus_df.to_csv('corpus_dataframe.csv', index=False)
+    # print('wrote pandas dataframe into memory')
+    # from sys import exit
+    # exit(0)
+
     ethos_dataset = (
         get_cmv_probing_datasets_for_mode(
             corpus_df, tokenizer, mode=constants.ETHOS, labeling_func=tokenize_from_premise_mode_probing_with_claim))
