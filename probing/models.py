@@ -3,21 +3,21 @@ import numpy as np
 import sklearn
 import torch
 
+import constants
+
 
 class MLP(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, num_labels):
         """
-        Initialize an MLP consisting of two linear layers that maintain the hidden dimensionality, and then a projection
-        into num_labels dimensions. The first two linear layers have ReLU non-linearities, while the final (logits)
+        Initialize an MLP consisting of one linear layer that maintain the hidden dimensionality, and then a projection
+        into num_labels dimensions. The first linear layer has a ReLU non-linearity, while the final (logits)
         layer has a softmax activation.
         """
         super(MLP, self).__init__()
         self.layers = torch.nn.Sequential(
             torch.nn.Linear(768, 768),
             torch.nn.ReLU(),
-            torch.nn.Linear(768, 768),
-            torch.nn.ReLU(),
-            torch.nn.Linear(768, 2),
+            torch.nn.Linear(768, num_labels),
             torch.nn.Softmax(dim=1),
         )
 
@@ -29,12 +29,14 @@ class MLP(torch.nn.Module):
         """
         return self.layers(x)
 
-    def train_probe(self, train_loader, optimizer, loss_function, num_epochs=5, scheduler=None):
+    def train_probe(self, train_loader, optimizer, num_labels, loss_function, num_epochs=5, scheduler=None):
         """
 
         :param train_loader: A 'torch.utils.data.DataLoader' wrapping either a 'preprocessing.CMVPremiseModes' dataset
             or a 'preprocessing.CMVDataset' instance for some premise mode.
         :param optimizer: A 'torch.optim' optimizer instance (e.g., SGD).
+        :param num_labels: An integer representing the output space (number of labels) for the probing classification
+            problem.
         :param loss_function: A 'torch.nn' loss instance such as 'torch.nn.BCELoss'.
         :param num_epochs: The number of epochs used to train the probing model on the probing dataset.
         :param scheduler: A `torch.optim.lr_scheduler` instance used to adjust the learning rate of the optimizer.
@@ -46,10 +48,10 @@ class MLP(torch.nn.Module):
             num_batches = 0
             for i, data in enumerate(train_loader, 0):
                 optimizer.zero_grad()
-                targets = data['label']
-                outputs = self(data['hidden_state'])
+                targets = data[constants.LABEL]
+                outputs = self(data[constants.HIDDEN_STATE])
                 preds = torch.argmax(outputs, dim=1)
-                loss = loss_function(outputs, torch.nn.functional.one_hot(targets, 2).float())
+                loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
                 loss.backward()
                 optimizer.step()
                 epoch_loss += loss.item()

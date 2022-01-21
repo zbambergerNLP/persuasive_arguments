@@ -52,6 +52,8 @@ LOGOS_PATHOS = 'logos_pathos'
 ETHOS_LOGOS_PATHOS = 'ethos_logos_pathos'
 PREMISE_EMPTY = ''
 PREMISE_INTERPRETATION = 'interpretation'
+
+# TODO: Remove PREMISE_INTERPRETATION from the below dictionary of supported premise types.
 PREMISE_MODE_TO_INT = {ETHOS: 0,
                        LOGOS: 1,
                        PATHOS: 2,
@@ -81,7 +83,8 @@ PREMISE_DIR_PATH_MAPPING = {
 
 # Probe Modeling
 PRETRAINED = "pretrained"
-FINE_TUNED = "fine_tuned"
+FINE_TUNED = "finetuned"
+MULTICLASS = "multiclass"
 PROBING = "probing"
 LOGISTIC_REGRESSION = 'logistic_regression'
 MLP = "mlp"

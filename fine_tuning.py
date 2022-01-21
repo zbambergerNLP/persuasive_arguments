@@ -26,12 +26,12 @@ def fine_tune_on_downstream_task(dataset_name, model, configuration):
         args=configuration,
         train_dataset=train_dataset,
         eval_dataset=test_dataset,
-        compute_metrics=metrics.compute_metrics,
+        compute_metrics=metrics.compute_metrics_for_binary_classification,
     )
     trainer.train()
     trainer.save_model()
-    metrics = trainer.evaluate()
-    return trainer, metrics
+    eval_metrics = trainer.evaluate()
+    return trainer, eval_metrics
 
 
 def fine_tune_model_on_premise_mode(current_path, premise_mode, probing_dataset, model, model_configuration):
