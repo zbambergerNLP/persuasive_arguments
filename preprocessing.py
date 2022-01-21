@@ -9,6 +9,7 @@ import transformers
 
 import cmv_modes.preprocessing_cmv_ampersand as cmv_probing
 import constants
+import metrics
 
 
 def find_comment_id_by_shortened_id(cmv_corpus, shortened_comment_id):
@@ -266,7 +267,7 @@ def get_cmv_dataset(dataset_name, tokenizer):
     return Dataset.from_dict(tokenize_for_downstream_task(corpus_df=corpus_df, tokenizer=tokenizer))
 
 
-def get_cmv_probing_datasets(tokenizer):
+def get_cmv_probing_datasets(tokenizer, save_text_datasets=False):
     """Transform a pandas dataframe containing a CMV premise mode corpus into three datasets. Each of these three
     datasets (corresponding to ETHOS, LOGOS, and PATHOS) maps argumentative text to whether or not that text employs
     the given argumentative mode.
@@ -279,17 +280,29 @@ def get_cmv_probing_datasets(tokenizer):
     corpus_df = cmv_probing.get_cmv_modes_corpus()
     ethos_dataset = (
         get_cmv_probing_datasets_for_mode(
-            corpus_df, tokenizer, mode=constants.ETHOS, labeling_func=tokenize_for_premise_mode_probing))
+            corpus_df,
+            tokenizer,
+            mode=constants.ETHOS,
+            labeling_func=tokenize_for_premise_mode_probing,
+            save_text_datasets=save_text_datasets))
     logos_dataset = (
         get_cmv_probing_datasets_for_mode(
-            corpus_df, tokenizer, mode=constants.LOGOS, labeling_func=tokenize_for_premise_mode_probing))
+            corpus_df,
+            tokenizer,
+            mode=constants.LOGOS,
+            labeling_func=tokenize_for_premise_mode_probing,
+            save_text_datasets=save_text_datasets))
     pathos_dataset = (
         get_cmv_probing_datasets_for_mode(
-            corpus_df, tokenizer, mode=constants.PATHOS, labeling_func=tokenize_for_premise_mode_probing))
+            corpus_df,
+            tokenizer,
+            mode=constants.PATHOS,
+            labeling_func=tokenize_for_premise_mode_probing,
+            save_text_datasets=save_text_datasets))
     return ethos_dataset, logos_dataset, pathos_dataset
 
 
-def get_multi_class_cmv_probing_dataset(corpus_df, tokenizer, labeling_func):
+def get_multi_class_cmv_probing_dataset(corpus_df, tokenizer, labeling_func, save_text_datasets=False):
     """Transform a dataframe (which maps argumentative text to the argumentative mode it employs) into a
     transformers.Dataset instance. Argumentative mode labels are integers pointing to an element in the superset of
     {ETHOS, LOGOS, PATHOS}.
@@ -298,11 +311,23 @@ def get_multi_class_cmv_probing_dataset(corpus_df, tokenizer, labeling_func):
         'label' and their corresponding values. The label is a string which might contain the substring 'mode'.
     :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
         to token IDs.
-    :param labeling_func:
+    :param labeling_func: A function mapping the string labels of premises to integers. In the case of binary
+        classification, these integer labels are 0 and 1. In the multi-class case, these labels are integer
+        representations of possible combinations of premise modes (e.g., 'ethos' as opposed to 'ethos_logos').
+    :param save_text_datasets: True if we want to store the probing dataset in textual form in the appropriate
+        directory (i.e., './probing/{mode}'}.
     :return: A transformers.Dataset instance with columns corresponding to 'input_ids', 'token_type_ids',
         'attention_mask', and 'label' as well as their corresponding values. The label for this dataset is 1 if the
         claim + premise pair contains the label `mode`, and 0 otherwise.
     """
+    if save_text_datasets:
+        corpus_df.to_csv('corpus_dataframe.csv', index=False)
+        print('wrote pandas dataframe into memory')
+
+    baseline_results = metrics.get_baseline_scores(corpus_df)
+    print(f'Baseline results for multiclass prediction are:')
+    print(baseline_results)
+
     dataset = Dataset.from_dict(
         labeling_func(
             corpus_df=corpus_df,
@@ -316,7 +341,7 @@ def get_multi_class_cmv_probing_dataset(corpus_df, tokenizer, labeling_func):
     return dataset
 
 
-def get_cmv_probing_datasets_for_mode(corpus_df, tokenizer, mode, labeling_func):
+def get_cmv_probing_datasets_for_mode(corpus_df, tokenizer, mode, labeling_func, save_text_datasets=False):
     """Create three datasets mapping argumentative text to whether or not that text entails a given argumentative mode.
 
     :param corpus_df: A pandas DataFrame instance with columns 'input_ids', 'token_type_ids', 'attention_mask', and
@@ -325,11 +350,24 @@ def get_cmv_probing_datasets_for_mode(corpus_df, tokenizer, mode, labeling_func)
         to token IDs.
     :param mode: A string describing the argumentation mode of the premise. Possible labels are a superset of
         {"ethos", "logos", "pathos"}.
-    :param labeling_func:
+    :param labeling_func: A function mapping the string labels of premises to integers. In the case of binary
+        classification, these integer labels are 0 and 1. In the multi-class case, these labels are integer
+        representations of possible combinations of premise modes (e.g., 'ethos' as opposed to 'ethos_logos').
+    :param save_text_datasets: True if we want to store the probing dataset in textual form in the appropriate
+        directory (i.e., './probing/{mode}'}.
     :return: A transformers.Dataset instance with columns corresponding to 'input_ids', 'token_type_ids',
         'attention_mask', and 'label' as well as their corresponding values. The label for this dataset is 1 if the
         claim + premise pair contains the label `mode`, and 0 otherwise.
     """
+
+    if save_text_datasets:
+        corpus_df.to_csv('corpus_dataframe.csv', index=False)
+        print('wrote pandas dataframe into memory')
+
+    baseline_results = metrics.get_baseline_scores(corpus_df)
+    print(f'Baseline results for {mode} binary prediction are:')
+    print(baseline_results)
+
     dataset = Dataset.from_dict(
         labeling_func(
             corpus_df=corpus_df,
@@ -344,22 +382,27 @@ def get_cmv_probing_datasets_for_mode(corpus_df, tokenizer, mode, labeling_func)
     return dataset
 
 
-def get_multi_class_cmv_probing_dataset_with_claims(tokenizer):
+def get_multi_class_cmv_probing_dataset_with_claims(tokenizer, save_text_datasets=False):
     """Transform a pandas dataframe containing a CMV premise mode corpus into three datasets. Each of these three
     datasets (corresponding to ETHOS, LOGOS, and PATHOS) maps argumentative text to whether or not that text employs
     the given argumentative mode.
 
     :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
         to token IDs.
+    :param save_text_datasets: True if we want to store the probing dataset in textual form in the appropriate
+        directory (i.e., './probing/{mode}'}.
     :return: A transformer.Dataset instance with columns corresponding to BERT inputs and a label. The sentences
         provided as an input are drawn from claim + premise pairs. The label is the enumerated argumentative mode
         of the premise. The possible argumentative modes are a superset of {ETHOS, LOGOS, PATHOS}.
     """
     corpus_df = cmv_probing.get_claim_and_premise_mode_corpus()
-    return get_multi_class_cmv_probing_dataset(corpus_df, tokenizer, tokenize_for_multi_class_premise_mode_probing)
+    return get_multi_class_cmv_probing_dataset(corpus_df,
+                                               tokenizer,
+                                               tokenize_for_multi_class_premise_mode_probing,
+                                               save_text_datasets=save_text_datasets)
 
 
-def get_cmv_probing_datasets_with_claims(tokenizer):
+def get_cmv_probing_datasets_with_claims(tokenizer, save_text_datasets=False):
     """Create three datasets mapping argumentative text to whether or not that text entails a given argumentative mode.
 
     In this case, the argumentative text consists of both claims and premises (the claim precedes the premise that
@@ -367,6 +410,8 @@ def get_cmv_probing_datasets_with_claims(tokenizer):
 
     :param tokenizer: The pre-trained tokenizer (transformers.PreTrainedTokenizer) used to map words and word-pieces
         to token IDs.
+    :param save_text_datasets: True if we want to store the probing dataset in textual form in the appropriate
+        directory (i.e., './probing/{mode}'}.
     :return: A 3-tuple consisting of (ethos_dataset, logos_dataset, pathos_dataset).
         ethos_dataset: A transformers.Dataset instance with columns corresponding to BERT inputs and a label. The
             sentences provided as an input are drawn from claim + premise pairs where the premises are classified as
@@ -380,19 +425,25 @@ def get_cmv_probing_datasets_with_claims(tokenizer):
     """
     corpus_df = cmv_probing.get_claim_and_premise_mode_corpus()
 
-    # print('this is the pandas dataframe I was looking for!')
-    # corpus_df.to_csv('corpus_dataframe.csv', index=False)
-    # print('wrote pandas dataframe into memory')
-    # from sys import exit
-    # exit(0)
-
     ethos_dataset = (
         get_cmv_probing_datasets_for_mode(
-            corpus_df, tokenizer, mode=constants.ETHOS, labeling_func=tokenize_from_premise_mode_probing_with_claim))
+            corpus_df,
+            tokenizer,
+            mode=constants.ETHOS,
+            labeling_func=tokenize_from_premise_mode_probing_with_claim,
+            save_text_datasets=save_text_datasets))
     logos_dataset = (
         get_cmv_probing_datasets_for_mode(
-            corpus_df, tokenizer, mode=constants.LOGOS, labeling_func=tokenize_from_premise_mode_probing_with_claim))
+            corpus_df,
+            tokenizer,
+            mode=constants.LOGOS,
+            labeling_func=tokenize_from_premise_mode_probing_with_claim,
+            save_text_datasets=save_text_datasets))
     pathos_dataset = (
         get_cmv_probing_datasets_for_mode(
-            corpus_df, tokenizer, mode=constants.PATHOS, labeling_func=tokenize_from_premise_mode_probing_with_claim))
+            corpus_df,
+            tokenizer,
+            mode=constants.PATHOS,
+            labeling_func=tokenize_from_premise_mode_probing_with_claim,
+            save_text_datasets=save_text_datasets))
     return ethos_dataset, logos_dataset, pathos_dataset

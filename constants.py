@@ -23,6 +23,8 @@ GENERATE_NEW_PROBING_DATASET = 'generate_new_probing_dataset'
 BERT_BASE_CASED = "bert-base-cased"
 
 # Metrics Constants:
+EPOCH = "epoch"
+LOSS = "loss"
 ACCURACY = "accuracy"
 PRECISION = "precision"
 RECALL = "recall"

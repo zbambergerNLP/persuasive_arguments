@@ -12,6 +12,9 @@ class MLP(torch.nn.Module):
         Initialize an MLP consisting of one linear layer that maintain the hidden dimensionality, and then a projection
         into num_labels dimensions. The first linear layer has a ReLU non-linearity, while the final (logits)
         layer has a softmax activation.
+
+        :param num_labels: The output dimensionality of the MLP that corresponds to the number of possible labels for
+            the classification task.
         """
         super(MLP, self).__init__()
         self.layers = torch.nn.Sequential(
@@ -29,8 +32,8 @@ class MLP(torch.nn.Module):
         """
         return self.layers(x)
 
-    def train_probe(self, train_loader, optimizer, num_labels, loss_function, num_epochs=5, scheduler=None):
-        """
+    def train_probe(self, train_loader, optimizer, num_labels, loss_function, num_epochs, scheduler=None):
+        """Train the probing model on a classification task given the provided training set and parameters.
 
         :param train_loader: A 'torch.utils.data.DataLoader' wrapping either a 'preprocessing.CMVPremiseModes' dataset
             or a 'preprocessing.CMVDataset' instance for some premise mode.
@@ -61,13 +64,13 @@ class MLP(torch.nn.Module):
                 num_batches += 1
             scheduler.step()
             print(
-                f'Epoch {epoch + 1:03}: | '
-                f'Loss: {epoch_loss / num_batches:.5f} |'
-                f'Acc: {epoch_acc / num_batches:.3f}'
+                f'{constants.EPOCH} {epoch + 1:03}: | '
+                f'{constants.LOSS}: {epoch_loss / num_batches:.5f} |'
+                f'{constants.ACCURACY}: {epoch_acc / num_batches:.3f}'
             )
 
     def eval_probe(self, test_loader):
-        """
+        """Evaluate the trained classification probe on a held out test set.
 
         :param test_loader: A 'torch.utils.data.DataLoader' wrapping either a 'preprocessing.CMVPremiseModes' dataset
             or a 'preprocessing.CMVDataset' instance for some premise mode.
@@ -80,10 +83,10 @@ class MLP(torch.nn.Module):
         self.eval()
         with torch.no_grad():
             for i, data in enumerate(test_loader, 0):
-                outputs = self(data['hidden_state'])
+                outputs = self(data[constants.HIDDEN_STATE])
                 preds = torch.argmax(outputs, dim=1)
                 preds_list.append(preds)
-                targets = data['label']
+                targets = data[constants.LABEL]
                 targets_list.append(targets)
         preds_list = np.concatenate(preds_list)
         targets_list = np.concatenate(targets_list)

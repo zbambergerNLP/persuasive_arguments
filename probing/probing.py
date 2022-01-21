@@ -15,7 +15,8 @@ SUFFIX = "json"
 
 
 def save_model_embeddings_on_batch(transformer_model, batch, model_base_file_name, batch_index, probing_dir_path):
-    """
+    """Run a batch of inputs from the probing dataset through the model, and save their outputted hidden
+    representations.
 
     :param transformer_model: A pretrained transformer language model for sequence classification.
     :param batch: A dictionary containing tensors corresponding to model inputs. Specifically, these inputs are
@@ -54,7 +55,8 @@ def probe_model_on_premise_mode(mode,
                                 learning_rate,
                                 training_batch_size,
                                 eval_batch_size,
-                                num_epochs):
+                                num_epochs,
+                                scheduler_gamma):
     """Run the probing objective with a pre-trained LM as well as one fine-tuned on the downstream task.
 
     :param mode: A string representing the premise mode towards which the dataset is oriented. For example,
@@ -85,7 +87,8 @@ def probe_model_on_premise_mode(mode,
                                       learning_rate=learning_rate,
                                       training_batch_size=training_batch_size,
                                       eval_batch_size=eval_batch_size,
-                                      num_epochs=num_epochs))
+                                      num_epochs=num_epochs,
+                                      scheduler_gamma=scheduler_gamma))
     print(f'{mode} pretrained probe results:')
     print(probing_eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
     print(probing_eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
@@ -143,12 +146,14 @@ def save_hidden_layer_outputs(fine_tuned_model_path,
                                            probing_dir_path=probing_dir_path)
 
 
-def get_file_paths(probing_dir_path, key_phrase):
+def create_train_and_test_datasets(probing_dir_path, key_phrase):
     """
 
-    :param probing_dir_path:
-    :param key_phrase:
-    :return:
+    :param probing_dir_path: The path to the probing directory in this repository.
+    :param key_phrase: A string entry in the following set {'pretrained', 'finetuned', 'multiclass'}.
+    :return: A two-tuple of the form (`hidden_state_dataset_train`, `hidden_state_dataset_test`).
+        Each of these dataset entries is a datasets.Dataset instance. The first entry corresponds to a training set,
+        while the latter corresponds to a held out test set.
     """
     hidden_layer_batch_file_names = list(
         filter(
@@ -189,23 +194,24 @@ def load_hidden_layer_outputs(probing_dir_path,
         key consist of additional dictionaries. These inner dictionaries consist of the keys 'train' and 'test'. The
         values of this inner dictionary are the training set, test set respectively. Each of these  datasets is an
         instance of 'preprocessing.CMVPremiseModes'."""
+
     assert pretrained or fine_tuned or multiclass, "At least one model mode must be selected. Please assigned the "\
                                                    "value 'True' to one of the 'pretrained', 'finetuned', or "\
                                                    "'multiclass' parameters."
     result = {}
     if pretrained:
         pretrained_hidden_state_dataset_train, pretrained_hidden_state_dataset_test = (
-            get_file_paths(probing_dir_path, key_phrase=constants.PRETRAINED))
+            create_train_and_test_datasets(probing_dir_path, key_phrase=constants.PRETRAINED))
         result[constants.PRETRAINED] = {constants.TRAIN: pretrained_hidden_state_dataset_train,
                                         constants.TEST: pretrained_hidden_state_dataset_test}
     if fine_tuned:
         fine_tuned_hidden_state_dataset_train, fine_tuned_hidden_state_dataset_test = (
-            get_file_paths(probing_dir_path, key_phrase=constants.FINE_TUNED))
+            create_train_and_test_datasets(probing_dir_path, key_phrase=constants.FINE_TUNED))
         result[constants.FINE_TUNED] = {constants.TRAIN: fine_tuned_hidden_state_dataset_train,
                                         constants.TEST: fine_tuned_hidden_state_dataset_test}
     if multiclass:
         multiclass_pretrained_hidden_state_dataset_train, multiclass_pretrained_hidden_state_dataset_test = (
-            get_file_paths(probing_dir_path, key_phrase=constants.MULTICLASS))
+            create_train_and_test_datasets(probing_dir_path, key_phrase=constants.MULTICLASS))
         result[constants.MULTICLASS] = {constants.TRAIN: multiclass_pretrained_hidden_state_dataset_train,
                                         constants.TEST: multiclass_pretrained_hidden_state_dataset_test}
     return result
@@ -236,14 +242,14 @@ def probe_with_logistic_regression(hidden_state_datasets, base_model_type):
     dataset_test = hidden_state_datasets[base_model_type][constants.TEST]
     hidden_states_train = dataset_train.cmv_premise_mode_dataset[constants.HIDDEN_STATE]
     targets_train = dataset_train.cmv_premise_mode_dataset[constants.LABEL]
+
+    # TODO: Implement a sweep to try to identify optimal logistic regression hyper-parameters at scale.
+    # TODO: Investigate why "balanced" linear regression configuration leads to significantly poorer results (i.e.,
+    #  always predicting label 0, despite it having very few supporting examples).
     probing_model = (
         sklearn.linear_model.LogisticRegression(
-            random_state=0,
-            multi_class='auto',
-            # Logistic regression performs best with default values for 'weight_class', 'C' and 'max_iter').
-            class_weight='balanced',
-            C=10,
             max_iter=1000).fit(hidden_states_train, targets_train))
+
     hidden_states_eval = (
         dataset_test.cmv_premise_mode_dataset[constants.HIDDEN_STATE])
     targets_eval = (
@@ -258,7 +264,7 @@ def probe_with_logistic_regression(hidden_state_datasets, base_model_type):
         constants.CONFUSION_MATRIX: confusion_matrix,
         constants.CLASSIFICATION_REPORT: classification_report}
 
-    return probing_model, None, eval_metrics
+    return probing_model, eval_metrics
 
 
 def probe_model_with_mlp(hidden_state_datasets,
@@ -268,18 +274,30 @@ def probe_model_with_mlp(hidden_state_datasets,
                          eval_batch_size,
                          num_epochs,
                          base_model_type,
-                         scheduler_gamma=0.9):
+                         scheduler_gamma):
     """
+    Train and evaluate a MLP probe on the premise type classification task (both binary and multiclass variations).
 
-    :param hidden_state_datasets:
-    :param num_labels:
-    :param learning_rate:
-    :param training_batch_size:
-    :param eval_batch_size:
-    :param num_epochs:
-    :param base_model_type:
-    :param scheduler_gamma:
-    :return:
+    :param hidden_state_datasets: A dictionary mapping the probing model type to the train and test datasets it
+        produces. Concretely, each such datasets maps a hidden representation of textual inputs to the appropriate
+        label in the probing task (binary prediction or multi-class prediction of premise mode).
+
+        The keys of the resulting dictionary are a subset of {'pretrained', 'finetuned', 'multiclass'}. Values for each
+        key consist of additional dictionaries. These inner dictionaries consist of the keys 'train' and 'test'. The
+        values of this inner dictionary are the training set, test set respectively. Each of these  datasets is an
+        instance of 'preprocessing.CMVPremiseModes'
+    :param num_labels: The number of labels for the probing classification problem.
+    :param learning_rate: A float representing the learning rate used by the optimizer while training the probe.
+    :param training_batch_size: The batch size used while training the probe. An integer.
+    :param eval_batch_size: The batch size used for probe evaluation. An integer.
+    :param num_epochs: The number of epochs used to train our probing model.
+    :param base_model_type: One of 'pretrained', 'finetuned' or 'multiclass'.
+    :param scheduler_gamma: Decays the learning rate of each parameter group by gamma every epoch.
+    :return: A two-tuple consisting of:
+        (1) A trained probing model. This is a 'sklearn.linear_model.LogisticRegression' instance.
+        (2) Model evaluation metrics on the test set. This is a A dictionary whose keys are base model type strings
+         as defined above, and whose values are inner dictionaries. The inner dictionaries map metric names to their
+         corresponding values.
     """
     probing_model = probing_models.MLP(num_labels=num_labels)
     loss_function = torch.nn.BCELoss() if num_labels == constants.NUM_LABELS else torch.nn.CrossEntropyLoss()
@@ -307,33 +325,41 @@ def probe_model_with_mlp(hidden_state_datasets,
         constants.CONFUSION_MATRIX: confusion_matrix,
         constants.CLASSIFICATION_REPORT: classification_report
     }
-    return probing_model, None, eval_metrics
+    return probing_model, eval_metrics
 
 
 def probe_model_on_multiclass_premise_modes(dataset,
                                             current_path,
                                             fine_tuned_model_path,
                                             pretrained_checkpoint_name,
-                                            generate_new_probing_dataset=False,
-                                            probing_model=constants.LOGISTIC_REGRESSION,
-                                            learning_rate=1e-4,
-                                            training_batch_size=16,
-                                            eval_batch_size=64,
-                                            num_epochs=20,
-                                            scheduler_gamma=0.9):
+                                            generate_new_probing_dataset,
+                                            probing_model,
+                                            learning_rate,
+                                            training_batch_size,
+                                            eval_batch_size,
+                                            num_epochs,
+                                            scheduler_gamma):
     """
 
-    :param dataset:
-    :param current_path:
-    :param fine_tuned_model_path:
-    :param pretrained_checkpoint_name:
-    :param generate_new_probing_dataset:
-    :param probing_model:
-    :param learning_rate:
-    :param training_batch_size:
-    :param eval_batch_size:
-    :param num_epochs:
-    :return:
+    :param dataset: Either a 'preprocessing.CMVPremiseModes' or a 'preprocessing.CMVDataset' instance. This
+        dataset maps either premises or claims + premises to a multi-class label corresponding to the text's premise.
+    :param current_path: The current working directory. A string.
+    :param fine_tuned_model_path: The path to the file containing a saved language model that was fine-tuned on the
+        downstream task.
+    :param pretrained_checkpoint_name: The string name of the pretrained model checkpoint to load.
+    :param generate_new_probing_dataset: A boolean. True if the user intends to generate a new dictionary mapping
+        hidden representations of premises/claims+premises to premise mode.
+    :param probing_model: A string representing the model type used for probing. Either 'MLP' or 'logistic_regression'.
+    :param learning_rate: A float representing the learning rate used by the optimizer while training the probe.
+    :param training_batch_size: The batch size used while training the probe. An integer.
+    :param eval_batch_size: The batch size used for probe evaluation. An integer.
+    :param num_epochs: The number of epochs used to train our probing model.
+    :param scheduler_gamma: Decay the learning rate of each parameter group by gamma every epoch.
+    :return: A two-tuple consisting of:
+        (1) A trained probing model. This is a 'sklearn.linear_model.LogisticRegression' instance.
+        (2) Model evaluation metrics on the test set. This is a A dictionary whose keys are base model type strings
+         as defined above, and whose values are inner dictionaries. The inner dictionaries map metric names to their
+         corresponding values.
     """
     probing_dir_path = os.path.join(current_path, constants.PROBING)
     if not os.path.exists(probing_dir_path):
@@ -374,12 +400,13 @@ def probe_model_with_premise_mode(premise_mode,
                                   current_path,
                                   fine_tuned_model_path,
                                   pretrained_checkpoint_name,
-                                  generate_new_probing_dataset=False,
-                                  probing_model=constants.LOGISTIC_REGRESSION,
-                                  learning_rate=1e-4,
-                                  training_batch_size=16,
-                                  eval_batch_size=64,
-                                  num_epochs=20):
+                                  generate_new_probing_dataset,
+                                  probing_model,
+                                  learning_rate,
+                                  training_batch_size,
+                                  eval_batch_size,
+                                  num_epochs,
+                                  scheduler_gamma=0.9):
     """
 
     :param premise_mode: A string representing the premise mode towards which the dataset is oriented. For example,
@@ -398,7 +425,15 @@ def probe_model_with_premise_mode(premise_mode,
     :param training_batch_size: The batch size used while training the probe. An integer.
     :param eval_batch_size: The batch size used for probe evaluation. An integer.
     :param num_epochs: The number of epochs used to train our probing model.
-    :return: A 3-tuple consisting of pretrained_probing_model, fine_tuned_probing_model, eval_metrics
+    :param scheduler_gamma: Decay the learning rate of each parameter group by gamma every epoch.
+    :return: A 3-tuple consisting of pretrained_probing_model, fine_tuned_probing_model, eval_metrics.
+
+        'pretrained_probing_model' and 'fine_tuned_probing_model' are both either multi layer perceptrons implemented
+        via pytorch, or a logistic regression classifier from the SKLearn implementation.
+
+        'eval_metrics' is a dictionary whose keys are base_model types (i.e., pre-trained, fine-tuned, or multiclass),
+        and whose values are inner dictionaries. These inner dictionaries map metric names to their values (produced
+        via running the trained model on an evaluation set).
     """
     probing_dir_path = os.path.join(current_path, constants.PROBING)
     if not os.path.exists(probing_dir_path):
@@ -417,7 +452,7 @@ def probe_model_with_premise_mode(premise_mode,
     hidden_layer_datasets = (
         load_hidden_layer_outputs(premise_mode_probing_dir_path, pretrained=True, fine_tuned=True, multiclass=False))
     if probing_model == constants.MLP:
-        pretrained_probing_model, _, pretraining_eval_metrics = probe_model_with_mlp(
+        pretrained_probing_model, pretraining_eval_metrics = probe_model_with_mlp(
             hidden_layer_datasets,
             num_labels=constants.NUM_LABELS,
             learning_rate=learning_rate,
@@ -425,8 +460,8 @@ def probe_model_with_premise_mode(premise_mode,
             eval_batch_size=eval_batch_size,
             num_epochs=num_epochs,
             base_model_type=constants.PRETRAINED,
-            scheduler_gamma=0.9)
-        fine_tuned_probing_model, _, fine_tuned_eval_metrics = probe_model_with_mlp(
+            scheduler_gamma=scheduler_gamma)
+        fine_tuned_probing_model, fine_tuned_eval_metrics = probe_model_with_mlp(
             hidden_layer_datasets,
             num_labels=constants.NUM_LABELS,
             learning_rate=learning_rate,
@@ -434,15 +469,15 @@ def probe_model_with_premise_mode(premise_mode,
             eval_batch_size=eval_batch_size,
             num_epochs=num_epochs,
             base_model_type=constants.FINE_TUNED,
-            scheduler_gamma=0.9)
+            scheduler_gamma=scheduler_gamma)
         eval_metrics = {constants.PRETRAINED: pretraining_eval_metrics,
                         constants.FINE_TUNED: fine_tuned_eval_metrics}
         return pretrained_probing_model, fine_tuned_probing_model, eval_metrics
     elif probing_model == constants.LOGISTIC_REGRESSION:
-        pretrained_probing_model, _, pretraining_eval_metrics = probe_with_logistic_regression(
+        pretrained_probing_model, pretraining_eval_metrics = probe_with_logistic_regression(
             hidden_state_datasets=hidden_layer_datasets,
             base_model_type=constants.PRETRAINED)
-        fine_tuned_probing_model, _, fine_tuned_eval_metrics = probe_with_logistic_regression(
+        fine_tuned_probing_model, fine_tuned_eval_metrics = probe_with_logistic_regression(
             hidden_state_datasets=hidden_layer_datasets,
             base_model_type=constants.FINE_TUNED)
         eval_metrics = {constants.PRETRAINED: pretraining_eval_metrics,

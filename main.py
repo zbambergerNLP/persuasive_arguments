@@ -26,7 +26,7 @@ parser.add_argument('--probe_model_on_premise_modes',
                     default=True,
                     required=False,
                     help=('Whether or not a pre-trained transformer language model should be trained and evaluated'
-                          'on a probing task.\nIn this case, the probing task involves classifying the argumentation '
+                          'on a probing task. In this case, the probing task involves classifying the argumentation '
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
 parser.add_argument('--generate_new_probing_dataset',
                     type=bool,
@@ -38,8 +38,7 @@ parser.add_argument('--generate_new_probing_dataset',
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
 parser.add_argument('--probing_model',
                     type=str,
-                    # default=constants.LOGISTIC_REGRESSION,
-                    default=constants.MLP,
+                    default=constants.LOGISTIC_REGRESSION,
                     required=False,
                     help="The string name of the model type used for probing. Either logistic regression or MLP.")
 parser.add_argument('--fine_tune_model_on_premise_modes',
@@ -75,7 +74,7 @@ parser.add_argument('--model_checkpoint_name',
                     default=constants.BERT_BASE_CASED,
                     required=False,
                     help="The name of the checkpoint from which we load our model and tokenizer.")
-parser.add_argument('--num_training_ephocs',
+parser.add_argument('--num_training_epochs',
                     type=int,
                     default=50,
                     required=False,
@@ -111,6 +110,10 @@ parser.add_argument('--weight_decay',
                     type=float,
                     default=0.01,
                     help="The weight decay parameter supplied to the optimizer for use during training.")
+parser.add_argument('--probing_model_scheduler_gamma',
+                    type=float,
+                    default=0.9,
+                    help="Decays the learning rate of each parameter group by gamma every epoch.")
 parser.add_argument('--logging_steps',
                     type=int,
                     default=10,
@@ -133,7 +136,7 @@ if __name__ == "__main__":
 
     configuration = transformers.TrainingArguments(
         output_dir=args.output_dir,
-        num_train_epochs=args.num_training_ephocs,
+        num_train_epochs=args.num_training_epochs,
         per_device_train_batch_size=args.per_device_train_batch_size,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
         warmup_steps=args.warmup_steps,
@@ -170,7 +173,7 @@ if __name__ == "__main__":
                     model_configuration=configuration)
                 print(f'multi_class_eval_metrics: {multi_class_eval_metrics}')
             if args.probe_model_on_premise_modes:
-                pretrained_probing_model, _, eval_metrics = probing.probe_model_on_multiclass_premise_modes(
+                pretrained_probing_model, eval_metrics = probing.probe_model_on_multiclass_premise_modes(
                     dataset,
                     current_path,
                     args.fine_tuned_model_path,
@@ -180,7 +183,8 @@ if __name__ == "__main__":
                     learning_rate=args.probing_model_learning_rate,
                     training_batch_size=args.per_device_train_batch_size,
                     eval_batch_size=args.per_device_eval_batch_size,
-                    num_epochs=args.num_training_ephocs)
+                    num_epochs=args.num_training_epochs,
+                    scheduler_gamma=args.probing_model_scheduler_gamma)
         if args.probe_claim_and_premise_pair:
             ethos_dataset, logos_dataset, pathos_dataset = preprocessing.get_cmv_probing_datasets_with_claims(
                 tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED))
@@ -220,7 +224,8 @@ if __name__ == "__main__":
                                                 learning_rate=args.probing_model_learning_rate,
                                                 training_batch_size=args.per_device_train_batch_size,
                                                 eval_batch_size=args.per_device_eval_batch_size,
-                                                num_epochs=args.num_training_ephocs)
+                                                num_epochs=args.num_training_epochs,
+                                                scheduler_gamma=args.probing_model_scheduler_gamma)
             probing.probe_model_on_premise_mode(mode=constants.LOGOS,
                                                 dataset=logos_dataset,
                                                 current_path=current_path,
@@ -231,7 +236,8 @@ if __name__ == "__main__":
                                                 learning_rate=args.probing_model_learning_rate,
                                                 training_batch_size=args.per_device_train_batch_size,
                                                 eval_batch_size=args.per_device_eval_batch_size,
-                                                num_epochs=args.num_training_ephocs)
+                                                num_epochs=args.num_training_epochs,
+                                                scheduler_gamma=args.probing_model_scheduler_gamma)
             probing.probe_model_on_premise_mode(mode=constants.PATHOS,
                                                 dataset=pathos_dataset,
                                                 current_path=current_path,
@@ -242,4 +248,5 @@ if __name__ == "__main__":
                                                 learning_rate=args.probing_model_learning_rate,
                                                 training_batch_size=args.per_device_train_batch_size,
                                                 eval_batch_size=args.per_device_eval_batch_size,
-                                                num_epochs=args.num_training_ephocs)
+                                                num_epochs=args.num_training_epochs,
+                                                scheduler_gamma=args.probing_model_scheduler_gamma)
