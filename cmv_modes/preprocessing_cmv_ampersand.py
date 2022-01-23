@@ -2,6 +2,7 @@ import os
 from bs4 import BeautifulSoup
 import pandas as pd
 import constants
+from random import sample
 
 XML = "xml"
 PREMISE = "premise"
@@ -75,3 +76,89 @@ def get_claim_and_premise_mode_corpus():
         constants.CLAIM_TEXT: claims_lst,
         constants.PREMISE_TEXT: premises_lst,
         constants.PREMISE_MODE: label_lst})
+
+
+def get_claim_and_premise_with_relations_corpus():
+    true_examples_1 = []
+    true_examples_2 = []
+    neg_examples_1 = []
+    neg_examples_2 = []
+    pos_distances = []
+    neg_distances = []
+
+    current_path = os.getcwd()
+    for version in cmv_modes_with_claims_versions:
+        for sign in sign_lst:
+            thread_directories = os.path.join(current_path, version, sign)
+            for file_name in os.listdir(thread_directories):
+                if file_name.endswith(XML):
+                    print(os.path.join(thread_directories, file_name))
+                    with open(os.path.join(thread_directories, file_name), 'r') as f:
+                        data = f.read()
+                        bs_data = BeautifulSoup(data, XML)
+                        reply_or_op = bs_data.find_all(['OP', 'reply'])
+
+                        for rep in reply_or_op:
+                            res = rep.find_all(['premise', 'claim'])
+                            id_to_idx = {}
+
+                            for i, item in enumerate(res):
+                                id_to_idx[item['id']] = i
+
+                            idx_to_id = {value: key for key, value in id_to_idx.items()}
+
+                            for comment in res:
+                                attrs = vars(comment)
+                                if 'ref' in comment.attrs and 'name' in attrs and comment['ref'] in id_to_idx and \
+                                        comment['id'] in id_to_idx:
+                                    ref_idx = id_to_idx[comment['ref']]
+                                    comment_idx = id_to_idx[comment['id']]
+
+                                    if comment.name == 'claim' and comment['ref'] in id_to_idx.keys():
+                                        true_examples_1.append(comment.contents[0])
+                                        true_examples_2.append(res[ref_idx].contents[0])
+                                        pos_distance = abs(comment_idx - ref_idx) - 1
+                                        pos_distances.append(pos_distance)
+
+                                        if len(idx_to_id) > 2:
+                                            random_false_idx = \
+                                            sample(list(set(idx_to_id.keys()) ^ {ref_idx, comment_idx}), 1)[0]
+                                            neg_examples_1.append(comment.contents[0])
+                                            neg_examples_2.append(res[random_false_idx].contents[0])
+                                            neg_distance = abs(random_false_idx - comment_idx) - 1
+                                            neg_distances.append(neg_distance)
+
+                                    elif comment.name == 'premise' and comment['ref'] in id_to_idx.keys():
+                                        true_examples_1.append(res[ref_idx].contents[0])
+                                        true_examples_2.append(comment.contents[0])
+                                        pos_distance = abs(comment_idx - ref_idx) - 1
+                                        pos_distances.append(pos_distance)
+
+                                        if len(idx_to_id) > 2:
+                                            random_false_idx = \
+                                            sample(list(set(idx_to_id.keys()) ^ {ref_idx, comment_idx}), 1)[0]
+                                            neg_examples_1.append(res[random_false_idx].contents[0])
+                                            neg_examples_2.append(comment.contents[0])
+                                            neg_distance = abs(random_false_idx - comment_idx) - 1
+                                            neg_distances.append(neg_distance)
+
+    min_len = min(len(true_examples_1), len(neg_examples_1))
+    true_examples_1 = true_examples_1[:min_len]
+    true_examples_2 = true_examples_2[:min_len]
+    neg_examples_1 = neg_examples_1[:min_len]
+    neg_examples_2 = neg_examples_2[:min_len]
+    pos_distances = pos_distances[:min_len]
+    neg_distances = neg_distances[:min_len]
+    labels = [1] * min_len + [0] * min_len
+
+    df = pd.DataFrame({
+        'sentence_1': true_examples_1 + neg_examples_1,
+        'sentence_2': true_examples_2 + neg_examples_2,
+        'distance': pos_distances + neg_distances,
+        'label': labels
+    })
+
+    df = df[df['sentence_1'] != df['sentence_2']]
+    df = df.drop_duplicates()
+
+    return df
