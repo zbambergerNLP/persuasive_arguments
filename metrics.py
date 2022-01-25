@@ -55,7 +55,13 @@ def get_baseline_scores(corpus_df):
         and REPLY columns consist of text entries while LABEL is {0, 1}.
     :return: A dictionary of metrics containing the following keys: precision, recall, f1, accuracy.
     """
-    corpus_df['combined'] = corpus_df['context_text'] + corpus_df[constants.PREMISE_TEXT]
+    if 'context_text' in corpus_df:
+        # In this case we are extracting signals from a claim + premise pair.
+        corpus_df['combined'] = corpus_df['context_text'] + corpus_df[constants.PREMISE_TEXT]
+    else:
+        # In this case, we are only extracting signals from the premise.
+        corpus_df['combined'] = corpus_df[constants.PREMISE_TEXT]
+
     train, test = train_test_split(corpus_df, test_size=0.2)
 
     cv = CountVectorizer(binary=True, min_df=1, max_df=0.95, ngram_range=(1, 2))

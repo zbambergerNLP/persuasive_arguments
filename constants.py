@@ -55,6 +55,12 @@ ETHOS_LOGOS_PATHOS = 'ethos_logos_pathos'
 PREMISE_EMPTY = ''
 PREMISE_INTERPRETATION = 'interpretation'
 
+# Intra-Argument Relations
+INTRA_ARGUMENT_RELATIONS = 'intra_argument_relations'
+SENTENCE_1 = 'sentence_1'
+SENTENCE_2 = 'sentence_2'
+PREPOSITION_DISTANCE = 'preposition_distance'
+
 # TODO: Remove PREMISE_INTERPRETATION from the below dictionary of supported premise types.
 PREMISE_MODE_TO_INT = {ETHOS: 0,
                        LOGOS: 1,

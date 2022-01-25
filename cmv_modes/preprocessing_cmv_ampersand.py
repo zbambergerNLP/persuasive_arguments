@@ -78,6 +78,8 @@ def get_claim_and_premise_mode_corpus():
         constants.PREMISE_MODE: label_lst})
 
 
+# TODO(Eli): Document this function and perhaps consider breaking it up into helper functions. Ensure that constants
+#  are drawn from the constants.py file.
 def get_claim_and_premise_with_relations_corpus():
     true_examples_1 = []
     true_examples_2 = []
@@ -92,7 +94,6 @@ def get_claim_and_premise_with_relations_corpus():
             thread_directories = os.path.join(current_path, version, sign)
             for file_name in os.listdir(thread_directories):
                 if file_name.endswith(XML):
-                    print(os.path.join(thread_directories, file_name))
                     with open(os.path.join(thread_directories, file_name), 'r') as f:
                         data = f.read()
                         bs_data = BeautifulSoup(data, XML)
@@ -152,13 +153,13 @@ def get_claim_and_premise_with_relations_corpus():
     labels = [1] * min_len + [0] * min_len
 
     df = pd.DataFrame({
-        'sentence_1': true_examples_1 + neg_examples_1,
-        'sentence_2': true_examples_2 + neg_examples_2,
-        'distance': pos_distances + neg_distances,
-        'label': labels
+        constants.SENTENCE_1: true_examples_1 + neg_examples_1,
+        constants.SENTENCE_2: true_examples_2 + neg_examples_2,
+        constants.PREPOSITION_DISTANCE: pos_distances + neg_distances,
+        constants.LABEL: labels
     })
 
-    df = df[df['sentence_1'] != df['sentence_2']]
+    df = df[df[constants.SENTENCE_1] != df[constants.SENTENCE_2]]
     df = df.drop_duplicates()
 
     return df
