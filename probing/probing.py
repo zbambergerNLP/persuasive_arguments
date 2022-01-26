@@ -36,12 +36,12 @@ def save_model_embeddings_on_batch(transformer_model, batch, model_base_file_nam
     model_file_name = f"{model_base_file_name}_batch_{batch_index + 1}.{SUFFIX}"
     model_file_path = os.path.join(probing_dir_path, model_file_name)
     with open(model_file_path, "w") as f:
-        print(f'saving pretrained model embedding with shape {model_embedding_hidden_state.shape} '
+        print(f'Saving pretrained model embedding with shape {model_embedding_hidden_state.shape} '
               f'from batch #{batch_index + 1}  to {model_file_path}')
         json.dump(
             {
-                'hidden_state': model_embedding_hidden_state.tolist(),
-                'label': batch[constants.LABEL].tolist()
+                constants.HIDDEN_STATE: model_embedding_hidden_state.tolist(),
+                constants.LABEL: batch[constants.LABEL].tolist()
             }, f)
 
 
@@ -75,6 +75,7 @@ def probe_model_on_premise_mode(mode,
     :param training_batch_size: The batch size used while training the probe. An integer.
     :param eval_batch_size: The batch size used for probe evaluation. An integer.
     :param num_epochs: The number of training epochs used to train the probe if using a MLP.
+    :param scheduler_gamma: Decays the learning rate of each parameter group by gamma every epoch.
     """
     pretrained_probing_model, fine_tuned_probing_mode, probing_eval_metrics = (
         probe_model_with_premise_mode(mode,
@@ -244,7 +245,7 @@ def probe_with_logistic_regression(hidden_state_datasets, base_model_type):
     hidden_states_train = dataset_train.cmv_premise_mode_dataset[constants.HIDDEN_STATE]
     targets_train = dataset_train.cmv_premise_mode_dataset[constants.LABEL]
 
-    # TODO(zbamberger): Implement a sweep to try to identify optimal logistic regression hyper-parameters at scale.
+    # TODO(Eli): Implement a sweep to try to identify optimal logistic regression hyper-parameters at scale.
     # TODO(zbamberger): Investigate why "balanced" linear regression configuration leads to significantly poorer
     #  results (i.e., always predicting label 0, despite it having very few supporting examples).
     probing_model = (

@@ -20,7 +20,7 @@ parser.add_argument('--probing_wandb_entity',
 # General probing parameters
 parser.add_argument('--probing_model',
                     type=str,
-                    default=constants.LOGISTIC_REGRESSION,
+                    default=constants.MLP,
                     required=False,
                     help="The string name of the model type used for probing. Either logistic regression or MLP.")
 parser.add_argument('--fine_tuned_model_path',
@@ -35,7 +35,7 @@ parser.add_argument('--model_checkpoint_name',
                     help="The name of the checkpoint from which we load our model and tokenizer.")
 parser.add_argument('--probing_model_learning_rate',
                     type=float,
-                    default=1e-1,
+                    default=1e-4,
                     required=False,
                     help="The learning rate used by the probing model for the probing task.")
 parser.add_argument('--probing_model_scheduler_gamma',
@@ -55,8 +55,7 @@ parser.add_argument('--probe_model_on_intra_argument_relations',
                          "argument preposition.")
 parser.add_argument('--generate_new_relations_probing_dataset',
                     type=bool,
-                    # default=False,
-                    default=True,
+                    default=False,
                     required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
@@ -113,7 +112,7 @@ parser.add_argument('--probing_output_dir',
                     help="The directory in which probing model results are stored.")
 parser.add_argument('--probing_num_training_epochs',
                     type=int,
-                    default=50,
+                    default=300,
                     required=False,
                     help="The number of training rounds over the probing dataset.")
 parser.add_argument('--probing_per_device_train_batch_size',
