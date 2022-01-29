@@ -20,7 +20,7 @@ parser.add_argument('--probing_wandb_entity',
 # General probing parameters
 parser.add_argument('--probing_model',
                     type=str,
-                    default=constants.MLP,
+                    default=constants.LOGISTIC_REGRESSION,
                     required=False,
                     help="The string name of the model type used for probing. Either logistic regression or MLP.")
 parser.add_argument('--fine_tuned_model_path',
@@ -35,7 +35,7 @@ parser.add_argument('--model_checkpoint_name',
                     help="The name of the checkpoint from which we load our model and tokenizer.")
 parser.add_argument('--probing_model_learning_rate',
                     type=float,
-                    default=1e-4,
+                    default=1e-3,
                     required=False,
                     help="The learning rate used by the probing model for the probing task.")
 parser.add_argument('--probing_model_scheduler_gamma',
@@ -112,7 +112,7 @@ parser.add_argument('--probing_output_dir',
                     help="The directory in which probing model results are stored.")
 parser.add_argument('--probing_num_training_epochs',
                     type=int,
-                    default=300,
+                    default=2,
                     required=False,
                     help="The number of training rounds over the probing dataset.")
 parser.add_argument('--probing_per_device_train_batch_size',
@@ -177,11 +177,12 @@ if __name__ == "__main__":
                 tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED))
 
         if args.fine_tune_model_on_argument_relations:
-            fine_tuning.fine_tune_model_on_argument_relation_prediction(
+            _, intra_argument_relations_eval_metrics = fine_tuning.fine_tune_model_on_argument_relation_prediction(
                 current_path=current_path,
                 probing_dataset=intra_argument_relations_probing_dataset,
                 model=model,
                 model_configuration=configuration)
+            print(f'intra_argument_relations_eval_metrics:\n{intra_argument_relations_eval_metrics}')
 
         if args.probe_model_on_intra_argument_relations:
             probing.probe_model_on_intra_argument_relations_dataset(

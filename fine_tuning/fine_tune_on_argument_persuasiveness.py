@@ -6,6 +6,15 @@ import argparse
 
 import wandb
 
+"""
+Example command on Newton Cluster:
+srun --gres=gpu:1 -p nlp python3 fine_tune_on_argument_persuasiveness.py \
+    --fine_tuning_num_training_epochs 10 \
+    --fine_tuning_per_device_train_batch_size 16 \
+    --fine_tuning_per_device_eval_batch_size 32
+"""
+
+
 parser = argparse.ArgumentParser(
     description='Process flags for fine-tuning transformers on an argumentation downstream task.')
 parser.add_argument('--fine_tuning_dataset_name',
@@ -20,7 +29,7 @@ parser.add_argument('--fine_tuning_model_checkpoint_name',
                     help="The name of the checkpoint from which we load our model and tokenizer.")
 parser.add_argument('--fine_tuning_num_training_epochs',
                     type=int,
-                    default=50,
+                    default=4,
                     required=False,
                     help="The number of training rounds over the dataset.")
 parser.add_argument('--fine_tuning_output_dir',

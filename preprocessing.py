@@ -489,9 +489,10 @@ def transform_binary_cmv_relations_df_to_dataset(
         print(f'wrote pandas dataframe into memory: {os.path.join(os.getcwd(), "corpus_dataframe_tmp.csv")}')
 
     # TODO(Eli): Extend get_baseline_scores to the binary relation prediction task.
-    # baseline_results = metrics.get_baseline_scores(corpus_df)
-    # print('Baseline results for binary relation prediction are:')
-    # print(baseline_results)
+    print(f'corpus_df: {corpus_df}')
+    baseline_results = metrics.get_baseline_scores(corpus_df)
+    print('Baseline results for binary relation prediction are:')
+    print(baseline_results)
 
     dataset = Dataset.from_dict(
         to_dict_func(

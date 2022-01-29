@@ -55,9 +55,11 @@ def get_baseline_scores(corpus_df):
         and REPLY columns consist of text entries while LABEL is {0, 1}.
     :return: A dictionary of metrics containing the following keys: precision, recall, f1, accuracy.
     """
-    if 'context_text' in corpus_df:
+    if constants.CLAIM_TEXT in corpus_df:
         # In this case we are extracting signals from a claim + premise pair.
-        corpus_df['combined'] = corpus_df['context_text'] + corpus_df[constants.PREMISE_TEXT]
+        corpus_df['combined'] = corpus_df[constants.CLAIM_TEXT] + corpus_df[constants.PREMISE_TEXT]
+    elif constants.SENTENCE_2 in corpus_df:
+        corpus_df['combined'] = corpus_df[constants.SENTENCE_1] + corpus_df[constants.SENTENCE_2]
     else:
         # In this case, we are only extracting signals from the premise.
         corpus_df['combined'] = corpus_df[constants.PREMISE_TEXT]
@@ -70,11 +72,18 @@ def get_baseline_scores(corpus_df):
     test_feature_set = cv.transform(test['combined'].values.astype('U'))
 
     lr = LogisticRegression(class_weight='balanced', max_iter=1000)
-    y_train = train[constants.PREMISE_MODE]
-    lr.fit(train_feature_set, y_train)
+    if constants.PREMISE_MODE in train:
+        y_train = train[constants.PREMISE_MODE]
+    else:
+        y_train = train[constants.LABEL]
 
+    lr.fit(train_feature_set, y_train)
     y_pred = lr.predict(test_feature_set)
-    y_test = test[constants.PREMISE_MODE]
+
+    if constants.PREMISE_MODE in test:
+        y_test = test[constants.PREMISE_MODE]
+    else:
+        y_test = test[constants.LABEL]
 
     precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average='weighted')
     accuracy = sum(y_test == y_pred) / len(y_test)
