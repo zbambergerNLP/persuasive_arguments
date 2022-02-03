@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import wandb
 import sys
@@ -82,6 +83,7 @@ parser.add_argument('--fine_tuning_wandb_entity',
                     help="The wandb entity used to track training.")
 
 if __name__ == "__main__":
+    logger = logging.getLogger(__name__)
     args = parser.parse_args()
 
     if args.fine_tuning_wandb_entity:
@@ -114,4 +116,5 @@ if __name__ == "__main__":
                                       model=model,
                                       configuration=configuration,
                                       task_name=constants.BINARY_CMV_DELTA_PREDICTION,
-                                      is_probing=False))
+                                      is_probing=False,
+                                      logger=logger))

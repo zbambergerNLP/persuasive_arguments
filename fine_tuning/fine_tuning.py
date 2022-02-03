@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import logging
+
 import datasets
-from datasets import load_metric
 
 import preprocessing
 import constants
@@ -18,7 +19,8 @@ def fine_tune_on_task(dataset: datasets.Dataset,
                       configuration: transformers.TrainingArguments,
                       task_name: str,
                       is_probing: bool = False,
-                      premise_mode:str = None) -> tuple[transformers.Trainer, dict]:
+                      premise_mode:str = None,
+                      logger: logging.Logger = None) -> tuple[transformers.Trainer, dict]:
     """Fine tune a transformer language model on the provided dataset.
 
     :param dataset: The dataset on which we fine-tune the given model.
@@ -62,7 +64,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         compute_metrics=metrics_function)
 
     # Training
-    transformers.logger.info("*** Train ***")
+    logger.info("*** Train ***")
     train_result = trainer.train()
     training_metrics = train_result.metrics
 
@@ -71,7 +73,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
     trainer.save_metrics(split=constants.TRAIN, metrics=training_metrics)
 
     # Evaluation
-    transformers.logger.info("*** Evaluate ***")
+    logger.info("*** Evaluate ***")
     eval_metrics = trainer.evaluate()
     trainer.log_metrics(split=constants.EVAL, metrics=metrics)
     trainer.save_metrics(split=constants.EVAL, metrics=metrics)
