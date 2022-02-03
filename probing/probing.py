@@ -245,9 +245,7 @@ def probe_with_logistic_regression(hidden_state_datasets, base_model_type):
     hidden_states_train = dataset_train.cmv_premise_mode_dataset[constants.HIDDEN_STATE]
     targets_train = dataset_train.cmv_premise_mode_dataset[constants.LABEL]
 
-    # TODO(Eli): Implement a sweep to try to identify optimal logistic regression hyper-parameters at scale.
-    # TODO(zbamberger): Investigate why "balanced" linear regression configuration leads to significantly poorer
-    #  results (i.e., always predicting label 0, despite it having very few supporting examples).
+    # TODO: Implement a sweep to try to identify optimal logistic regression hyper-parameters at scale.
     probing_model = (
         sklearn.linear_model.LogisticRegression(
             max_iter=1000).fit(hidden_states_train, targets_train))

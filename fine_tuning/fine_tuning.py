@@ -75,7 +75,9 @@ def fine_tune_on_task(dataset: datasets.Dataset,
     # Evaluation
     logger.info("*** Evaluate ***")
     eval_metrics = trainer.evaluate()
-    trainer.log_metrics(split=constants.EVAL, metrics=metrics)
-    trainer.save_metrics(split=constants.EVAL, metrics=metrics)
+
+    # TODO: The below lines produce `AttributeError: module 'metrics' has no attribute 'copy'`. Resolve this issue.
+    # trainer.log_metrics(split=constants.EVAL, metrics=metrics)
+    # trainer.save_metrics(split=constants.EVAL, metrics=metrics)
 
     return trainer, eval_metrics
