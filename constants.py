@@ -38,6 +38,7 @@ TOKEN_TYPE_IDS = 'token_type_ids'
 ATTENTION_MASK = 'attention_mask'
 
 # CMV Dataset
+BINARY_CMV_DELTA_PREDICTION = 'binary_cmv_delta_prediction'
 CONVOKIT_DATASET_NAME = 'winning-args-corpus'
 CMV_DATASET_NAME = 'cmv_delta_prediction.json'
 SUCCESS = 'success'
@@ -80,6 +81,7 @@ LABEL = 'label'
 
 
 # CMV Premise Mode Dataset
+BINARY_PREMISE_MODE_PREDICTION = 'binary_premise_mode_prediction'
 PREMISE_TEXT = 'premise_text'
 CLAIM_TEXT = 'context_text'
 PREMISE_MODE = 'premise_mode'
@@ -97,3 +99,7 @@ PROBING = "probing"
 LOGISTIC_REGRESSION = 'logistic_regression'
 MLP = "mlp"
 HIDDEN_STATE = "hidden_state"
+
+# Wandb constants
+RESULTS = 'results'
+LOG = 'log'

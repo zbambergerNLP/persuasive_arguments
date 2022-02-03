@@ -75,7 +75,7 @@ parser.add_argument('--generate_new_relations_probing_dataset',
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
 parser.add_argument('--fine_tune_model_on_argument_relations',
                     type=bool,
-                    default=False,
+                    default=True,
                     required=False,
                     help='Fine tune the model specified in `model_checkpoint_name` on the relation prediction probing'
                          ' dataset.')
@@ -190,11 +190,12 @@ if __name__ == "__main__":
                 tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED))
 
         if args.fine_tune_model_on_argument_relations:
-            _, intra_argument_relations_eval_metrics = fine_tuning.fine_tune_model_on_argument_relation_prediction(
-                current_path=current_path,
-                probing_dataset=intra_argument_relations_probing_dataset,
-                model=model,
-                model_configuration=configuration)
+            _, intra_argument_relations_eval_metrics = (
+                fine_tuning.fine_tune_on_task(dataset=intra_argument_relations_probing_dataset,
+                                              model=model,
+                                              configuration=configuration,
+                                              task_name=constants.INTRA_ARGUMENT_RELATIONS,
+                                              is_probing=True))
             print(f'intra_argument_relations_eval_metrics:\n{intra_argument_relations_eval_metrics}')
 
         if args.probe_model_on_intra_argument_relations:
@@ -219,11 +220,12 @@ if __name__ == "__main__":
         dataset = preprocessing.get_multi_class_cmv_probing_dataset(tokenizer=tokenizer,
                                                                     with_claims=args.probe_claim_and_premise_pair)
         if args.fine_tune_model_on_premise_modes:
-            _, multi_class_eval_metrics = fine_tuning.fine_tune_model_on_multiclass_premise_mode(
-                current_path,
-                probing_dataset=dataset,
-                model=pretrained_multiclass_model,
-                model_configuration=configuration)
+            _, multi_class_eval_metrics = (
+                fine_tuning.fine_tune_on_task(dataset=dataset,
+                                              model=model,
+                                              configuration=configuration,
+                                              task_name=constants.MULTICLASS,
+                                              is_probing=True))
             print(f'multi_class_eval_metrics:\n{multi_class_eval_metrics}')
         if args.probe_model_on_premise_modes:
             probing.probe_model_on_multiclass_premise_modes(
@@ -250,25 +252,29 @@ if __name__ == "__main__":
     # Perform fine-tuning on each of the premise mode binary classification tasks.
     if args.fine_tune_model_on_premise_modes:
         ethos_model, ethos_eval_metrics = (
-            fine_tuning.fine_tune_model_on_premise_mode(current_path,
-                                                        premise_mode=constants.ETHOS,
-                                                        probing_dataset=ethos_dataset,
-                                                        model=model,
-                                                        model_configuration=configuration))
+            fine_tuning.fine_tune_on_task(dataset=ethos_dataset,
+                                          model=model,
+                                          configuration=configuration,
+                                          task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
+                                          is_probing=True,
+                                          premise_mode=constants.ETHOS)
+        )
         print(f'ethos_eval_metrics:\n{ethos_eval_metrics}')
-        logos_model, logos_eval_metrics = (
-            fine_tuning.fine_tune_model_on_premise_mode(current_path,
-                                                        premise_mode=constants.LOGOS,
-                                                        probing_dataset=logos_dataset,
-                                                        model=model,
-                                                        model_configuration=configuration))
+        logos, logos_eval_metrics = (
+            fine_tuning.fine_tune_on_task(dataset=logos_dataset,
+                                          model=model,
+                                          configuration=configuration,
+                                          task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
+                                          is_probing=True,
+                                          premise_mode=constants.LOGOS))
         print(f'logos_eval_metrics:\n{logos_eval_metrics}')
         pathos_model, pathos_eval_metrics = (
-            fine_tuning.fine_tune_model_on_premise_mode(current_path,
-                                                        premise_mode=constants.PATHOS,
-                                                        probing_dataset=pathos_dataset,
-                                                        model=model,
-                                                        model_configuration=configuration))
+            fine_tuning.fine_tune_on_task(dataset=pathos_dataset,
+                                          model=model,
+                                          configuration=configuration,
+                                          task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
+                                          is_probing=True,
+                                          premise_mode=constants.PATHOS))
         print(f'pathos_eval_metrics:\n{pathos_eval_metrics}')
     if args.probe_model_on_premise_modes:
         probing.probe_model_on_premise_mode(mode=constants.ETHOS,

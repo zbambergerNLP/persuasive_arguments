@@ -6,15 +6,17 @@ import transformers
 
 # This is necessary when running this script from the server.
 try:
-    import fine_tuning
     import constants
+    import fine_tuning
+    import preprocessing
 except ModuleNotFoundError as e:
     # Extend the persuasive_argumentation package.
     package_path = os.sep.join(os.getcwd().split(os.sep)[:-1])
     print(f'Adding package path {package_path} to "sys.path"')
     sys.path.extend([package_path])
-    import fine_tuning
     import constants
+    import fine_tuning
+    import preprocessing
 
 
 
@@ -103,8 +105,13 @@ if __name__ == "__main__":
     model = transformers.BertForSequenceClassification.from_pretrained(
         args.fine_tuning_model_checkpoint_name,
         num_labels=constants.NUM_LABELS)
-
-    fine_tuned_trainer, downstream_metrics = fine_tuning.fine_tune_on_downstream_task(
+    dataset = preprocessing.get_cmv_downstream_dataset(
         dataset_name=args.fine_tuning_dataset_name,
-        model=model,
-        configuration=configuration)
+        tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
+    )
+    fine_tuned_model, downstream_metrics = (
+        fine_tuning.fine_tune_on_task(dataset=dataset,
+                                      model=model,
+                                      configuration=configuration,
+                                      task_name=constants.BINARY_CMV_DELTA_PREDICTION,
+                                      is_probing=False))
