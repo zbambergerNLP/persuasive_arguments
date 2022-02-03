@@ -1,10 +1,22 @@
-import fine_tuning
-import constants
-
-import transformers
 import argparse
-
+import os
 import wandb
+import sys
+import transformers
+
+# This is necessary when running this script from the server.
+try:
+    import fine_tuning
+    import constants
+except ModuleNotFoundError as e:
+    # Extend the persuasive_argumentation package.
+    package_path = os.sep.join(os.getcwd().split(os.sep)[:-1])
+    print(f'Adding package path {package_path} to "sys.path"')
+    sys.path.extend([package_path])
+    import fine_tuning
+    import constants
+
+
 
 """
 Example command on Newton Cluster:

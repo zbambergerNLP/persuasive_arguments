@@ -9,6 +9,19 @@ import argparse
 
 import wandb
 
+"""
+How to run fine-tuning on the relation extraction probing task:
+srun --gres=gpu:1 -p nlp python3 main.py \
+    --fine_tune_model_on_argument_relations True \
+    --probing_num_training_epochs 8
+    
+How to run probing experiments:
+srun --gres=gpu:1 -p nlp python3 main.py --probing_model "logistic_regression" \
+    --fine_tuned_model_path "results/checkpoint-500" \
+    --fine_tune_model_on_argument_relations True \
+    --probing_num_training_epochs 8
+"""
+
 parser = argparse.ArgumentParser(
     description='Process flags for fine-tuning transformers on an argumentation downstream task.')
 parser.add_argument('--probing_wandb_entity',
