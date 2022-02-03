@@ -45,7 +45,7 @@ parser.add_argument('--fine_tuning_num_training_epochs',
                     default=4,
                     required=False,
                     help="The number of training rounds over the dataset.")
-parser.add_argument('--fine_tuning_model_learning_rate',
+parser.add_argument('--fine_tuning_learning_rate',
                     type=float,
                     default=1e-3,
                     required=False,
