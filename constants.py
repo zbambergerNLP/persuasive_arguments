@@ -1,4 +1,5 @@
 TRAIN = "train"
+EVAL = "eval"
 TEST = "test"
 
 # Flag names

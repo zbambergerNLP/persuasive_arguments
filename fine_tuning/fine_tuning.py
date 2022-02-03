@@ -1,11 +1,24 @@
+from __future__ import annotations
+
+import datasets
+from datasets import load_metric
+
 import preprocessing
 import constants
 import metrics
 import transformers
+import torch
 import os
+import typing
+from collections.abc import Callable, Sequence
 
 
-def fine_tune_on_task(dataset, model, configuration, task_name, is_probing=False, premise_mode=None):
+def fine_tune_on_task(dataset: datasets.Dataset,
+                      model: transformers.PreTrainedModel | torch.torch.nn.Module,
+                      configuration: transformers.TrainingArguments,
+                      task_name: str,
+                      is_probing: bool = False,
+                      premise_mode:str = None) -> tuple[transformers.Trainer, dict]:
     """Fine tune a transformer language model on the provided dataset.
 
     :param dataset: The dataset on which we fine-tune the given model.
@@ -40,14 +53,27 @@ def fine_tune_on_task(dataset, model, configuration, task_name, is_probing=False
     metrics_function = (
         metrics.compute_metrics_for_multi_class_classification if task_name == constants.MULTICLASS else
         metrics.compute_metrics_for_binary_classification)
+
     trainer = transformers.Trainer(
         model=model,
         args=configuration,
         train_dataset=train_dataset,
         eval_dataset=test_dataset,
-        compute_metrics=metrics_function,
-    )
-    trainer.train()
+        compute_metrics=metrics_function)
+
+    # Training
+    transformers.logger.info("*** Train ***")
+    train_result = trainer.train()
+    training_metrics = train_result.metrics
+
     trainer.save_model()
+    trainer.log_metrics(split=constants.TRAIN, metrics=training_metrics)
+    trainer.save_metrics(split=constants.TRAIN, metrics=training_metrics)
+
+    # Evaluation
+    transformers.logger.info("*** Evaluate ***")
     eval_metrics = trainer.evaluate()
+    trainer.log_metrics(split=constants.EVAL, metrics=metrics)
+    trainer.save_metrics(split=constants.EVAL, metrics=metrics)
+
     return trainer, eval_metrics
