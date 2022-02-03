@@ -19,8 +19,6 @@ except ModuleNotFoundError as e:
     import fine_tuning
     import preprocessing
 
-
-
 """
 Example command on Newton Cluster:
 srun --gres=gpu:1 -p nlp python3 fine_tune_on_argument_persuasiveness.py \
@@ -47,6 +45,11 @@ parser.add_argument('--fine_tuning_num_training_epochs',
                     default=4,
                     required=False,
                     help="The number of training rounds over the dataset.")
+parser.add_argument('--fine_tuning_model_learning_rate',
+                    type=float,
+                    default=1e-3,
+                    required=False,
+                    help="The learning rate used by the fine-tuning model for the downstream task.")
 parser.add_argument('--fine_tuning_output_dir',
                     type=str,
                     default='./results',
@@ -69,6 +72,10 @@ parser.add_argument('--fine_tuning_warmup_steps',
                     type=int,
                     default=500,
                     help="The number of warmup steps the model takes at the start of training.")
+parser.add_argument('--eval_steps',
+                    type=int,
+                    default=500,
+                    help="Perform evaluation every 'eval_steps' steps.")
 parser.add_argument('--fine_tuning_weight_decay',
                     type=float,
                     default=0.01,
@@ -98,6 +105,9 @@ if __name__ == "__main__":
         num_train_epochs=args.fine_tuning_num_training_epochs,
         per_device_train_batch_size=args.fine_tuning_per_device_train_batch_size,
         per_device_eval_batch_size=args.fine_tuning_per_device_eval_batch_size,
+        eval_steps=args.eval_steps,
+        evaluation_strategy='steps',
+        learning_rate=args.fine_tuning_learning_rate,
         warmup_steps=args.fine_tuning_warmup_steps,
         weight_decay=args.fine_tuning_weight_decay,
         logging_dir=args.fine_tuning_logging_dir,

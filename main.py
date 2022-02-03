@@ -3,6 +3,7 @@ import probing.probing as probing
 import preprocessing
 import constants
 
+import logging
 import os
 import transformers
 import argparse
@@ -136,6 +137,10 @@ parser.add_argument('--probing_per_device_eval_batch_size',
                     type=int,
                     default=64,
                     help="The number of examples per batch per device during probe evaluation.")
+parser.add_argument('--eval_steps',
+                    type=int,
+                    default=500,
+                    help="Perform evaluation every 'eval_steps' steps.")
 parser.add_argument('--probing_warmup_steps',
                     type=int,
                     default=500,
@@ -156,6 +161,7 @@ parser.add_argument('--probing_logging_steps',
 
 
 if __name__ == "__main__":
+    logger = logging.getLogger(__name__)
     args = parser.parse_args()
 
     if args.probing_wandb_entity:
@@ -168,6 +174,9 @@ if __name__ == "__main__":
     configuration = transformers.TrainingArguments(
         output_dir=args.probing_output_dir,
         num_train_epochs=args.probing_num_training_epochs,
+        eval_steps=args.eval_steps,
+        evaluation_strategy='steps',
+        learning_rate=args.probing_model_learning_rate,
         per_device_train_batch_size=args.probing_per_device_train_batch_size,
         per_device_eval_batch_size=args.probing_per_device_eval_batch_size,
         warmup_steps=args.probing_warmup_steps,
@@ -195,7 +204,8 @@ if __name__ == "__main__":
                                               model=model,
                                               configuration=configuration,
                                               task_name=constants.INTRA_ARGUMENT_RELATIONS,
-                                              is_probing=True))
+                                              is_probing=True,
+                                              logger=logger))
             print(f'intra_argument_relations_eval_metrics:\n{intra_argument_relations_eval_metrics}')
 
         if args.probe_model_on_intra_argument_relations:
@@ -225,7 +235,8 @@ if __name__ == "__main__":
                                               model=model,
                                               configuration=configuration,
                                               task_name=constants.MULTICLASS,
-                                              is_probing=True))
+                                              is_probing=True,
+                                              logger=logger))
             print(f'multi_class_eval_metrics:\n{multi_class_eval_metrics}')
         if args.probe_model_on_premise_modes:
             probing.probe_model_on_multiclass_premise_modes(
@@ -257,7 +268,8 @@ if __name__ == "__main__":
                                           configuration=configuration,
                                           task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                           is_probing=True,
-                                          premise_mode=constants.ETHOS)
+                                          premise_mode=constants.ETHOS,
+                                          logger=logger)
         )
         print(f'ethos_eval_metrics:\n{ethos_eval_metrics}')
         logos, logos_eval_metrics = (
@@ -266,7 +278,8 @@ if __name__ == "__main__":
                                           configuration=configuration,
                                           task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                           is_probing=True,
-                                          premise_mode=constants.LOGOS))
+                                          premise_mode=constants.LOGOS,
+                                          logger=logger))
         print(f'logos_eval_metrics:\n{logos_eval_metrics}')
         pathos_model, pathos_eval_metrics = (
             fine_tuning.fine_tune_on_task(dataset=pathos_dataset,
@@ -274,7 +287,8 @@ if __name__ == "__main__":
                                           configuration=configuration,
                                           task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                           is_probing=True,
-                                          premise_mode=constants.PATHOS))
+                                          premise_mode=constants.PATHOS,
+                                          logger=logger))
         print(f'pathos_eval_metrics:\n{pathos_eval_metrics}')
     if args.probe_model_on_premise_modes:
         probing.probe_model_on_premise_mode(mode=constants.ETHOS,
