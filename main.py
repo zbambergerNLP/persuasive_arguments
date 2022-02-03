@@ -69,7 +69,7 @@ parser.add_argument('--probe_model_on_intra_argument_relations',
                          "argument preposition.")
 parser.add_argument('--generate_new_relations_probing_dataset',
                     type=bool,
-                    default=False,
+                    default=True,
                     required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
@@ -92,15 +92,14 @@ parser.add_argument('--probe_model_on_premise_modes',
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
 parser.add_argument('--generate_new_premise_mode_probing_dataset',
                     type=bool,
-                    default=False,
-                    # default=True,
+                    default=True,
                     required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
 parser.add_argument('--fine_tune_model_on_premise_modes',
                     type=bool,
-                    default=False,
+                    default=True,
                     required=False,
                     help='Fine tune the model specified in `model_checkpoint_name` on the probing datasets.')
 parser.add_argument('--probe_model_fine_tuned_on_probing_task',
@@ -132,7 +131,7 @@ parser.add_argument('--probing_output_dir',
                     help="The directory in which probing model results are stored.")
 parser.add_argument('--probing_num_training_epochs',
                     type=int,
-                    default=2,
+                    default=6,
                     required=False,
                     help="The number of training rounds over the probing dataset.")
 parser.add_argument('--probing_per_device_train_batch_size',
@@ -145,11 +144,11 @@ parser.add_argument('--probing_per_device_eval_batch_size',
                     help="The number of examples per batch per device during probe evaluation.")
 parser.add_argument('--eval_steps',
                     type=int,
-                    default=500,
+                    default=50,
                     help="Perform evaluation every 'eval_steps' steps.")
 parser.add_argument('--probing_warmup_steps',
                     type=int,
-                    default=500,
+                    default=200,
                     help="The number of warmup steps the model takes at the start of probing.")
 parser.add_argument('--probing_weight_decay',
                     type=float,
@@ -223,7 +222,7 @@ if __name__ == "__main__":
                                                      constants.PROBING,
                                                      constants.INTRA_ARGUMENT_RELATIONS,
                                                      constants.RESULTS,
-                                                     'checkpoint-2000')
+                                                     'checkpoint-500')
                 probing.probe_model_on_intra_argument_relations_dataset(
                     dataset=intra_argument_relations_probing_dataset,
                     current_path=current_path,
@@ -274,7 +273,7 @@ if __name__ == "__main__":
                                                      constants.PROBING,
                                                      constants.MULTICLASS,
                                                      constants.RESULTS,
-                                                     'checkpoint-2000')
+                                                     'checkpoint-500')
                 probing.probe_model_on_intra_argument_relations_dataset(
                     dataset=dataset,
                     current_path=current_path,
@@ -329,9 +328,10 @@ if __name__ == "__main__":
                                                  constants.BINARY_PREMISE_MODE_PREDICTION,
                                                  constants.ETHOS,
                                                  constants.RESULTS,
-                                                 'checkpoint-2000')
+                                                 'checkpoint-500')
             probing.probe_model_on_intra_argument_relations_dataset(
                 dataset=ethos_dataset,
+
                 current_path=current_path,
                 fine_tuned_model_path=fine_tuned_model_path,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
@@ -360,7 +360,7 @@ if __name__ == "__main__":
                                                  constants.BINARY_PREMISE_MODE_PREDICTION,
                                                  constants.LOGOS,
                                                  constants.RESULTS,
-                                                 'checkpoint-2000')
+                                                 'checkpoint-500')
             probing.probe_model_on_intra_argument_relations_dataset(
                 dataset=logos_dataset,
                 current_path=current_path,
@@ -391,7 +391,7 @@ if __name__ == "__main__":
                                                  constants.BINARY_PREMISE_MODE_PREDICTION,
                                                  constants.PATHOS,
                                                  constants.RESULTS,
-                                                 'checkpoint-2000')
+                                                 'checkpoint-500')
             probing.probe_model_on_intra_argument_relations_dataset(
                 dataset=pathos_dataset,
                 current_path=current_path,
