@@ -1,13 +1,12 @@
-import fine_tuning.fine_tuning as fine_tuning
-import probing.probing as probing
-import preprocessing
 import constants
+import fine_tuning.fine_tuning as fine_tuning
+import preprocessing
+import probing.probing as probing
 
+import argparse
 import logging
 import os
 import transformers
-import argparse
-
 import wandb
 
 """
@@ -34,13 +33,13 @@ parser.add_argument('--probing_wandb_entity',
 # General probing parameters
 parser.add_argument('--probing_model',
                     type=str,
-                    default=constants.LOGISTIC_REGRESSION,
+                    default=constants.MLP,
                     required=False,
                     help="The string name of the model type used for probing. Either logistic regression or MLP.")
 parser.add_argument('--fine_tuned_model_path',
                     type=str,
                     required=False,
-                    default=os.path.join(constants.RESULTS, 'checkpoint-3000'),
+                    default=os.path.join(constants.RESULTS, 'checkpoint-1500'),
                     help='The path fine-tuned model trained on the argument persuasiveness prediction task.')
 parser.add_argument('--model_checkpoint_name',
                     type=str,
@@ -49,7 +48,7 @@ parser.add_argument('--model_checkpoint_name',
                     help="The name of the checkpoint from which we load our model and tokenizer.")
 parser.add_argument('--probing_model_learning_rate',
                     type=float,
-                    default=1e-5,
+                    default=1e-2,
                     required=False,
                     help="The learning rate used by the probing model for the probing task.")
 parser.add_argument('--probing_model_scheduler_gamma',
@@ -69,14 +68,14 @@ parser.add_argument('--probe_model_on_intra_argument_relations',
                          "argument preposition.")
 parser.add_argument('--generate_new_relations_probing_dataset',
                     type=bool,
-                    default=True,
+                    default=False,
                     required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
 parser.add_argument('--fine_tune_model_on_argument_relations',
                     type=bool,
-                    default=True,
+                    default=False,
                     required=False,
                     help='Fine tune the model specified in `model_checkpoint_name` on the relation prediction probing'
                          ' dataset.')
@@ -99,12 +98,12 @@ parser.add_argument('--generate_new_premise_mode_probing_dataset',
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
 parser.add_argument('--fine_tune_model_on_premise_modes',
                     type=bool,
-                    default=True,
+                    default=False,
                     required=False,
                     help='Fine tune the model specified in `model_checkpoint_name` on the probing datasets.')
 parser.add_argument('--probe_model_fine_tuned_on_probing_task',
                     type=bool,
-                    default=True,
+                    default=False,
                     required=False,
                     help='True if we wish to perform probing on a model fine-tuned on the probing task. False '
                          'otherwise. This "debug" setting is meant to test the validity of the probing infrastructure.')
@@ -129,9 +128,14 @@ parser.add_argument('--probing_output_dir',
                     default='./results',
                     required=False,
                     help="The directory in which probing model results are stored.")
+parser.add_argument('--fine_tuning_on_probing_task_num_training_epochs',
+                    type=int,
+                    default=4,
+                    required=False,
+                    help="The number of training rounds for fine-tuning on the probing dataset.")
 parser.add_argument('--probing_num_training_epochs',
                     type=int,
-                    default=6,
+                    default=20,
                     required=False,
                     help="The number of training rounds over the probing dataset.")
 parser.add_argument('--probing_per_device_train_batch_size',
@@ -181,7 +185,7 @@ if __name__ == "__main__":
 
     configuration = transformers.TrainingArguments(
         output_dir=args.probing_output_dir,
-        num_train_epochs=args.probing_num_training_epochs,
+        num_train_epochs=args.fine_tuning_on_probing_task_num_training_epochs,
         eval_steps=args.eval_steps,
         evaluation_strategy='steps',
         learning_rate=args.probing_model_learning_rate,
@@ -204,8 +208,7 @@ if __name__ == "__main__":
 
     if args.probe_model_on_intra_argument_relations:
         intra_argument_relations_probing_dataset = preprocessing.get_intra_argument_relations_probing_dataset(
-                tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED))
-
+                tokenizer=tokenizer)
         if args.fine_tune_model_on_argument_relations:
             _, intra_argument_relations_eval_metrics = (
                 fine_tuning.fine_tune_on_task(dataset=intra_argument_relations_probing_dataset,
@@ -215,90 +218,58 @@ if __name__ == "__main__":
                                               is_probing=True,
                                               logger=logger))
             print(f'intra_argument_relations_eval_metrics:\n{intra_argument_relations_eval_metrics}')
-            if args.probe_model_fine_tuned_on_probing_task:
-                logger.log(logging.INFO,
-                           "Probing a language model fine-tuned on the intra-argument relations probing task...")
-                fine_tuned_model_path = os.path.join(os.getcwd(),
-                                                     constants.PROBING,
-                                                     constants.INTRA_ARGUMENT_RELATIONS,
-                                                     constants.RESULTS,
-                                                     'checkpoint-500')
-                probing.probe_model_on_intra_argument_relations_dataset(
-                    dataset=intra_argument_relations_probing_dataset,
-                    current_path=current_path,
-                    fine_tuned_model_path=fine_tuned_model_path,
-                    pretrained_checkpoint_name=args.model_checkpoint_name,
-                    generate_new_probing_dataset=args.generate_new_relations_probing_dataset,
-                    probing_model=args.probing_model,
-                    learning_rate=args.probing_model_learning_rate,
-                    training_batch_size=args.probing_per_device_train_batch_size,
-                    eval_batch_size=args.probing_per_device_eval_batch_size,
-                    num_epochs=args.probing_num_training_epochs,
-                    scheduler_gamma=args.probing_model_scheduler_gamma)
-
         if args.probe_model_on_intra_argument_relations:
-            probing.probe_model_on_intra_argument_relations_dataset(
-                dataset=intra_argument_relations_probing_dataset,
-                current_path=current_path,
-                fine_tuned_model_path=args.fine_tuned_model_path,
-                pretrained_checkpoint_name=args.model_checkpoint_name,
-                generate_new_probing_dataset=args.generate_new_relations_probing_dataset,
+            pretrained_probing_model, fine_tuned_probing_model, eval_metrics = probing.probe_model_on_task(
+                probing_dataset=intra_argument_relations_probing_dataset,
                 probing_model=args.probing_model,
-                learning_rate=args.probing_model_learning_rate,
-                training_batch_size=args.probing_per_device_train_batch_size,
-                eval_batch_size=args.probing_per_device_eval_batch_size,
-                num_epochs=args.probing_num_training_epochs,
-                scheduler_gamma=args.probing_model_scheduler_gamma)
+                generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
+                probing_task=constants.INTRA_ARGUMENT_RELATIONS,
+                pretrained_checkpoint_name=args.model_checkpoint_name,
+                fine_tuned_model_path=args.fine_tuned_model_path,
+                mlp_learning_rate=args.probing_model_learning_rate,
+                mlp_training_batch_size=args.probing_per_device_train_batch_size,
+                mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
+                mlp_num_epochs=args.probing_num_training_epochs,
+                mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+            print('pretrained probe results:')
+            print(eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
+            print(eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
+            print('fine tuned probe results:')
+            print(eval_metrics[constants.FINE_TUNED][constants.CONFUSION_MATRIX])
+            print(eval_metrics[constants.FINE_TUNED][constants.CLASSIFICATION_REPORT])
 
     if args.multi_class_premise_mode_probing:
         pretrained_multiclass_model = transformers.BertForSequenceClassification.from_pretrained(
             args.model_checkpoint_name,
             num_labels=len(constants.PREMISE_MODE_TO_INT))
 
-        dataset = preprocessing.get_multi_class_cmv_probing_dataset(tokenizer=tokenizer,
-                                                                    with_claims=args.probe_claim_and_premise_pair)
+        multi_class_premise_mode_dataset = (
+            preprocessing.get_multi_class_cmv_probing_dataset(tokenizer=tokenizer,
+                                                              with_claims=args.probe_claim_and_premise_pair))
         if args.fine_tune_model_on_premise_modes:
             multi_class_model, multi_class_eval_metrics = (
-                fine_tuning.fine_tune_on_task(dataset=dataset,
-                                              model=model,
+                fine_tuning.fine_tune_on_task(dataset=multi_class_premise_mode_dataset,
+                                              model=pretrained_multiclass_model,
                                               configuration=configuration,
                                               task_name=constants.MULTICLASS,
                                               is_probing=True,
                                               logger=logger))
             print(f'multi_class_eval_metrics:\n{multi_class_eval_metrics}')
-            if args.probe_model_fine_tuned_on_probing_task:
-                logger.log(logging.INFO,
-                           "Probing a language model fine-tuned on the multiclass premise prediction probing task...")
-                fine_tuned_model_path = os.path.join(os.getcwd(),
-                                                     constants.PROBING,
-                                                     constants.MULTICLASS,
-                                                     constants.RESULTS,
-                                                     'checkpoint-500')
-                probing.probe_model_on_intra_argument_relations_dataset(
-                    dataset=dataset,
-                    current_path=current_path,
-                    fine_tuned_model_path=fine_tuned_model_path,
-                    pretrained_checkpoint_name=args.model_checkpoint_name,
-                    generate_new_probing_dataset=args.generate_new_relations_probing_dataset,
-                    probing_model=args.probing_model,
-                    learning_rate=args.probing_model_learning_rate,
-                    training_batch_size=args.probing_per_device_train_batch_size,
-                    eval_batch_size=args.probing_per_device_eval_batch_size,
-                    num_epochs=args.probing_num_training_epochs,
-                    scheduler_gamma=args.probing_model_scheduler_gamma)
         if args.probe_model_on_premise_modes:
-            probing.probe_model_on_multiclass_premise_modes(
-                dataset,
-                current_path,
-                args.fine_tuned_model_path,
-                pretrained_checkpoint_name=args.model_checkpoint_name,
-                generate_new_probing_dataset=args.generate_new_premise_mode_probing_dataset,
+            pretrained_probing_model, _, eval_metrics = probing.probe_model_on_task(
+                probing_dataset=multi_class_premise_mode_dataset,
                 probing_model=args.probing_model,
-                learning_rate=args.probing_model_learning_rate,
-                training_batch_size=args.probing_per_device_train_batch_size,
-                eval_batch_size=args.probing_per_device_eval_batch_size,
-                num_epochs=args.probing_num_training_epochs,
-                scheduler_gamma=args.probing_model_scheduler_gamma)
+                generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
+                probing_task=constants.MULTICLASS,
+                pretrained_checkpoint_name=args.model_checkpoint_name,
+                mlp_learning_rate=args.probing_model_learning_rate,
+                mlp_training_batch_size=args.probing_per_device_train_batch_size,
+                mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
+                mlp_num_epochs=args.probing_num_training_epochs,
+                mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+            print('multiclass probe results:')
+            print(eval_metrics[constants.CONFUSION_MATRIX])
+            print(eval_metrics[constants.CLASSIFICATION_REPORT])
 
     # Create datasets for each premise mode for binary classification.
     if args.probe_claim_and_premise_pair:
@@ -320,29 +291,6 @@ if __name__ == "__main__":
                                           logger=logger)
         )
         print(f'ethos_eval_metrics:\n{ethos_eval_metrics}')
-        if args.probe_model_fine_tuned_on_probing_task:
-            logger.log(logging.INFO,
-                       "Probing a language model fine-tuned on the multiclass premise prediction probing task...")
-            fine_tuned_model_path = os.path.join(os.getcwd(),
-                                                 constants.PROBING,
-                                                 constants.BINARY_PREMISE_MODE_PREDICTION,
-                                                 constants.ETHOS,
-                                                 constants.RESULTS,
-                                                 'checkpoint-500')
-            probing.probe_model_on_intra_argument_relations_dataset(
-                dataset=ethos_dataset,
-
-                current_path=current_path,
-                fine_tuned_model_path=fine_tuned_model_path,
-                pretrained_checkpoint_name=args.model_checkpoint_name,
-                generate_new_probing_dataset=args.generate_new_relations_probing_dataset,
-                probing_model=args.probing_model,
-                learning_rate=args.probing_model_learning_rate,
-                training_batch_size=args.probing_per_device_train_batch_size,
-                eval_batch_size=args.probing_per_device_eval_batch_size,
-                num_epochs=args.probing_num_training_epochs,
-                scheduler_gamma=args.probing_model_scheduler_gamma)
-
         logos, logos_eval_metrics = (
             fine_tuning.fine_tune_on_task(dataset=logos_dataset,
                                           model=model,
@@ -352,28 +300,6 @@ if __name__ == "__main__":
                                           premise_mode=constants.LOGOS,
                                           logger=logger))
         print(f'logos_eval_metrics:\n{logos_eval_metrics}')
-        if args.probe_model_fine_tuned_on_probing_task:
-            logger.log(logging.INFO,
-                       "Probing a language model fine-tuned on the binary premise prediction probing task...")
-            fine_tuned_model_path = os.path.join(os.getcwd(),
-                                                 constants.PROBING,
-                                                 constants.BINARY_PREMISE_MODE_PREDICTION,
-                                                 constants.LOGOS,
-                                                 constants.RESULTS,
-                                                 'checkpoint-500')
-            probing.probe_model_on_intra_argument_relations_dataset(
-                dataset=logos_dataset,
-                current_path=current_path,
-                fine_tuned_model_path=fine_tuned_model_path,
-                pretrained_checkpoint_name=args.model_checkpoint_name,
-                generate_new_probing_dataset=args.generate_new_relations_probing_dataset,
-                probing_model=args.probing_model,
-                learning_rate=args.probing_model_learning_rate,
-                training_batch_size=args.probing_per_device_train_batch_size,
-                eval_batch_size=args.probing_per_device_eval_batch_size,
-                num_epochs=args.probing_num_training_epochs,
-                scheduler_gamma=args.probing_model_scheduler_gamma)
-
         pathos_model, pathos_eval_metrics = (
             fine_tuning.fine_tune_on_task(dataset=pathos_dataset,
                                           model=model,
@@ -383,62 +309,65 @@ if __name__ == "__main__":
                                           premise_mode=constants.PATHOS,
                                           logger=logger))
         print(f'pathos_eval_metrics:\n{pathos_eval_metrics}')
-        if args.probe_model_fine_tuned_on_probing_task:
-            logger.log(logging.INFO,
-                       "Probing a language model fine-tuned on the multiclass premise prediction probing task...")
-            fine_tuned_model_path = os.path.join(os.getcwd(),
-                                                 constants.PROBING,
-                                                 constants.BINARY_PREMISE_MODE_PREDICTION,
-                                                 constants.PATHOS,
-                                                 constants.RESULTS,
-                                                 'checkpoint-500')
-            probing.probe_model_on_intra_argument_relations_dataset(
-                dataset=pathos_dataset,
-                current_path=current_path,
-                fine_tuned_model_path=fine_tuned_model_path,
-                pretrained_checkpoint_name=args.model_checkpoint_name,
-                generate_new_probing_dataset=args.generate_new_relations_probing_dataset,
-                probing_model=args.probing_model,
-                learning_rate=args.probing_model_learning_rate,
-                training_batch_size=args.probing_per_device_train_batch_size,
-                eval_batch_size=args.probing_per_device_eval_batch_size,
-                num_epochs=args.probing_num_training_epochs,
-                scheduler_gamma=args.probing_model_scheduler_gamma)
-
     if args.probe_model_on_premise_modes:
-        probing.probe_model_on_premise_mode(mode=constants.ETHOS,
-                                            dataset=ethos_dataset,
-                                            current_path=current_path,
-                                            fine_tuned_model_path=args.fine_tuned_model_path,
-                                            model_checkpoint_name=args.model_checkpoint_name,
-                                            generate_new_probing_dataset=args.generate_new_premise_mode_probing_dataset,
-                                            probing_model=args.probing_model,
-                                            learning_rate=args.probing_model_learning_rate,
-                                            training_batch_size=args.probing_per_device_train_batch_size,
-                                            eval_batch_size=args.probing_per_device_eval_batch_size,
-                                            num_epochs=args.probing_num_training_epochs,
-                                            scheduler_gamma=args.probing_model_scheduler_gamma)
-        probing.probe_model_on_premise_mode(mode=constants.LOGOS,
-                                            dataset=logos_dataset,
-                                            current_path=current_path,
-                                            fine_tuned_model_path=args.fine_tuned_model_path,
-                                            model_checkpoint_name=args.model_checkpoint_name,
-                                            generate_new_probing_dataset=args.generate_new_premise_mode_probing_dataset,
-                                            probing_model=args.probing_model,
-                                            learning_rate=args.probing_model_learning_rate,
-                                            training_batch_size=args.probing_per_device_train_batch_size,
-                                            eval_batch_size=args.probing_per_device_eval_batch_size,
-                                            num_epochs=args.probing_num_training_epochs,
-                                            scheduler_gamma=args.probing_model_scheduler_gamma)
-        probing.probe_model_on_premise_mode(mode=constants.PATHOS,
-                                            dataset=pathos_dataset,
-                                            current_path=current_path,
-                                            fine_tuned_model_path=args.fine_tuned_model_path,
-                                            model_checkpoint_name=args.model_checkpoint_name,
-                                            generate_new_probing_dataset=args.generate_new_premise_mode_probing_dataset,
-                                            probing_model=args.probing_model,
-                                            learning_rate=args.probing_model_learning_rate,
-                                            training_batch_size=args.probing_per_device_train_batch_size,
-                                            eval_batch_size=args.probing_per_device_eval_batch_size,
-                                            num_epochs=args.probing_num_training_epochs,
-                                            scheduler_gamma=args.probing_model_scheduler_gamma)
+        ethos_pretrained_probing_model, ethos_fine_tuned_probing_model, ethos_eval_metrics = (
+            probing.probe_model_on_task(
+                probing_dataset=ethos_dataset,
+                probing_model=args.probing_model,
+                generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
+                probing_task=constants.BINARY_PREMISE_MODE_PREDICTION,
+                pretrained_checkpoint_name=args.model_checkpoint_name,
+                fine_tuned_model_path=args.fine_tuned_model_path,
+                mlp_learning_rate=args.probing_model_learning_rate,
+                mlp_training_batch_size=args.probing_per_device_train_batch_size,
+                mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
+                mlp_num_epochs=args.probing_num_training_epochs,
+                mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
+                premise_mode=constants.ETHOS))
+        print(f'{constants.ETHOS} pretrained probe results:')
+        print(ethos_eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
+        print(ethos_eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
+        print(f'{constants.ETHOS} fine tuned probe results:')
+        print(ethos_eval_metrics[constants.FINE_TUNED][constants.CONFUSION_MATRIX])
+        print(ethos_eval_metrics[constants.FINE_TUNED][constants.CLASSIFICATION_REPORT])
+
+        logos_pretrained_probing_model, logos_fine_tuned_probing_model, logos_eval_metrics = probing.probe_model_on_task(
+            probing_dataset=logos_dataset,
+            probing_model=args.probing_model,
+            generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
+            probing_task=constants.BINARY_PREMISE_MODE_PREDICTION,
+            pretrained_checkpoint_name=args.model_checkpoint_name,
+            fine_tuned_model_path=args.fine_tuned_model_path,
+            mlp_learning_rate=args.probing_model_learning_rate,
+            mlp_training_batch_size=args.probing_per_device_train_batch_size,
+            mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
+            mlp_num_epochs=args.probing_num_training_epochs,
+            mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
+            premise_mode=constants.LOGOS)
+        print(f'{constants.LOGOS} pretrained probe results:')
+        print(logos_eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
+        print(logos_eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
+        print(f'{constants.LOGOS} fine tuned probe results:')
+        print(logos_eval_metrics[constants.FINE_TUNED][constants.CONFUSION_MATRIX])
+        print(logos_eval_metrics[constants.FINE_TUNED][constants.CLASSIFICATION_REPORT])
+
+        pathos_pretrained_probing_model, pathos_fine_tuned_probing_model, pathos_eval_metrics = (
+            probing.probe_model_on_task(
+                probing_dataset=ethos_dataset,
+                probing_model=args.probing_model,
+                generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
+                probing_task=constants.BINARY_PREMISE_MODE_PREDICTION,
+                pretrained_checkpoint_name=args.model_checkpoint_name,
+                fine_tuned_model_path=args.fine_tuned_model_path,
+                mlp_learning_rate=args.probing_model_learning_rate,
+                mlp_training_batch_size=args.probing_per_device_train_batch_size,
+                mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
+                mlp_num_epochs=args.probing_num_training_epochs,
+                mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
+                premise_mode=constants.LOGOS))
+    print(f'{constants.PATHOS} pretrained probe results:')
+    print(pathos_eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
+    print(pathos_eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
+    print(f'{constants.PATHOS} fine tuned probe results:')
+    print(pathos_eval_metrics[constants.FINE_TUNED][constants.CONFUSION_MATRIX])
+    print(pathos_eval_metrics[constants.FINE_TUNED][constants.CLASSIFICATION_REPORT])

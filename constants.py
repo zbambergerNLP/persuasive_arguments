@@ -1,6 +1,7 @@
 TRAIN = "train"
 EVAL = "eval"
 TEST = "test"
+VALIDATION = "validation"
 
 # Flag names
 FINE_TUNE_MODEL = 'fine_tune_model'
@@ -100,6 +101,7 @@ PROBING = "probing"
 LOGISTIC_REGRESSION = 'logistic_regression'
 MLP = "mlp"
 HIDDEN_STATE = "hidden_state"
+JSON = "json"
 
 # Wandb constants
 RESULTS = 'results'

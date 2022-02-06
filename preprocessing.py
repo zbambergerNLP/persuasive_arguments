@@ -482,14 +482,13 @@ def transform_binary_cmv_relations_df_to_dataset(
         'attention_mask', and 'label' as well as their corresponding values.
     """
 
-    # TODO(Eli): Name of the produced CSV file should reflect the content of the file. What dataset is this? How would
+    # TODO: Name of the produced CSV file should reflect the content of the file. What dataset is this? How would
     #  you differentiate it from other datasets?
     if save_text_datasets:
         corpus_df.to_csv('corpus_dataframe_tmp.csv', index=False)
         print(f'wrote pandas dataframe into memory: {os.path.join(os.getcwd(), "corpus_dataframe_tmp.csv")}')
 
-    # TODO(Eli): Extend get_baseline_scores to the binary relation prediction task.
-    print(f'corpus_df: {corpus_df}')
+    # TODO: Extend get_baseline_scores to the binary relation prediction task.
     baseline_results = metrics.get_baseline_scores(corpus_df)
     print('Baseline results for binary relation prediction are:')
     print(baseline_results)

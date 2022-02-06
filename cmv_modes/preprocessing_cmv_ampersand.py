@@ -80,7 +80,7 @@ def get_claim_and_premise_mode_corpus():
 
 # TODO(Eli): Document this function and perhaps consider breaking it up into helper functions. Ensure that constants
 #  are drawn from the constants.py file.
-def get_claim_and_premise_with_relations_corpus():
+def get_claim_and_premise_with_relations_corpus(root_dir='/Users/zachary/PycharmProjects/persuasive_arguments/'):
     true_examples_1 = []
     true_examples_2 = []
     neg_examples_1 = []
@@ -88,7 +88,7 @@ def get_claim_and_premise_with_relations_corpus():
     pos_distances = []
     neg_distances = []
 
-    current_path = os.getcwd()
+    current_path = root_dir if root_dir else os.getcwd()
     for version in cmv_modes_with_claims_versions:
         for sign in sign_lst:
             thread_directories = os.path.join(current_path, version, sign)
