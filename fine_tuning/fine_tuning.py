@@ -11,7 +11,6 @@ import transformers
 import torch
 import os
 import typing
-from collections.abc import Callable, Sequence
 
 
 def fine_tune_on_task(dataset: datasets.Dataset,
