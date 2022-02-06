@@ -100,7 +100,7 @@ def save_hidden_state_outputs(fine_tuned_model_path: str,
 
 def create_train_and_test_datasets(probing_dir_path: str,
                                    key_phrase: str) -> (
-        tuple[preprocessing.CMVPremiseModes, preprocessing.CMVPremiseModes]):
+        typing.Tuple[preprocessing.CMVPremiseModes, preprocessing.CMVPremiseModes]):
     """Create training and validation datasets by loading hidden states stored locally.
 
     :param probing_dir_path: The path to the probing directory in this repository.
