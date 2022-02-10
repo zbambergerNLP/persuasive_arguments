@@ -101,7 +101,11 @@ PROBING = "probing"
 LOGISTIC_REGRESSION = 'logistic_regression'
 MLP = "mlp"
 HIDDEN_STATE = "hidden_state"
+
+# File Types
 JSON = "json"
+PYTORCH = "pt"
+PARQUET = "parquet"
 
 # Wandb constants
 RESULTS = 'results'

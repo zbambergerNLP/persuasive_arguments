@@ -48,7 +48,7 @@ parser.add_argument('--model_checkpoint_name',
                     help="The name of the checkpoint from which we load our model and tokenizer.")
 parser.add_argument('--probing_model_learning_rate',
                     type=float,
-                    default=1e-2,
+                    default=5e-3,
                     required=False,
                     help="The learning rate used by the probing model for the probing task.")
 parser.add_argument('--probing_model_scheduler_gamma',
@@ -91,7 +91,7 @@ parser.add_argument('--probe_model_on_premise_modes',
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
 parser.add_argument('--generate_new_premise_mode_probing_dataset',
                     type=bool,
-                    default=True,
+                    default=False,
                     required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
@@ -135,7 +135,7 @@ parser.add_argument('--fine_tuning_on_probing_task_num_training_epochs',
                     help="The number of training rounds for fine-tuning on the probing dataset.")
 parser.add_argument('--probing_num_training_epochs',
                     type=int,
-                    default=20,
+                    default=40,
                     required=False,
                     help="The number of training rounds over the probing dataset.")
 parser.add_argument('--probing_per_device_train_batch_size',
@@ -259,7 +259,7 @@ if __name__ == "__main__":
             pretrained_probing_model, _, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=multi_class_premise_mode_dataset,
                 probing_model=args.probing_model,
-                generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
+                generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                 probing_task=constants.MULTICLASS,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 mlp_learning_rate=args.probing_model_learning_rate,
@@ -314,7 +314,7 @@ if __name__ == "__main__":
             probing.probe_model_on_task(
                 probing_dataset=ethos_dataset,
                 probing_model=args.probing_model,
-                generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
+                generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                 probing_task=constants.BINARY_PREMISE_MODE_PREDICTION,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 fine_tuned_model_path=args.fine_tuned_model_path,
@@ -334,7 +334,7 @@ if __name__ == "__main__":
         logos_pretrained_probing_model, logos_fine_tuned_probing_model, logos_eval_metrics = probing.probe_model_on_task(
             probing_dataset=logos_dataset,
             probing_model=args.probing_model,
-            generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
+            generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
             probing_task=constants.BINARY_PREMISE_MODE_PREDICTION,
             pretrained_checkpoint_name=args.model_checkpoint_name,
             fine_tuned_model_path=args.fine_tuned_model_path,
@@ -353,9 +353,9 @@ if __name__ == "__main__":
 
         pathos_pretrained_probing_model, pathos_fine_tuned_probing_model, pathos_eval_metrics = (
             probing.probe_model_on_task(
-                probing_dataset=ethos_dataset,
+                probing_dataset=pathos_dataset,
                 probing_model=args.probing_model,
-                generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
+                generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                 probing_task=constants.BINARY_PREMISE_MODE_PREDICTION,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 fine_tuned_model_path=args.fine_tuned_model_path,
@@ -364,7 +364,7 @@ if __name__ == "__main__":
                 mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
                 mlp_num_epochs=args.probing_num_training_epochs,
                 mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
-                premise_mode=constants.LOGOS))
+                premise_mode=constants.PATHOS))
     print(f'{constants.PATHOS} pretrained probe results:')
     print(pathos_eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
     print(pathos_eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])

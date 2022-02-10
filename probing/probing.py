@@ -2,14 +2,14 @@ import constants
 import preprocessing
 import probing.models as probing_models
 
+import datasets
 import os
-import json
-import transformers
+import pyarrow as pa
+import pyarrow.parquet as pq
+import sklearn
 import torch
 import torch.optim.lr_scheduler as lr_scheduler
-import datasets
-import numpy as np
-import sklearn
+import transformers
 import typing
 
 
@@ -17,7 +17,7 @@ def save_model_embeddings_on_batch(transformer_model: transformers.PreTrainedMod
                                    batch: typing.Mapping[str, torch.tensor],
                                    model_base_file_name: str,
                                    batch_index: int,
-                                   probing_dir_path: str):
+                                   probing_dir_path: str) -> str:
     """Run a batch of inputs from the probing dataset through the model, and save their outputted hidden
     representations.
 
@@ -28,6 +28,7 @@ def save_model_embeddings_on_batch(transformer_model: transformers.PreTrainedMod
         of the inputs.
     :param batch_index: The index of the batch being fed into the model from the trainer.
     :param probing_dir_path: The path to the probing directory in this repository.
+    :return: The string path of the file we saved containing hidden states and label for probing examples.
     """
     model_outputs = transformer_model.forward(
         input_ids=batch[constants.INPUT_IDS],
@@ -36,23 +37,27 @@ def save_model_embeddings_on_batch(transformer_model: transformers.PreTrainedMod
         output_hidden_states=True,
     )
     model_embedding_hidden_state = model_outputs.hidden_states[-1][:, 0, :]
-    model_file_name = f"{model_base_file_name}_batch_{batch_index + 1}.{constants.JSON}"
+    model_file_name = f"{model_base_file_name}_batch_{batch_index + 1}.{constants.PARQUET}"
     model_file_path = os.path.join(probing_dir_path, model_file_name)
-    with open(model_file_path, "w") as f:
-        print(f'Saving pretrained model embedding with shape {model_embedding_hidden_state.shape} '
-              f'from batch #{batch_index + 1}  to {model_file_path}')
-        json.dump(
-            {
-                constants.HIDDEN_STATE: model_embedding_hidden_state.tolist(),
-                constants.LABEL: batch[constants.LABEL].tolist()
-            }, f)
+    table = pa.table(
+        data=[
+            pa.array(model_embedding_hidden_state.tolist()),
+            pa.array(batch[constants.LABEL].tolist())],
+        names=[constants.HIDDEN_STATE, constants.LABEL],
+    )
+    print(f'Saving pretrained model embedding with shape {model_embedding_hidden_state.shape} '
+          f'from batch #{batch_index + 1}  to {model_file_path}')
+    pq.write_table(table, model_file_path)
+    return model_file_path
 
 
 def save_hidden_state_outputs(fine_tuned_model_path: str,
                               probing_dataset: typing.Union[preprocessing.CMVDataset, preprocessing.CMVPremiseModes],
                               probing_dir_path: str,
                               pretrained_checkpoint_name: str,
-                              num_labels: int = 2):
+                              num_labels: int = 2,
+                              hidden_states_batch_size: int = 64) -> (
+        typing.Tuple[typing.Sequence[str], typing.Sequence[str]]):
     """Save hidden layer representations of either premises or claim+premise pairs.
 
     :param fine_tuned_model_path: The path to the file containing a saved language model that was fine-tuned on the
@@ -63,6 +68,12 @@ def save_hidden_state_outputs(fine_tuned_model_path: str,
     :param probing_dir_path: The path to the probing directory in this repository.
     :param pretrained_checkpoint_name: The string name of the pretrained model checkpoint to load.
     :param num_labels: The number of labels for the probing classification problem.
+    :param hidden_states_batch_size: The number of probing examples (hidden states and labels) stored in a single file.
+    :return: A 2-tuple containing the paths of the produced files.
+        pretrained_hidden_state_files: The paths of the probing example files (representing a batch) produced by a
+            pretrained transformer model.
+        fine_tuned_hidden_state_files: The paths of the probing example files (representing a batch) produced by a
+            fine-tuned transformer model.
     """
     assert pretrained_checkpoint_name or fine_tuned_model_path, "Hidden layers must be obtained from the model either" \
                                                                 " after pretraining or after fine-tuning."
@@ -83,51 +94,64 @@ def save_hidden_state_outputs(fine_tuned_model_path: str,
         fine_tuned_model = transformers.BertForSequenceClassification.from_pretrained(
             os.path.join(current_path, fine_tuned_model_path), num_labels=num_labels)
 
-    # TODO(Eli): Make batch_size a parameter.
-    dataloader = torch.utils.data.DataLoader(probing_dataset, batch_size=64)
+    dataloader = torch.utils.data.DataLoader(probing_dataset, batch_size=hidden_states_batch_size)
+    pretrained_hidden_state_files = []
+    fine_tuned_hidden_state_files = []
     for batch_index, batch in enumerate(dataloader):
-        save_model_embeddings_on_batch(transformer_model=pretrained_model,
-                                       batch=batch,
-                                       model_base_file_name=pretrained_base_file_name,
-                                       batch_index=batch_index,
-                                       probing_dir_path=probing_dir_path)
-        save_model_embeddings_on_batch(transformer_model=fine_tuned_model,
-                                       batch=batch,
-                                       model_base_file_name=fine_tuned_base_file_name,
-                                       batch_index=batch_index,
-                                       probing_dir_path=probing_dir_path)
+        pretrained_hidden_state_files.append(
+            save_model_embeddings_on_batch(
+                transformer_model=pretrained_model,
+                batch=batch,
+                model_base_file_name=pretrained_base_file_name,
+                batch_index=batch_index,
+                probing_dir_path=probing_dir_path))
+        if num_labels == constants.NUM_LABELS:
+            fine_tuned_hidden_state_files.append(
+                save_model_embeddings_on_batch(
+                    transformer_model=fine_tuned_model,
+                    batch=batch,
+                    model_base_file_name=fine_tuned_base_file_name,
+                    batch_index=batch_index,
+                    probing_dir_path=probing_dir_path))
+    return pretrained_hidden_state_files, fine_tuned_hidden_state_files
 
 
-def create_train_and_test_datasets(probing_dir_path: str,
-                                   key_phrase: str) -> (
+def create_train_and_test_datasets(key_phrase: str,
+                                   probing_file_paths: typing.Collection[str] = None,
+                                   probing_dir_path: str = None) -> (
         typing.Tuple[preprocessing.CMVPremiseModes, preprocessing.CMVPremiseModes]):
     """Create training and validation datasets by loading hidden states stored locally.
 
     :param probing_dir_path: The path to the probing directory in this repository.
+    :param probing_file_paths: A list of paths names in which the probing dataset batches are stored.
     :param key_phrase: A string entry in the following set {'pretrained', 'finetuned', 'multiclass'}.
     :return: A two-tuple of the form (`hidden_state_dataset_train`, `hidden_state_dataset_test`).
         Each of these dataset entries is a datasets.Dataset instance. The first entry corresponds to a training set,
         while the latter corresponds to a held out test set.
     """
-    hidden_state_batch_file_names = list(
-        filter(
-            lambda file_name: file_name.endswith(constants.JSON) and key_phrase in file_name,
-            os.listdir(probing_dir_path)))
-    hidden_state_batch_file_paths = list(
-        map(
-            lambda file_name: os.path.join(probing_dir_path, file_name),
-            hidden_state_batch_file_names))
+    if not probing_file_paths:
+        hidden_state_batch_file_names = list(
+            filter(
+                lambda file_name: file_name.endswith(constants.PARQUET) and key_phrase in file_name,
+                os.listdir(probing_dir_path)))
+        probing_file_paths = list(
+            map(
+                lambda file_name: os.path.join(probing_dir_path, file_name),
+                hidden_state_batch_file_names))
     hidden_state_batches = datasets.load_dataset(
-        constants.JSON, data_files=hidden_state_batch_file_paths)[constants.TRAIN]
-    hidden_state_dataset = datasets.Dataset.from_dict({
-        constants.HIDDEN_STATE: np.concatenate(hidden_state_batches[constants.HIDDEN_STATE]),
-        constants.LABEL: np.concatenate(hidden_state_batches[constants.LABEL])}).train_test_split()
+        constants.PARQUET, data_files=probing_file_paths)[constants.TRAIN]
+    hidden_state_dataset = datasets.Dataset.from_dict(
+        {
+            constants.HIDDEN_STATE: hidden_state_batches[constants.HIDDEN_STATE],
+            constants.LABEL: hidden_state_batches[constants.LABEL]
+        }).train_test_split()
     hidden_state_dataset_train = preprocessing.CMVPremiseModes(hidden_state_dataset[constants.TRAIN])
     hidden_state_dataset_test = preprocessing.CMVPremiseModes(hidden_state_dataset[constants.TEST])
     return hidden_state_dataset_train, hidden_state_dataset_test
 
 
-def load_hidden_state_outputs(probing_dir_path: str,
+def load_hidden_state_outputs(probing_dir_path: str = None,
+                              probing_file_paths: typing.Collection[str] = None,
                               pretrained: bool = False,
                               fine_tuned: bool = False,
                               multiclass: bool = False) -> (
@@ -135,6 +159,7 @@ def load_hidden_state_outputs(probing_dir_path: str,
     """Load hidden layer representations that were generated by 'save_hidden_state_outputs'.
 
     :param probing_dir_path: The path to the probing directory in this repository.
+    :param probing_file_paths: A list of file paths in which the probing dataset batches are stored.
     :param pretrained: True if we would like to load a probing dataset produced by a pre-trained model. False otherwise.
     :param fine_tuned: True if we would like to load a probing dataset produced by a fine-tuned model. False otherwise.
     :param multiclass: True if we would like to load a probing dataset produced by a multiclass pre-trained model.
@@ -150,26 +175,34 @@ def load_hidden_state_outputs(probing_dir_path: str,
         values of this inner dictionary are the training set, test set respectively. Each of these  datasets is an
         instance of 'preprocessing.CMVPremiseModes'."""
 
-    assert pretrained or fine_tuned or multiclass, "At least one model mode must be selected. Please assigned the "\
-                                                   "value 'True' to one of the 'pretrained', 'finetuned', or "\
+    assert pretrained or fine_tuned or multiclass, "At least one model mode must be selected. Please assigned the " \
+                                                   "value 'True' to one of the 'pretrained', 'finetuned', or " \
                                                    "'multiclass' parameters."
+    assert probing_dir_path or probing_file_paths, "One of `probing_dir_path` or `probing_file_paths` must be " \
+                                                   "supplied as a parameter to this function."
     result = {}
     if pretrained:
         print("Loading pretrained hidden states...")
         pretrained_hidden_state_dataset_train, pretrained_hidden_state_dataset_test = (
-            create_train_and_test_datasets(probing_dir_path, key_phrase=constants.PRETRAINED))
+            create_train_and_test_datasets(key_phrase=constants.PRETRAINED,
+                                           probing_dir_path=probing_dir_path,
+                                           probing_file_paths=probing_file_paths))
         result[constants.PRETRAINED] = {constants.TRAIN: pretrained_hidden_state_dataset_train,
                                         constants.TEST: pretrained_hidden_state_dataset_test}
     if fine_tuned:
         print("Loading fine tuned hidden states...")
         fine_tuned_hidden_state_dataset_train, fine_tuned_hidden_state_dataset_test = (
-            create_train_and_test_datasets(probing_dir_path, key_phrase=constants.FINE_TUNED))
+            create_train_and_test_datasets(key_phrase=constants.FINE_TUNED,
+                                           probing_dir_path=probing_dir_path,
+                                           probing_file_paths=probing_file_paths))
         result[constants.FINE_TUNED] = {constants.TRAIN: fine_tuned_hidden_state_dataset_train,
                                         constants.TEST: fine_tuned_hidden_state_dataset_test}
     if multiclass:
         print("Loading multi-class hidden states")
         multiclass_pretrained_hidden_state_dataset_train, multiclass_pretrained_hidden_state_dataset_test = (
-            create_train_and_test_datasets(probing_dir_path, key_phrase=constants.MULTICLASS))
+            create_train_and_test_datasets(key_phrase=constants.MULTICLASS,
+                                           probing_dir_path=probing_dir_path,
+                                           probing_file_paths=probing_file_paths))
         result[constants.MULTICLASS] = {constants.TRAIN: multiclass_pretrained_hidden_state_dataset_train,
                                         constants.TEST: multiclass_pretrained_hidden_state_dataset_test}
     return result
@@ -178,10 +211,10 @@ def load_hidden_state_outputs(probing_dir_path: str,
 def probe_with_logistic_regression(
         hidden_state_datasets: typing.Mapping[str, typing.Mapping[str, preprocessing.CMVPremiseModes]],
         base_model_type: str) -> (
-        tuple[typing.Union[sklearn.linear_model.LogisticRegression, torch.nn.Module],
-              typing.Mapping[str, typing.Union[sklearn.metrics.classification_report,
-                                        sklearn.metrics.confusion_matrix,
-                                        float]]]):
+        typing.Tuple[typing.Union[sklearn.linear_model.LogisticRegression, torch.nn.Module],
+                     typing.Mapping[str, typing.Union[sklearn.metrics.classification_report,
+                                                      sklearn.metrics.confusion_matrix,
+                                                      float]]]):
     """Train and evaluate a probing model on a dataset whose examples are hidden states from a transformer model.
 
     :param hidden_state_datasets: A dictionary mapping the probing model type to the train and test datasets it
@@ -344,11 +377,14 @@ def probe_model_on_task(probing_dataset: typing.Union[preprocessing.CMVDataset, 
         os.mkdir(task_probing_dir_path)
 
     if generate_new_hidden_state_dataset:
-        save_hidden_state_outputs(
+        num_labels = (
+            len(constants.PREMISE_MODE_TO_INT) if probing_task == constants.MULTICLASS else constants.NUM_LABELS)
+        pretrained_hidden_state_files, fine_tuned_hidden_state_files = save_hidden_state_outputs(
             fine_tuned_model_path=fine_tuned_model_path,
             pretrained_checkpoint_name=pretrained_checkpoint_name,
             probing_dataset=probing_dataset,
-            probing_dir_path=task_probing_dir_path)
+            probing_dir_path=task_probing_dir_path,
+            num_labels=num_labels)
 
     if probing_task == constants.MULTICLASS:
         hidden_state_datasets = (
