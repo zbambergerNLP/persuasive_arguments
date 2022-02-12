@@ -31,6 +31,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         downstream task.
     :param premise_mode: If the task_name is 'binary_premise_mode_prediction', then this string parameter specifies
         which argument mode dataset we are fine-tuning the model on.
+    :param logger: A logging.Logger instance used for logging.
     :return: A 2-tuple of the form (trainer, eval_metrics). The trainer is a 'transformers.Trainer' instance used to
         fine-tune the model, and the metrics are a dictionary derived from evaluating the model on the verification set.
     """

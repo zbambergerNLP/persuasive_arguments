@@ -176,9 +176,6 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     args = parser.parse_args()
 
-    if args.probing_wandb_entity:
-        wandb.init(project="persuasive_arguments", entity=args.probing_wandb_entity)
-
     args_dict = vars(args)
     for parameter, value in args_dict.items():
         print(f'{parameter}: {value}')
@@ -210,6 +207,11 @@ if __name__ == "__main__":
         intra_argument_relations_probing_dataset = preprocessing.get_intra_argument_relations_probing_dataset(
                 tokenizer=tokenizer)
         if args.fine_tune_model_on_argument_relations:
+            if args.probing_wandb_entity:
+                run = wandb.init(project="persuasive_arguments",
+                                 entity=args.probing_wandb_entity,
+                                 reinit=True,
+                                 name='Fine tune on binary intra-argument relation existence')
             _, intra_argument_relations_eval_metrics = (
                 fine_tuning.fine_tune_on_task(dataset=intra_argument_relations_probing_dataset,
                                               model=model,
@@ -218,6 +220,8 @@ if __name__ == "__main__":
                                               is_probing=True,
                                               logger=logger))
             print(f'intra_argument_relations_eval_metrics:\n{intra_argument_relations_eval_metrics}')
+            if args.probing_wandb_entity:
+                run.finish()
         if args.probe_model_on_intra_argument_relations:
             pretrained_probing_model, fine_tuned_probing_model, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=intra_argument_relations_probing_dataset,
@@ -247,6 +251,11 @@ if __name__ == "__main__":
             preprocessing.get_multi_class_cmv_probing_dataset(tokenizer=tokenizer,
                                                               with_claims=args.probe_claim_and_premise_pair))
         if args.fine_tune_model_on_premise_modes:
+            if args.probing_wandb_entity:
+                run = wandb.init(project="persuasive_arguments",
+                                 entity=args.probing_wandb_entity,
+                                 reinit=True,
+                                 name='Fine tune on multi-class premise mode prediction')
             multi_class_model, multi_class_eval_metrics = (
                 fine_tuning.fine_tune_on_task(dataset=multi_class_premise_mode_dataset,
                                               model=pretrained_multiclass_model,
@@ -255,6 +264,8 @@ if __name__ == "__main__":
                                               is_probing=True,
                                               logger=logger))
             print(f'multi_class_eval_metrics:\n{multi_class_eval_metrics}')
+            if args.probing_wandb_entity:
+                run.finish()
         if args.probe_model_on_premise_modes:
             pretrained_probing_model, _, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=multi_class_premise_mode_dataset,
@@ -281,6 +292,13 @@ if __name__ == "__main__":
 
     # Perform fine-tuning on each of the premise mode binary classification tasks.
     if args.fine_tune_model_on_premise_modes:
+
+        # Ethos
+        if args.probing_wandb_entity:
+            run = wandb.init(project="persuasive_arguments",
+                             entity=args.probing_wandb_entity,
+                             reinit=True,
+                             name="Fine tune on premise mode binary prediction (ethos)")
         ethos_model, ethos_eval_metrics = (
             fine_tuning.fine_tune_on_task(dataset=ethos_dataset,
                                           model=model,
@@ -291,6 +309,15 @@ if __name__ == "__main__":
                                           logger=logger)
         )
         print(f'ethos_eval_metrics:\n{ethos_eval_metrics}')
+        if args.probing_wandb_entity:
+            run.finish()
+
+        # Logos
+        if args.probing_wandb_entity:
+            run = wandb.init(project="persuasive_arguments",
+                             entity=args.probing_wandb_entity,
+                             reinit=True,
+                             name="Fine tune on premise mode binary prediction (logos)")
         logos, logos_eval_metrics = (
             fine_tuning.fine_tune_on_task(dataset=logos_dataset,
                                           model=model,
@@ -300,6 +327,15 @@ if __name__ == "__main__":
                                           premise_mode=constants.LOGOS,
                                           logger=logger))
         print(f'logos_eval_metrics:\n{logos_eval_metrics}')
+        if args.probing_wandb_entity:
+            run.finish()
+
+        # Pathos
+        if args.probing_wandb_entity:
+            run = wandb.init(project="persuasive_arguments",
+                             entity=args.probing_wandb_entity,
+                             reinit=True,
+                             name="Fine tune on premise mode binary prediction (pathos)")
         pathos_model, pathos_eval_metrics = (
             fine_tuning.fine_tune_on_task(dataset=pathos_dataset,
                                           model=model,
@@ -309,6 +345,9 @@ if __name__ == "__main__":
                                           premise_mode=constants.PATHOS,
                                           logger=logger))
         print(f'pathos_eval_metrics:\n{pathos_eval_metrics}')
+        if args.probing_wandb_entity:
+            run.finish()
+
     if args.probe_model_on_premise_modes:
         ethos_pretrained_probing_model, ethos_fine_tuned_probing_model, ethos_eval_metrics = (
             probing.probe_model_on_task(
