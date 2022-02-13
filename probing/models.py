@@ -1,7 +1,9 @@
+from __future__ import annotations
 
 import numpy as np
 import sklearn
 import torch
+import wandb
 
 import constants
 
@@ -32,7 +34,14 @@ class MLP(torch.nn.Module):
         """
         return self.layers(x)
 
-    def train_probe(self, train_loader, optimizer, num_labels, loss_function, num_epochs, scheduler=None):
+    def train_probe(self,
+                    train_loader: torch.utils.data.DataLoader,
+                    optimizer: torch.optim.optimizer.Optimizer,
+                    num_labels: int,
+                    loss_function: torch.nn.BCELoss | torch.nn.CrossEntropyLoss,
+                    num_epochs: int,
+                    scheduler=None,
+                    wandb_run: wandb.sdk.wandb_run.Run = None):
         """Train the probing model on a classification task given the provided training set and parameters.
 
         :param train_loader: A 'torch.utils.data.DataLoader' wrapping either a 'preprocessing.CMVPremiseModes' dataset
@@ -43,6 +52,7 @@ class MLP(torch.nn.Module):
         :param loss_function: A 'torch.nn' loss instance such as 'torch.nn.BCELoss'.
         :param num_epochs: The number of epochs used to train the probing model on the probing dataset.
         :param scheduler: A `torch.optim.lr_scheduler` instance used to adjust the learning rate of the optimizer.
+        :param wandb_run: A wandb.Run instance used to log metrics through the wandb interface.
         """
         self.train()
         for epoch in range(num_epochs):
@@ -63,8 +73,11 @@ class MLP(torch.nn.Module):
                 epoch_acc += accuracy
                 num_batches += 1
             scheduler.step()
+            wandb.log({constants.ACCURACY: epoch_acc / num_batches,
+                       constants.EPOCH: epoch,
+                       constants.LOSS: epoch_loss / num_batches})
             print(
-                f'{constants.EPOCH} {epoch + 1:03}: | '
+                f'{constants.EPOCH}: {epoch + 1:03}: | '
                 f'{constants.LOSS}: {epoch_loss / num_batches:.5f} |'
                 f'{constants.ACCURACY}: {epoch_acc / num_batches:.3f}'
             )

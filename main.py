@@ -1,3 +1,11 @@
+from __future__ import annotations
+
+import typing
+
+import datasets
+import sklearn
+import torch
+
 import constants
 import fine_tuning.fine_tuning as fine_tuning
 import preprocessing
@@ -51,6 +59,11 @@ parser.add_argument('--probing_model_learning_rate',
                     default=5e-3,
                     required=False,
                     help="The learning rate used by the probing model for the probing task.")
+parser.add_argument('--fine_tuning_on_probing_task_learning_rate',
+                    type=float,
+                    default=1e-5,
+                    required=False,
+                    help="The learning rate used for fine tuning a transformer on the probing task.")
 parser.add_argument('--probing_model_scheduler_gamma',
                     type=float,
                     default=0.9,
@@ -89,6 +102,11 @@ parser.add_argument('--probe_model_on_premise_modes',
                     help=('Whether or not a pre-trained transformer language model should be trained and evaluated'
                           'on a probing task. In this case, the probing task involves classifying the argumentation '
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
+parser.add_argument('--premise_modes',
+                    type=set,
+                    default={constants.ETHOS, constants.LOGOS, constants.PATHOS},
+                    required=False,
+                    help="The premise modes we use for our probing experiments on binary premise mode prediction.")
 parser.add_argument('--generate_new_premise_mode_probing_dataset',
                     type=bool,
                     default=False,
@@ -169,6 +187,51 @@ parser.add_argument('--probing_logging_steps',
                     help="The number of steps a model takes between recording to logs.")
 
 
+def run_fine_tuning(probing_wandb_entity: str,
+                    task_name: str,
+                    dataset: datasets.Dataset,
+                    model: transformers.PreTrainedModel | torch.torch.nn.Module,
+                    configuration: transformers.TrainingArguments,
+                    is_probing: bool,
+                    premise_mode: str = None,
+                    logger: logging.Logger = None):
+    """
+
+    :param probing_wandb_entity: The wandb entity used to track training.
+    :param task_name: A string. One of {'multiclass', 'binary_premise_mode_prediction', 'intra_argument_relations',
+        'binary_cmv_delta_prediction'}.
+    :param dataset: The dataset on which we fine-tune the given model.
+    :param model: A pretrained transformer language model for sequence classification.
+    :param configuration: A 'transformers.TrainingArguments' instance.
+    :param is_probing: True if the task on which we fine tune the model is a probing task. False if the task is a
+        downstream task.
+    :param premise_mode: A string representing the premise mode towards which the dataset is oriented. For example,
+        if the mode were 'ethos', then positive labels would be premises who's label contains 'ethos'.
+    :param logger: A logging.Logger instance used for logging.
+    :return:  A 2-tuple of the form (trainer, eval_metrics). The trainer is a 'transformers.Trainer' instance used to
+        fine-tune the model, and the metrics are a dictionary derived from evaluating the model on the verification set.
+    """
+    run_name = f'Fine tune on {task_name}'
+    if premise_mode:
+        run_name += f' ({premise_mode})'
+    if probing_wandb_entity:
+        run = wandb.init(project="persuasive_arguments",
+                         entity=probing_wandb_entity,
+                         reinit=True,
+                         name=run_name)
+    trainer, eval_metrics = (
+        fine_tuning.fine_tune_on_task(dataset=dataset,
+                                      model=model,
+                                      configuration=configuration,
+                                      task_name=task_name,
+                                      is_probing=is_probing,
+                                      logger=logger))
+    print(f'{task_name} eval metrics:\n{eval_metrics}')
+    if args.probing_wandb_entity:
+        run.finish()
+    return trainer, eval_metrics
+
+
 if __name__ == "__main__":
 
     # TODO: Create a function to extract the most recent checkpoint in a directory. Leverage that function when loading
@@ -185,7 +248,7 @@ if __name__ == "__main__":
         num_train_epochs=args.fine_tuning_on_probing_task_num_training_epochs,
         eval_steps=args.eval_steps,
         evaluation_strategy='steps',
-        learning_rate=args.probing_model_learning_rate,
+        learning_rate=args.fine_tuning_on_probing_task_learning_rate,
         per_device_train_batch_size=args.probing_per_device_train_batch_size,
         per_device_eval_batch_size=args.probing_per_device_eval_batch_size,
         warmup_steps=args.probing_warmup_steps,
@@ -207,27 +270,24 @@ if __name__ == "__main__":
         intra_argument_relations_probing_dataset = preprocessing.get_intra_argument_relations_probing_dataset(
                 tokenizer=tokenizer)
         if args.fine_tune_model_on_argument_relations:
-            if args.probing_wandb_entity:
-                run = wandb.init(project="persuasive_arguments",
-                                 entity=args.probing_wandb_entity,
-                                 reinit=True,
-                                 name='Fine tune on binary intra-argument relation existence')
-            _, intra_argument_relations_eval_metrics = (
-                fine_tuning.fine_tune_on_task(dataset=intra_argument_relations_probing_dataset,
-                                              model=model,
-                                              configuration=configuration,
-                                              task_name=constants.INTRA_ARGUMENT_RELATIONS,
-                                              is_probing=True,
-                                              logger=logger))
-            print(f'intra_argument_relations_eval_metrics:\n{intra_argument_relations_eval_metrics}')
-            if args.probing_wandb_entity:
-                run.finish()
+            intra_argument_relations_trainer, intra_argument_relations_eval_metrics = (
+                run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
+                                task_name=constants.INTRA_ARGUMENT_RELATIONS,
+                                dataset=intra_argument_relations_probing_dataset,
+                                model=model,
+                                configuration=configuration,
+                                is_probing=True,
+                                logger=logger))
         if args.probe_model_on_intra_argument_relations:
+            run = wandb.init(project="persuasive_arguments",
+                             entity=args.probing_wandb_entity,
+                             reinit=True,
+                             name='Intra argument relations probing')
             pretrained_probing_model, fine_tuned_probing_model, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=intra_argument_relations_probing_dataset,
                 probing_model=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
-                probing_task=constants.INTRA_ARGUMENT_RELATIONS,
+                task_name=constants.INTRA_ARGUMENT_RELATIONS,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 fine_tuned_model_path=args.fine_tuned_model_path,
                 mlp_learning_rate=args.probing_model_learning_rate,
@@ -235,6 +295,7 @@ if __name__ == "__main__":
                 mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
                 mlp_num_epochs=args.probing_num_training_epochs,
                 mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+            run.finish()
             print('pretrained probe results:')
             print(eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
             print(eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
@@ -251,33 +312,31 @@ if __name__ == "__main__":
             preprocessing.get_multi_class_cmv_probing_dataset(tokenizer=tokenizer,
                                                               with_claims=args.probe_claim_and_premise_pair))
         if args.fine_tune_model_on_premise_modes:
-            if args.probing_wandb_entity:
-                run = wandb.init(project="persuasive_arguments",
-                                 entity=args.probing_wandb_entity,
-                                 reinit=True,
-                                 name='Fine tune on multi-class premise mode prediction')
-            multi_class_model, multi_class_eval_metrics = (
-                fine_tuning.fine_tune_on_task(dataset=multi_class_premise_mode_dataset,
-                                              model=pretrained_multiclass_model,
-                                              configuration=configuration,
-                                              task_name=constants.MULTICLASS,
-                                              is_probing=True,
-                                              logger=logger))
-            print(f'multi_class_eval_metrics:\n{multi_class_eval_metrics}')
-            if args.probing_wandb_entity:
-                run.finish()
+            multi_class_tainer, multi_class_eval_metrics = (
+                run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
+                                task_name=constants.MULTICLASS,
+                                dataset=multi_class_premise_mode_dataset,
+                                model=pretrained_multiclass_model,
+                                configuration=configuration,
+                                is_probing=True,
+                                logger=logger))
         if args.probe_model_on_premise_modes:
+            run = wandb.init(project="persuasive_arguments",
+                             entity=args.probing_wandb_entity,
+                             reinit=True,
+                             name='Multiclass premise model probing')
             pretrained_probing_model, _, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=multi_class_premise_mode_dataset,
                 probing_model=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
-                probing_task=constants.MULTICLASS,
+                task_name=constants.MULTICLASS,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 mlp_learning_rate=args.probing_model_learning_rate,
                 mlp_training_batch_size=args.probing_per_device_train_batch_size,
                 mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
                 mlp_num_epochs=args.probing_num_training_epochs,
                 mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+            run.finish()
             print('multiclass probe results:')
             print(eval_metrics[constants.CONFUSION_MATRIX])
             print(eval_metrics[constants.CLASSIFICATION_REPORT])
@@ -289,124 +348,49 @@ if __name__ == "__main__":
     else:
         ethos_dataset, logos_dataset, pathos_dataset = preprocessing.get_cmv_probing_datasets(
             tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED), with_claims=False)
+    premise_modes_dataset_dict = {constants.ETHOS: ethos_dataset,
+                                  constants.LOGOS: logos_dataset,
+                                  constants.PATHOS: pathos_dataset}
 
     # Perform fine-tuning on each of the premise mode binary classification tasks.
     if args.fine_tune_model_on_premise_modes:
+        for premise_mode in args.premise_modes:
+            dataset = premise_modes_dataset_dict[premise_mode]
+            run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
+                            task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
+                            premise_mode=premise_mode,
+                            dataset=dataset,
+                            model=model,
+                            configuration=configuration,
+                            is_probing=True,
+                            logger=logger)
 
-        # Ethos
-        if args.probing_wandb_entity:
-            run = wandb.init(project="persuasive_arguments",
-                             entity=args.probing_wandb_entity,
-                             reinit=True,
-                             name="Fine tune on premise mode binary prediction (ethos)")
-        ethos_model, ethos_eval_metrics = (
-            fine_tuning.fine_tune_on_task(dataset=ethos_dataset,
-                                          model=model,
-                                          configuration=configuration,
-                                          task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
-                                          is_probing=True,
-                                          premise_mode=constants.ETHOS,
-                                          logger=logger)
-        )
-        print(f'ethos_eval_metrics:\n{ethos_eval_metrics}')
-        if args.probing_wandb_entity:
-            run.finish()
-
-        # Logos
-        if args.probing_wandb_entity:
-            run = wandb.init(project="persuasive_arguments",
-                             entity=args.probing_wandb_entity,
-                             reinit=True,
-                             name="Fine tune on premise mode binary prediction (logos)")
-        logos, logos_eval_metrics = (
-            fine_tuning.fine_tune_on_task(dataset=logos_dataset,
-                                          model=model,
-                                          configuration=configuration,
-                                          task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
-                                          is_probing=True,
-                                          premise_mode=constants.LOGOS,
-                                          logger=logger))
-        print(f'logos_eval_metrics:\n{logos_eval_metrics}')
-        if args.probing_wandb_entity:
-            run.finish()
-
-        # Pathos
-        if args.probing_wandb_entity:
-            run = wandb.init(project="persuasive_arguments",
-                             entity=args.probing_wandb_entity,
-                             reinit=True,
-                             name="Fine tune on premise mode binary prediction (pathos)")
-        pathos_model, pathos_eval_metrics = (
-            fine_tuning.fine_tune_on_task(dataset=pathos_dataset,
-                                          model=model,
-                                          configuration=configuration,
-                                          task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
-                                          is_probing=True,
-                                          premise_mode=constants.PATHOS,
-                                          logger=logger))
-        print(f'pathos_eval_metrics:\n{pathos_eval_metrics}')
-        if args.probing_wandb_entity:
-            run.finish()
-
+    # Perform probing on each of the premise mode binary classification tasks.
     if args.probe_model_on_premise_modes:
-        ethos_pretrained_probing_model, ethos_fine_tuned_probing_model, ethos_eval_metrics = (
-            probing.probe_model_on_task(
-                probing_dataset=ethos_dataset,
-                probing_model=args.probing_model,
-                generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
-                probing_task=constants.BINARY_PREMISE_MODE_PREDICTION,
-                pretrained_checkpoint_name=args.model_checkpoint_name,
-                fine_tuned_model_path=args.fine_tuned_model_path,
-                mlp_learning_rate=args.probing_model_learning_rate,
-                mlp_training_batch_size=args.probing_per_device_train_batch_size,
-                mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
-                mlp_num_epochs=args.probing_num_training_epochs,
-                mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
-                premise_mode=constants.ETHOS))
-        print(f'{constants.ETHOS} pretrained probe results:')
-        print(ethos_eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
-        print(ethos_eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
-        print(f'{constants.ETHOS} fine tuned probe results:')
-        print(ethos_eval_metrics[constants.FINE_TUNED][constants.CONFUSION_MATRIX])
-        print(ethos_eval_metrics[constants.FINE_TUNED][constants.CLASSIFICATION_REPORT])
-
-        logos_pretrained_probing_model, logos_fine_tuned_probing_model, logos_eval_metrics = probing.probe_model_on_task(
-            probing_dataset=logos_dataset,
-            probing_model=args.probing_model,
-            generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
-            probing_task=constants.BINARY_PREMISE_MODE_PREDICTION,
-            pretrained_checkpoint_name=args.model_checkpoint_name,
-            fine_tuned_model_path=args.fine_tuned_model_path,
-            mlp_learning_rate=args.probing_model_learning_rate,
-            mlp_training_batch_size=args.probing_per_device_train_batch_size,
-            mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
-            mlp_num_epochs=args.probing_num_training_epochs,
-            mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
-            premise_mode=constants.LOGOS)
-        print(f'{constants.LOGOS} pretrained probe results:')
-        print(logos_eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
-        print(logos_eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
-        print(f'{constants.LOGOS} fine tuned probe results:')
-        print(logos_eval_metrics[constants.FINE_TUNED][constants.CONFUSION_MATRIX])
-        print(logos_eval_metrics[constants.FINE_TUNED][constants.CLASSIFICATION_REPORT])
-
-        pathos_pretrained_probing_model, pathos_fine_tuned_probing_model, pathos_eval_metrics = (
-            probing.probe_model_on_task(
-                probing_dataset=pathos_dataset,
-                probing_model=args.probing_model,
-                generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
-                probing_task=constants.BINARY_PREMISE_MODE_PREDICTION,
-                pretrained_checkpoint_name=args.model_checkpoint_name,
-                fine_tuned_model_path=args.fine_tuned_model_path,
-                mlp_learning_rate=args.probing_model_learning_rate,
-                mlp_training_batch_size=args.probing_per_device_train_batch_size,
-                mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
-                mlp_num_epochs=args.probing_num_training_epochs,
-                mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
-                premise_mode=constants.PATHOS))
-    print(f'{constants.PATHOS} pretrained probe results:')
-    print(pathos_eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
-    print(pathos_eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
-    print(f'{constants.PATHOS} fine tuned probe results:')
-    print(pathos_eval_metrics[constants.FINE_TUNED][constants.CONFUSION_MATRIX])
-    print(pathos_eval_metrics[constants.FINE_TUNED][constants.CLASSIFICATION_REPORT])
+        for premise_mode in args.premise_modes:
+            dataset = premise_modes_dataset_dict[premise_mode]
+            run = wandb.init(project="persuasive_arguments",
+                             entity=args.probing_wandb_entity,
+                             reinit=True,
+                             name=f'Binary premise mode prediction ({premise_mode}) probing')
+            retrained_probing_model, fine_tuned_probing_model, eval_metrics = (
+                probing.probe_model_on_task(
+                    probing_dataset=dataset,
+                    probing_model=args.probing_model,
+                    generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
+                    task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
+                    pretrained_checkpoint_name=args.model_checkpoint_name,
+                    fine_tuned_model_path=args.fine_tuned_model_path,
+                    mlp_learning_rate=args.probing_model_learning_rate,
+                    mlp_training_batch_size=args.probing_per_device_train_batch_size,
+                    mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
+                    mlp_num_epochs=args.probing_num_training_epochs,
+                    mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
+                    premise_mode=premise_mode))
+            run.finish()
+            print(f'{constants.BINARY_PREMISE_MODE_PREDICTION} ({premise_mode}) pretrained probe results:')
+            print(eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
+            print(eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
+            print(f'{constants.BINARY_PREMISE_MODE_PREDICTION} ({premise_mode}) fine tuned probe results:')
+            print(eval_metrics[constants.FINE_TUNED][constants.CONFUSION_MATRIX])
+            print(eval_metrics[constants.FINE_TUNED][constants.CLASSIFICATION_REPORT])

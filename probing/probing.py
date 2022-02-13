@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import constants
 import preprocessing
 import probing.models as probing_models
@@ -241,9 +243,7 @@ def probe_with_logistic_regression(
     targets_train = dataset_train.cmv_premise_mode_dataset[constants.LABEL]
 
     # TODO: Implement a sweep to try to identify optimal logistic regression hyper-parameters at scale.
-    probing_model = (
-        sklearn.linear_model.LogisticRegression(
-            max_iter=1000).fit(hidden_states_train, targets_train))
+    probing_model = sklearn.linear_model.LogisticRegression().fit(hidden_states_train, targets_train)
 
     hidden_states_eval = (
         dataset_test.cmv_premise_mode_dataset[constants.HIDDEN_STATE])
@@ -289,7 +289,7 @@ def probe_model_with_mlp(hidden_state_datasets,
     :param base_model_type: One of 'pretrained', 'finetuned' or 'multiclass'.
     :param scheduler_gamma: Decays the learning rate of each parameter group by gamma every epoch.
     :return: A two-tuple consisting of:
-        (1) A trained probing model. This is a 'sklearn.linear_model.LogisticRegression' instance.
+        (1) A trained probing model. This is a 'torch.nn.Module' instance.
         (2) Model evaluation metrics on the test set. This is a A dictionary whose keys are base model type strings
          as defined above, and whose values are inner dictionaries. The inner dictionaries map metric names to their
          corresponding values.
@@ -326,15 +326,18 @@ def probe_model_with_mlp(hidden_state_datasets,
 def probe_model_on_task(probing_dataset: typing.Union[preprocessing.CMVDataset, preprocessing.CMVPremiseModes],
                         probing_model: str,
                         generate_new_hidden_state_dataset: bool,
-                        probing_task,
-                        pretrained_checkpoint_name=None,
-                        fine_tuned_model_path=None,
-                        mlp_learning_rate=None,
-                        mlp_training_batch_size=None,
-                        mlp_eval_batch_size=None,
-                        mlp_num_epochs=None,
-                        mlp_optimizer_scheduler_gamma=None,
-                        premise_mode=None):
+                        task_name: str,
+                        pretrained_checkpoint_name:str = None,
+                        fine_tuned_model_path: str = None,
+                        mlp_learning_rate: float = None,
+                        mlp_training_batch_size: int = None,
+                        mlp_eval_batch_size: int = None,
+                        mlp_num_epochs: int = None,
+                        mlp_optimizer_scheduler_gamma: float = None,
+                        premise_mode: str = None) -> (
+        typing.Tuple[probing_models.MLP | sklearn.linear_model.LogisticRegression,
+                     probing_models.MLP | sklearn.linear_model.LogisticRegression,
+                     dict]):
     """
 
     :param probing_dataset: Either a 'preprocessing.CMVPremiseModes' or a 'preprocessing.CMVDataset' instance. This
@@ -343,7 +346,8 @@ def probe_model_on_task(probing_dataset: typing.Union[preprocessing.CMVDataset, 
     :param probing_model: A string representing the model type used for probing. Either 'MLP' or 'logistic_regression'.
     :param generate_new_hidden_state_dataset: A boolean. True if the user intends to generate a new dictionary mapping
         hidden representations of premises/claims+premises to premise mode.
-    :param probing_task:
+    :param task_name: A string. One of {'multiclass', 'binary_premise_mode_prediction', 'intra_argument_relations',
+        'binary_cmv_delta_prediction'}.
     :param pretrained_checkpoint_name: The string name of the pretrained model checkpoint to load.
     :param fine_tuned_model_path: The path to the file containing a saved language model that was fine-tuned on the
         downstream task.
@@ -354,23 +358,28 @@ def probe_model_on_task(probing_dataset: typing.Union[preprocessing.CMVDataset, 
     :param mlp_optimizer_scheduler_gamma: Decays the learning rate of each parameter group by gamma every epoch.
     :param premise_mode: A string representing the premise mode towards which the dataset is oriented. For example,
         if the mode were 'ethos', then positive labels would be premises who's label contains 'ethos'.
-    :return:
+    :return: A tuple consisting of three entries:
+        pretrained_probing_model: A probing model trained on embeddings produced by a pre-trained transformer model.
+        fine_tuned_probing_model: A probing model trained on embeddings produced by a pre-trained and fine-tuned
+            transformer model.
+        eval_metrics: A dictionary mapping string model names ("pretrained", "finetuned" or "multiclass") to a
+            dictionary of metrics (string keys to mapping to metric values).
     """
     probing_dir_path = os.path.join(os.getcwd(), constants.PROBING)
     if not os.path.exists(probing_dir_path):
         print(f'Creating directory: {probing_dir_path}')
         os.mkdir(probing_dir_path)
 
-    if probing_task == constants.BINARY_PREMISE_MODE_PREDICTION:
+    if task_name == constants.BINARY_PREMISE_MODE_PREDICTION:
         assert premise_mode, 'When probing with the binary premise mode prediction task, you must run this function' \
                              'for each premise mode, and specify which one you are currently running within the ' \
                              '"premise_mode" parameter.'
         task_probing_dir_path = os.path.join(probing_dir_path, constants.PREMISE_DIR_PATH_MAPPING[premise_mode])
     else:
-        assert probing_task in [constants.BINARY_PREMISE_MODE_PREDICTION,
+        assert task_name in [constants.BINARY_PREMISE_MODE_PREDICTION,
                                 constants.MULTICLASS,
-                                constants.INTRA_ARGUMENT_RELATIONS], f"{probing_task} is an unsupported probing task."
-        task_probing_dir_path = os.path.join(probing_dir_path, probing_task)
+                                constants.INTRA_ARGUMENT_RELATIONS], f"{task_name} is an unsupported probing task."
+        task_probing_dir_path = os.path.join(probing_dir_path, task_name)
 
     if not os.path.exists(task_probing_dir_path):
         print(f'Crating directory: {task_probing_dir_path}')
@@ -378,7 +387,8 @@ def probe_model_on_task(probing_dataset: typing.Union[preprocessing.CMVDataset, 
 
     if generate_new_hidden_state_dataset:
         num_labels = (
-            len(constants.PREMISE_MODE_TO_INT) if probing_task == constants.MULTICLASS else constants.NUM_LABELS)
+            len(constants.PREMISE_MODE_TO_INT) if task_name == constants.MULTICLASS else constants.NUM_LABELS)
+        # TODO: Use the returned outputs from 'save_hidden_state_outputs' within 'load_hidden_state_outputs'.
         pretrained_hidden_state_files, fine_tuned_hidden_state_files = save_hidden_state_outputs(
             fine_tuned_model_path=fine_tuned_model_path,
             pretrained_checkpoint_name=pretrained_checkpoint_name,
@@ -386,7 +396,7 @@ def probe_model_on_task(probing_dataset: typing.Union[preprocessing.CMVDataset, 
             probing_dir_path=task_probing_dir_path,
             num_labels=num_labels)
 
-    if probing_task == constants.MULTICLASS:
+    if task_name == constants.MULTICLASS:
         hidden_state_datasets = (
             load_hidden_state_outputs(task_probing_dir_path, pretrained=False, fine_tuned=False, multiclass=True))
     else:
@@ -394,7 +404,7 @@ def probe_model_on_task(probing_dataset: typing.Union[preprocessing.CMVDataset, 
             load_hidden_state_outputs(task_probing_dir_path, pretrained=True, fine_tuned=True, multiclass=False))
 
     if probing_model == constants.MLP:
-        if probing_task == constants.MULTICLASS:
+        if task_name == constants.MULTICLASS:
             multiclass_probing_model, multiclass_eval_metrics = probe_model_with_mlp(
                 hidden_state_datasets,
                 num_labels=len(constants.PREMISE_MODE_TO_INT),
@@ -428,7 +438,7 @@ def probe_model_on_task(probing_dataset: typing.Union[preprocessing.CMVDataset, 
                             constants.FINE_TUNED: fine_tuned_eval_metrics}
             return pretrained_probing_model, fine_tuned_probing_model, eval_metrics
     elif probing_model == constants.LOGISTIC_REGRESSION:
-        if probing_task == constants.MULTICLASS:
+        if task_name == constants.MULTICLASS:
             multiclass_probing_model, multiclass_eval_metrics = probe_with_logistic_regression(
                 hidden_state_datasets=hidden_state_datasets,
                 base_model_type=constants.MULTICLASS)

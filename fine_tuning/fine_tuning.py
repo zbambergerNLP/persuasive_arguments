@@ -18,8 +18,8 @@ def fine_tune_on_task(dataset: datasets.Dataset,
                       configuration: transformers.TrainingArguments,
                       task_name: str,
                       is_probing: bool = False,
-                      premise_mode:str = None,
-                      logger: logging.Logger = None) -> tuple[transformers.Trainer, dict]:
+                      premise_mode: str = None,
+                      logger: logging.Logger = None) -> typing.Tuple[transformers.Trainer, dict]:
     """Fine tune a transformer language model on the provided dataset.
 
     :param dataset: The dataset on which we fine-tune the given model.
