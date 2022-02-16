@@ -19,10 +19,12 @@ class TrainingMetricsCallback(transformers.TrainerCallback):
         super().__init__()
         self._trainer = trainer
 
-    def on_epoch_end(self, args, state, control, **kwargs):
+    def on_log(self, args, state, control, **kwargs):
         if control.should_evaluate:
             control_copy = copy.deepcopy(control)
-            self._trainer.evaluate(eval_dataset=self._trainer.train_dataset, metric_key_prefix="train")
+            self._trainer.log_metrics(self._trainer.evaluate(
+                eval_dataset=self._trainer.train_dataset,
+                metric_key_prefix="train"))
             return control_copy
 
 
@@ -83,15 +85,10 @@ def fine_tune_on_task(dataset: datasets.Dataset,
     training_metrics = train_result.metrics
 
     trainer.save_model()
-    trainer.log_metrics(split=constants.TRAIN, metrics=training_metrics)
     trainer.save_metrics(split=constants.TRAIN, metrics=training_metrics)
 
     # Evaluation
     logger.info("*** Evaluate ***")
     eval_metrics = trainer.evaluate()
-
-    # TODO: The below lines produce `AttributeError: module 'metrics' has no attribute 'copy'`. Resolve this issue.
-    # trainer.log_metrics(split=constants.EVAL, metrics=metrics)
-    # trainer.save_metrics(split=constants.EVAL, metrics=metrics)
 
     return trainer, eval_metrics

@@ -239,16 +239,16 @@ def probe_with_logistic_regression(
 
     dataset_train = hidden_state_datasets[base_model_type][constants.TRAIN]
     dataset_test = hidden_state_datasets[base_model_type][constants.TEST]
-    hidden_states_train = dataset_train.cmv_premise_mode_dataset[constants.HIDDEN_STATE]
-    targets_train = dataset_train.cmv_premise_mode_dataset[constants.LABEL]
+    hidden_states_train = dataset_train.cmv_dataset[constants.HIDDEN_STATE]
+    targets_train = dataset_train.cmv_dataset[constants.LABEL]
 
     # TODO: Implement a sweep to try to identify optimal logistic regression hyper-parameters at scale.
     probing_model = sklearn.linear_model.LogisticRegression().fit(hidden_states_train, targets_train)
 
     hidden_states_eval = (
-        dataset_test.cmv_premise_mode_dataset[constants.HIDDEN_STATE])
+        dataset_test.cmv_dataset[constants.HIDDEN_STATE])
     targets_eval = (
-        dataset_test.cmv_premise_mode_dataset[constants.LABEL])
+        dataset_test.cmv_dataset[constants.LABEL])
     preds_eval = probing_model.predict(hidden_states_eval)
     confusion_matrix = sklearn.metrics.confusion_matrix(targets_eval, preds_eval)
     classification_report = sklearn.metrics.classification_report(targets_eval, preds_eval)

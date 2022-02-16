@@ -23,7 +23,10 @@ class CMVDataset(torch.utils.data.Dataset):
         self.num_examples = cmv_dataset.num_rows
 
     def __getitem__(self, idx):
-        item = {key: torch.tensor(val[idx]) for key, val in self.cmv_dataset.items()}
+        item = {}
+        for key, value in self.cmv_dataset.items():
+            if key in [constants.INPUT_IDS, constants.TOKEN_TYPE_IDS, constants.ATTENTION_MASK, constants.LABEL]:
+                item[key] = torch.tensor(value[idx])
         return item
 
     def __len__(self):
