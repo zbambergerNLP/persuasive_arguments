@@ -19,13 +19,15 @@ class TrainingMetricsCallback(transformers.TrainerCallback):
         super().__init__()
         self._trainer = trainer
 
-    def on_log(self, args, state, control, **kwargs):
-        if control.should_evaluate:
-            control_copy = copy.deepcopy(control)
-            self._trainer.log_metrics(self._trainer.evaluate(
-                eval_dataset=self._trainer.train_dataset,
-                metric_key_prefix="train"))
-            return control_copy
+    def on_epoch_begin(self, args, state, control, **kwargs):
+        control_copy = copy.deepcopy(control)
+        training_metrics = self._trainer.evaluate(
+            eval_dataset=self._trainer.train_dataset,
+            metric_key_prefix=constants.TRAIN)
+        training_metrics['train_accuracy'] = training_metrics['train_accuracy'][constants.ACCURACY]
+        self._trainer.log_metrics(constants.TRAIN, training_metrics)
+        self._trainer.save_metrics(constants.TRAIN, training_metrics)
+        return control_copy
 
 
 def fine_tune_on_task(dataset: datasets.Dataset,

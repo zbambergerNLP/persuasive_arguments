@@ -15,8 +15,25 @@ import constants
 import metrics
 
 
+class CMVProbingDataset(torch.utils.data.Dataset):
+    """A Change My View dataset for probing."""
+
+    def __init__(self, cmv_probing_dataset):
+        self.cmv_probing_dataset = cmv_probing_dataset.to_dict()
+        self.hidden_states = cmv_probing_dataset[constants.HIDDEN_STATE]
+        self.labels = cmv_probing_dataset[constants.LABEL]
+        self.num_examples = cmv_probing_dataset.num_rows
+
+    def __getitem__(self, idx):
+        return {constants.HIDDEN_STATE: torch.tensor(self.hidden_states[idx]),
+                constants.LABEL: torch.tensor(self.labels[idx])}
+
+    def __len__(self):
+        return self.num_examples
+
+
 class CMVDataset(torch.utils.data.Dataset):
-    """A Change My View specific wrapper to the Torch Dataset class."""
+    """A Change My View dataset for fine tuning.."""
 
     def __init__(self, cmv_dataset):
         self.cmv_dataset = cmv_dataset.to_dict()

@@ -44,7 +44,7 @@ parser.add_argument('--probing_model',
 parser.add_argument('--fine_tuned_model_path',
                     type=str,
                     required=False,
-                    default=os.path.join(constants.RESULTS, 'checkpoint-1500'),
+                    default=os.path.join('fine_tuning', constants.RESULTS, 'checkpoint-1500'),
                     help='The path fine-tuned model trained on the argument persuasiveness prediction task.')
 parser.add_argument('--model_checkpoint_name',
                     type=str,
@@ -58,7 +58,7 @@ parser.add_argument('--probing_model_learning_rate',
                     help="The learning rate used by the probing model for the probing task.")
 parser.add_argument('--fine_tuning_on_probing_task_learning_rate',
                     type=float,
-                    default=1e-5,
+                    default=5e-6,
                     required=False,
                     help="The learning rate used for fine tuning a transformer on the probing task.")
 parser.add_argument('--probing_model_scheduler_gamma',
@@ -220,7 +220,7 @@ def run_fine_tuning(probing_wandb_entity: str,
                                       logger=logger))
     prefix = f'{task_name} ({premise_mode})' if premise_mode else f'{task_name}'
     print(f'{prefix} eval metrics:\n{eval_metrics}')
-    if args.probing_wandb_entity:
+    if probing_wandb_entity:
         run.finish()
     return trainer, eval_metrics
 
@@ -282,6 +282,7 @@ if __name__ == "__main__":
                 probing_model=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
                 task_name=constants.INTRA_ARGUMENT_RELATIONS,
+                probing_wandb_entity=args.probing_wandb_entity,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 fine_tuned_model_path=args.fine_tuned_model_path,
                 mlp_learning_rate=args.probing_model_learning_rate,
@@ -322,6 +323,7 @@ if __name__ == "__main__":
                 probing_model=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                 task_name=constants.MULTICLASS,
+                probing_wandb_entity=args.probing_wandb_entity,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 mlp_learning_rate=args.probing_model_learning_rate,
                 mlp_training_batch_size=args.probing_per_device_train_batch_size,
@@ -370,6 +372,7 @@ if __name__ == "__main__":
                     probing_model=args.probing_model,
                     generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                     task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
+                    probing_wandb_entity=args.probing_wandb_entity,
                     pretrained_checkpoint_name=args.model_checkpoint_name,
                     fine_tuned_model_path=args.fine_tuned_model_path,
                     mlp_learning_rate=args.probing_model_learning_rate,
