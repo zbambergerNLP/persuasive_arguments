@@ -214,6 +214,9 @@ def tokenize_for_task(task_name: str,
     dataset = tokenizer(first_text, second_text, padding=True, truncation=True)
     transformers.logging.set_verbosity(verbosity)
 
+    dataset[constants.FIRST_TEXT] = first_text
+    dataset[constants.SECOND_TEXT] = second_text
+
     dataset[constants.LABEL] = label
     return dataset
 

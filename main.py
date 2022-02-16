@@ -101,7 +101,7 @@ parser.add_argument('--probe_model_on_premise_modes',
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
 parser.add_argument('--premise_modes',
                     type=set,
-                    default={constants.ETHOS, constants.LOGOS, constants.PATHOS},
+                    default={constants.LOGOS, constants.PATHOS},
                     required=False,
                     help="The premise modes we use for our probing experiments on binary premise mode prediction.")
 parser.add_argument('--generate_new_premise_mode_probing_dataset',
@@ -333,17 +333,14 @@ if __name__ == "__main__":
             print(eval_metrics[constants.CONFUSION_MATRIX])
             print(eval_metrics[constants.CLASSIFICATION_REPORT])
 
-    ethos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
-                                              tokenizer=tokenizer,
-                                              premise_mode=constants.ETHOS)
     logos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                               tokenizer=tokenizer,
                                               premise_mode=constants.LOGOS)
     pathos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                                tokenizer=tokenizer,
                                                premise_mode=constants.PATHOS)
-    premise_modes_dataset_dict = {constants.ETHOS: ethos_dataset,
-                                  constants.LOGOS: logos_dataset,
+
+    premise_modes_dataset_dict = {constants.LOGOS: logos_dataset,
                                   constants.PATHOS: pathos_dataset}
 
     # Perform fine-tuning on each of the premise mode binary classification tasks.

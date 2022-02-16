@@ -383,7 +383,7 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVDataset,
         num_labels = (
             len(constants.PREMISE_MODE_TO_INT) if task_name == constants.MULTICLASS else constants.NUM_LABELS)
         # TODO: Use the returned outputs from 'save_hidden_state_outputs' within 'load_hidden_state_outputs'.
-        pretrained_hidden_state_files, fine_tuned_hidden_state_files = save_hidden_state_outputs(
+        save_hidden_state_outputs(
             fine_tuned_model_path=fine_tuned_model_path,
             pretrained_checkpoint_name=pretrained_checkpoint_name,
             probing_dataset=probing_dataset,

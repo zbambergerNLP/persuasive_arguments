@@ -46,6 +46,8 @@ CMV_DATASET_NAME = 'cmv_delta_prediction.json'
 SUCCESS = 'success'
 REPLIES = 'replies'
 NUM_LABELS = 2
+FIRST_TEXT = 'first_text'
+SECOND_TEXT = 'second_text'
 
 # Argumentative modes for premises
 ETHOS = 'ethos'

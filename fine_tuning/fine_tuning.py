@@ -1,16 +1,29 @@
 from __future__ import annotations
 
-import logging
-
+import copy
 import datasets
+import logging
+import os
+import torch
+import transformers
+import typing
 
 import preprocessing
 import constants
 import metrics
-import transformers
-import torch
-import os
-import typing
+
+
+class TrainingMetricsCallback(transformers.TrainerCallback):
+
+    def __init__(self, trainer) -> None:
+        super().__init__()
+        self._trainer = trainer
+
+    def on_epoch_end(self, args, state, control, **kwargs):
+        if control.should_evaluate:
+            control_copy = copy.deepcopy(control)
+            self._trainer.evaluate(eval_dataset=self._trainer.train_dataset, metric_key_prefix="train")
+            return control_copy
 
 
 def fine_tune_on_task(dataset: datasets.Dataset,
@@ -62,6 +75,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         train_dataset=train_dataset,
         eval_dataset=test_dataset,
         compute_metrics=metrics_function)
+    trainer.add_callback(TrainingMetricsCallback(trainer))
 
     # Training
     logger.info("*** Train ***")

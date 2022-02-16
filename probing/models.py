@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import sklearn
 import torch
+import transformers
 import wandb
 
 import constants
