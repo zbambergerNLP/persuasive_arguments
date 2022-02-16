@@ -44,8 +44,8 @@ class MLP(torch.nn.Module):
                     wandb_run: wandb.sdk.wandb_run.Run = None):
         """Train the probing model on a classification task given the provided training set and parameters.
 
-        :param train_loader: A 'torch.utils.data.DataLoader' wrapping either a 'preprocessing.CMVPremiseModes' dataset
-            or a 'preprocessing.CMVDataset' instance for some premise mode.
+        :param train_loader: A 'torch.utils.data.DataLoader' wrapping a 'preprocessing.CMVDataset' instance for some
+            premise mode.
         :param optimizer: A 'torch.optim' optimizer instance (e.g., SGD).
         :param num_labels: An integer representing the output space (number of labels) for the probing classification
             problem.
@@ -85,8 +85,8 @@ class MLP(torch.nn.Module):
     def eval_probe(self, test_loader):
         """Evaluate the trained classification probe on a held out test set.
 
-        :param test_loader: A 'torch.utils.data.DataLoader' wrapping either a 'preprocessing.CMVPremiseModes' dataset
-            or a 'preprocessing.CMVDataset' instance for some premise mode.
+        :param test_loader: A 'torch.utils.data.DataLoader' wrapping a 'preprocessing.CMVDataset' instance for some
+            premise mode.
         :return: A 2-tuple containing ('confusion_matrix', 'classification_report'). 'confusion_matrix' is derived from
         'sklearn.metrics.confusion_matrix' while 'classification_report' is derived from
         'sklearn.metrics.classification_report'.

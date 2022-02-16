@@ -118,10 +118,11 @@ if __name__ == "__main__":
     model = transformers.BertForSequenceClassification.from_pretrained(
         args.fine_tuning_model_checkpoint_name,
         num_labels=constants.NUM_LABELS)
-    dataset = preprocessing.get_cmv_downstream_dataset(
-        dataset_name=args.fine_tuning_dataset_name,
-        tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
-    )
+    dataset = (
+        preprocessing.get_dataset(task_name=constants.BINARY_CMV_DELTA_PREDICTION,
+                                  tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED),
+                                  save_text_datasets=True,
+                                  dataset_name=args.fine_tuning_dataset_name))
     fine_tuned_model, downstream_metrics = (
         fine_tuning.fine_tune_on_task(dataset=dataset,
                                       model=model,

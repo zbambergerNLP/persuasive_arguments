@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import typing
-
 import datasets
-import sklearn
 import torch
 
 import constants
@@ -125,12 +122,6 @@ parser.add_argument('--probe_model_fine_tuned_on_probing_task',
                     required=False,
                     help='True if we wish to perform probing on a model fine-tuned on the probing task. False '
                          'otherwise. This "debug" setting is meant to test the validity of the probing infrastructure.')
-parser.add_argument('--probe_claim_and_premise_pair',
-                    type=bool,
-                    default=True,
-                    required=False,
-                    help='True if the probing dataset consists of a (claim, supporting_premise) pair. False if the '
-                         'probing dataset consists strictly of premises.')
 parser.add_argument('--multi_class_premise_mode_probing',
                     type=bool,
                     default=True,
@@ -225,8 +216,10 @@ def run_fine_tuning(probing_wandb_entity: str,
                                       configuration=configuration,
                                       task_name=task_name,
                                       is_probing=is_probing,
+                                      premise_mode=premise_mode,
                                       logger=logger))
-    print(f'{task_name} eval metrics:\n{eval_metrics}')
+    prefix = f'{task_name} ({premise_mode})' if premise_mode else f'{task_name}'
+    print(f'{prefix} eval metrics:\n{eval_metrics}')
     if args.probing_wandb_entity:
         run.finish()
     return trainer, eval_metrics
@@ -267,8 +260,9 @@ if __name__ == "__main__":
     tokenizer = transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
 
     if args.probe_model_on_intra_argument_relations:
-        intra_argument_relations_probing_dataset = preprocessing.get_intra_argument_relations_probing_dataset(
-                tokenizer=tokenizer)
+        intra_argument_relations_probing_dataset = preprocessing.get_dataset(
+            task_name=constants.INTRA_ARGUMENT_RELATIONS,
+            tokenizer=tokenizer)
         if args.fine_tune_model_on_argument_relations:
             intra_argument_relations_trainer, intra_argument_relations_eval_metrics = (
                 run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
@@ -307,10 +301,8 @@ if __name__ == "__main__":
         pretrained_multiclass_model = transformers.BertForSequenceClassification.from_pretrained(
             args.model_checkpoint_name,
             num_labels=len(constants.PREMISE_MODE_TO_INT))
-
-        multi_class_premise_mode_dataset = (
-            preprocessing.get_multi_class_cmv_probing_dataset(tokenizer=tokenizer,
-                                                              with_claims=args.probe_claim_and_premise_pair))
+        multi_class_premise_mode_dataset = preprocessing.get_dataset(task_name=constants.MULTICLASS,
+                                                                     tokenizer=tokenizer)
         if args.fine_tune_model_on_premise_modes:
             multi_class_tainer, multi_class_eval_metrics = (
                 run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
@@ -341,13 +333,15 @@ if __name__ == "__main__":
             print(eval_metrics[constants.CONFUSION_MATRIX])
             print(eval_metrics[constants.CLASSIFICATION_REPORT])
 
-    # Create datasets for each premise mode for binary classification.
-    if args.probe_claim_and_premise_pair:
-        ethos_dataset, logos_dataset, pathos_dataset = preprocessing.get_cmv_probing_datasets(
-            tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED), with_claims=True)
-    else:
-        ethos_dataset, logos_dataset, pathos_dataset = preprocessing.get_cmv_probing_datasets(
-            tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED), with_claims=False)
+    ethos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
+                                              tokenizer=tokenizer,
+                                              premise_mode=constants.ETHOS)
+    logos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
+                                              tokenizer=tokenizer,
+                                              premise_mode=constants.LOGOS)
+    pathos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
+                                               tokenizer=tokenizer,
+                                               premise_mode=constants.PATHOS)
     premise_modes_dataset_dict = {constants.ETHOS: ethos_dataset,
                                   constants.LOGOS: logos_dataset,
                                   constants.PATHOS: pathos_dataset}
