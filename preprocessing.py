@@ -1,14 +1,15 @@
-import typing
+import random
 
+from convokit import Corpus, download
 import datasets
 import numpy as np
 import os.path
 import pandas as pd
-
-from convokit import Corpus, download
-from datasets import Dataset
+from sklearn.utils import resample
 import torch
 import transformers
+import typing
+
 
 import cmv_modes.preprocessing_cmv_ampersand as cmv_probing
 import constants
@@ -277,9 +278,11 @@ def transform_df_to_dataset(task_name: str,
         print(f'wrote pandas dataframe into memory: {os.path.join(os.getcwd(), f"{task_name}.csv")}')
 
     baseline_results = metrics.get_baseline_scores(task_name=task_name, corpus_df=corpus_df)
-    print(f'Baseline results for {task_name} prediction are:\n{baseline_results}')
+    baseline_report_prefix = (
+        f'Baseline results for {task_name} ({premise_mode})' if premise_mode else f'Baseline results for {task_name}')
+    print(f'{baseline_report_prefix} predictions are:\n{baseline_results}')
 
-    dataset = Dataset.from_dict(
+    dataset = datasets.Dataset.from_dict(
         tokenize_for_task(
             task_name=task_name,
             corpus_df=corpus_df,
@@ -332,3 +335,29 @@ def get_dataset(task_name: str,
                                    tokenizer=tokenizer,
                                    save_text_datasets=save_text_datasets,
                                    premise_mode=premise_mode)
+
+
+def downsample_datasets(dataset: datasets.Dataset,
+                        min_examples: int = 300) -> datasets.Dataset:
+    """Downsample majority classes within the provided dataset.
+
+    :param dataset: A datasets.Dataset instance for the inputted task.
+    :param min_examples: If a dataset class has fewer than min_examples, then we do not downsample that class.
+    :return: A datasets.Dataset instance resulting from downsampling majority classes.
+    """
+    label_to_count = {}
+    label_to_dataset = {}
+    for label in constants.PREMISE_MODE_TO_INT.keys():
+        filtered_dataset = dataset.filter(lambda row: row[constants.LABEL].item() == label)
+        label_to_dataset[label] = filtered_dataset
+        label_to_count[label] = filtered_dataset.num_rows
+
+    minority_label = min(label_to_count, key=label_to_count.get)
+    lower_bound = max(label_to_count[minority_label], min_examples)
+    for label, dataset in label_to_dataset.items():
+        num_examples = dataset.num_rows
+        if num_examples > lower_bound:
+            dataset = dataset.shuffle()
+            label_to_dataset[label] = dataset.filter(lambda _, index: index < lower_bound, with_indices=True)
+    resulting_dataset = datasets.concatenate_datasets(list(label_to_dataset.values())).shuffle()
+    return resulting_dataset

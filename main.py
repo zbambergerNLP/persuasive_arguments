@@ -66,6 +66,25 @@ parser.add_argument('--probing_model_scheduler_gamma',
                     default=0.9,
                     help="Decays the learning rate of each parameter group by gamma every epoch.")
 
+# Data Imbalance Flags
+parser.add_argument('--downsample_binary_premise_mode_prediction',
+                    type=bool,
+                    default=True,
+                    help="True if we intend to downsample probing datasets for binary premise mode prediction.")
+parser.add_argument('--downsample_multi_class_premise_mode_prediction',
+                    type=bool,
+                    default=False,
+                    help="True if we intend to downsample probing datasets for multi class premise mode prediction.")
+parser.add_argument('--downsample_binary_intra_argument_relation_prediction',
+                    type=bool,
+                    default=False,
+                    help="True if we intend to downsample probing datasets for binary intra argument relation "
+                         "prediction.")
+parser.add_argument('--downsampling_min_examples',
+                    type=int,
+                    default=300,
+                    help="The minimum number of examples associated with a label to consider downsampling examples for "
+                         "that label.")
 
 # Probing on intra-argument relations:
 parser.add_argument('--probe_model_on_intra_argument_relations',
@@ -106,7 +125,7 @@ parser.add_argument('--premise_modes',
                     help="The premise modes we use for our probing experiments on binary premise mode prediction.")
 parser.add_argument('--generate_new_premise_mode_probing_dataset',
                     type=bool,
-                    default=False,
+                    default=True,
                     required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
@@ -263,6 +282,10 @@ if __name__ == "__main__":
         intra_argument_relations_probing_dataset = preprocessing.get_dataset(
             task_name=constants.INTRA_ARGUMENT_RELATIONS,
             tokenizer=tokenizer)
+        if args.downsample_binary_intra_argument_relation_prediction:
+            intra_argument_relations_probing_dataset = preprocessing.downsample_datasets(
+                dataset=intra_argument_relations_probing_dataset,
+                min_examples=args.downsampling_min_examples)
         if args.fine_tune_model_on_argument_relations:
             intra_argument_relations_trainer, intra_argument_relations_eval_metrics = (
                 run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
@@ -304,6 +327,10 @@ if __name__ == "__main__":
             num_labels=len(constants.PREMISE_MODE_TO_INT))
         multi_class_premise_mode_dataset = preprocessing.get_dataset(task_name=constants.MULTICLASS,
                                                                      tokenizer=tokenizer)
+        if args.downsample_multi_class_premise_mode_prediction:
+            multi_class_premise_mode_dataset = preprocessing.downsample_datasets(
+                dataset=multi_class_premise_mode_dataset,
+                min_examples=args.downsampling_min_examples)
         if args.fine_tune_model_on_premise_modes:
             multi_class_tainer, multi_class_eval_metrics = (
                 run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
@@ -341,14 +368,15 @@ if __name__ == "__main__":
     pathos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                                tokenizer=tokenizer,
                                                premise_mode=constants.PATHOS)
-
-    premise_modes_dataset_dict = {constants.LOGOS: logos_dataset,
-                                  constants.PATHOS: pathos_dataset}
+    premise_modes_dataset_dict = {constants.LOGOS: preprocessing.CMVDataset(logos_dataset),
+                                  constants.PATHOS: preprocessing.CMVDataset(pathos_dataset)}
 
     # Perform fine-tuning on each of the premise mode binary classification tasks.
     if args.fine_tune_model_on_premise_modes:
         for premise_mode in args.premise_modes:
             dataset = premise_modes_dataset_dict[premise_mode]
+            if args.downsample_binary_premise_mode_prediction:
+                dataset = preprocessing.downsample_datasets(dataset, min_examples=args.downsampling_min_examples)
             run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
                             task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                             premise_mode=premise_mode,

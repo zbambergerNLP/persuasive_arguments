@@ -73,9 +73,7 @@ PREMISE_MODE_TO_INT = {ETHOS: 0,
                        ETHOS_LOGOS: 3,
                        ETHOS_PATHOS: 4,
                        LOGOS_PATHOS: 5,
-                       ETHOS_LOGOS_PATHOS: 6,
-                       PREMISE_EMPTY: 7,
-                       PREMISE_INTERPRETATION: 8}
+                       ETHOS_LOGOS_PATHOS: 6}
 INITIAL_PREMISE_TYPES_TO_CONSIDER = 3
 
 # Pandas column names
