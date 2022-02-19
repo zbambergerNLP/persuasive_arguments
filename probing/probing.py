@@ -245,7 +245,7 @@ def probe_with_logistic_regression(
     targets_train = dataset_train.labels
 
     # TODO: Implement a sweep to try to identify optimal logistic regression hyper-parameters at scale.
-    probing_model = sklearn.linear_model.LogisticRegression().fit(hidden_states_train, targets_train)
+    probing_model = sklearn.linear_model.LogisticRegression(max_iter=10e5).fit(hidden_states_train, targets_train)
 
     hidden_states_eval = (
         dataset_test.hidden_states)

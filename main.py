@@ -38,7 +38,7 @@ parser.add_argument('--probing_wandb_entity',
 # General probing parameters
 parser.add_argument('--probing_model',
                     type=str,
-                    default=constants.MLP,
+                    default=constants.LOGISTIC_REGRESSION,
                     required=False,
                     help="The string name of the model type used for probing. Either logistic regression or MLP.")
 parser.add_argument('--fine_tuned_model_path',
@@ -125,7 +125,7 @@ parser.add_argument('--premise_modes',
                     help="The premise modes we use for our probing experiments on binary premise mode prediction.")
 parser.add_argument('--generate_new_premise_mode_probing_dataset',
                     type=bool,
-                    default=True,
+                    default=False,
                     required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
@@ -283,8 +283,9 @@ if __name__ == "__main__":
             task_name=constants.INTRA_ARGUMENT_RELATIONS,
             tokenizer=tokenizer)
         if args.downsample_binary_intra_argument_relation_prediction:
-            intra_argument_relations_probing_dataset = preprocessing.downsample_datasets(
+            intra_argument_relations_probing_dataset = preprocessing.downsample_dataset(
                 dataset=intra_argument_relations_probing_dataset,
+                num_labels=constants.NUM_LABELS,
                 min_examples=args.downsampling_min_examples)
         if args.fine_tune_model_on_argument_relations:
             intra_argument_relations_trainer, intra_argument_relations_eval_metrics = (
@@ -328,8 +329,9 @@ if __name__ == "__main__":
         multi_class_premise_mode_dataset = preprocessing.get_dataset(task_name=constants.MULTICLASS,
                                                                      tokenizer=tokenizer)
         if args.downsample_multi_class_premise_mode_prediction:
-            multi_class_premise_mode_dataset = preprocessing.downsample_datasets(
+            multi_class_premise_mode_dataset = preprocessing.downsample_dataset(
                 dataset=multi_class_premise_mode_dataset,
+                num_labels=len(constants.PREMISE_MODE_TO_INT),
                 min_examples=args.downsampling_min_examples)
         if args.fine_tune_model_on_premise_modes:
             multi_class_tainer, multi_class_eval_metrics = (
@@ -368,8 +370,8 @@ if __name__ == "__main__":
     pathos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                                tokenizer=tokenizer,
                                                premise_mode=constants.PATHOS)
-    premise_modes_dataset_dict = {constants.LOGOS: preprocessing.CMVDataset(logos_dataset),
-                                  constants.PATHOS: preprocessing.CMVDataset(pathos_dataset)}
+    premise_modes_dataset_dict = {constants.LOGOS: logos_dataset,
+                                  constants.PATHOS: pathos_dataset}
 
     # Perform fine-tuning on each of the premise mode binary classification tasks.
     if args.fine_tune_model_on_premise_modes:
@@ -380,7 +382,7 @@ if __name__ == "__main__":
             run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
                             task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                             premise_mode=premise_mode,
-                            dataset=dataset,
+                            dataset=preprocessing.CMVDataset(dataset),
                             model=model,
                             configuration=configuration,
                             is_probing=True,
@@ -390,13 +392,18 @@ if __name__ == "__main__":
     if args.probe_model_on_premise_modes:
         for premise_mode in args.premise_modes:
             dataset = premise_modes_dataset_dict[premise_mode]
+            if args.downsample_binary_premise_mode_prediction:
+                dataset = preprocessing.downsample_dataset(
+                    dataset=dataset,
+                    num_labels=constants.NUM_LABELS,
+                    min_examples=args.downsampling_min_examples)
             run = wandb.init(project="persuasive_arguments",
                              entity=args.probing_wandb_entity,
                              reinit=True,
                              name=f'Binary premise mode prediction ({premise_mode}) probing')
             retrained_probing_model, fine_tuned_probing_model, eval_metrics = (
                 probing.probe_model_on_task(
-                    probing_dataset=dataset,
+                    probing_dataset=preprocessing.CMVDataset(dataset),
                     probing_model=args.probing_model,
                     generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                     task_name=constants.BINARY_PREMISE_MODE_PREDICTION,

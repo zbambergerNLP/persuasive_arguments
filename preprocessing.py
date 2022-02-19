@@ -337,27 +337,28 @@ def get_dataset(task_name: str,
                                    premise_mode=premise_mode)
 
 
-def downsample_datasets(dataset: datasets.Dataset,
-                        min_examples: int = 300) -> datasets.Dataset:
+def downsample_dataset(dataset: datasets.Dataset,
+                       num_labels: int,
+                       min_examples: int = 300) -> datasets.Dataset:
     """Downsample majority classes within the provided dataset.
 
     :param dataset: A datasets.Dataset instance for the inputted task.
+    :param num_labels: An integer representing the number of possible outputs in the provided dataset.
     :param min_examples: If a dataset class has fewer than min_examples, then we do not downsample that class.
     :return: A datasets.Dataset instance resulting from downsampling majority classes.
     """
     label_to_count = {}
     label_to_dataset = {}
-    for label in constants.PREMISE_MODE_TO_INT.keys():
+    for label in range(num_labels):
         filtered_dataset = dataset.filter(lambda row: row[constants.LABEL].item() == label)
         label_to_dataset[label] = filtered_dataset
         label_to_count[label] = filtered_dataset.num_rows
-
     minority_label = min(label_to_count, key=label_to_count.get)
-    lower_bound = max(label_to_count[minority_label], min_examples)
+    upper_bound = max(label_to_count[minority_label], min_examples)
     for label, dataset in label_to_dataset.items():
         num_examples = dataset.num_rows
-        if num_examples > lower_bound:
+        if num_examples > upper_bound:
             dataset = dataset.shuffle()
-            label_to_dataset[label] = dataset.filter(lambda _, index: index < lower_bound, with_indices=True)
+            label_to_dataset[label] = dataset.filter(lambda _, index: index < upper_bound, with_indices=True)
     resulting_dataset = datasets.concatenate_datasets(list(label_to_dataset.values())).shuffle()
     return resulting_dataset
