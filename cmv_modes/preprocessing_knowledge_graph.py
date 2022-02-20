@@ -41,10 +41,17 @@ def create_bert_inputs(dataset: (
     :return: A modified dataset which includes entries for language model inputs.
     """
     for graph_id, graph in enumerate(dataset):
-        node_id_to_lm_inputs = {}
+        graph_texts = []
+        graph_indices = []
         for node_id, node_text in graph['id_to_text'].items():
-            node_id_to_lm_inputs[node_id] = (tokenizer(node_text, return_tensors="pt", padding=True, truncation=True))
-        dataset[graph_id]['node_id_to_lm_inputs'] = node_id_to_lm_inputs
+            graph_texts.append(node_text)
+            graph_indices.append(node_id)
+        graph_lm_inputs = tokenizer(graph_texts, return_tensors="pt", padding=True, truncation=True)
+        model = BertModel.from_pretrained("bert-base-uncased")
+        model_outputs = model(**graph_lm_inputs)
+        last_hidden_states = model_outputs.last_hidden_state[:, 0, :]
+        dataset[graph_id]['id_to_embedding'] = {
+            node_id: node_embedding for node_id, node_embedding in zip(graph_indices, last_hidden_states)}
     return dataset
 
 
@@ -64,10 +71,11 @@ class CMVKGDataLoader(Dataset):
                             bs_data=bs_data,
                             file_name=file_name,
                             is_positive=(sign == POSITIVE))
+                        examples = create_bert_inputs(examples,
+                                                      tokenizer=BertTokenizer.from_pretrained("bert-base-uncased"))
                         self.dataset.extend(examples)
                         example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
                         self.labels.extend(example_labels)
-        create_bert_inputs(self.dataset, tokenizer=BertTokenizer.from_pretrained("bert-base-uncased"))
 
     def __len__(self):
         return len(self.dataset)
