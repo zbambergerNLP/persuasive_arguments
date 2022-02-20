@@ -1,6 +1,10 @@
 import copy
 import os
+
+import torch
+import transformers.tokenization_bert
 from bs4 import BeautifulSoup
+from transformers import BertTokenizer, BertModel
 import typing
 from torch.utils.data import Dataset
 
@@ -18,6 +22,30 @@ cmv_modes_with_claims_versions = [v2_path]
 POSITIVE = 'positive'
 NEGATIVE = 'negative'
 sign_lst = [POSITIVE, NEGATIVE]
+
+
+def create_bert_inputs(dataset: (
+        typing.Sequence[typing.Mapping[str, typing.Mapping[typing.Union[int, str], typing.Union[int, str]]]]),
+                       tokenizer: transformers.PreTrainedTokenizer) -> (
+        typing.Sequence[typing.Mapping[
+            str,
+            typing.Mapping[
+                typing.Union[int, str],
+                typing.Union[int, str, typing.Mapping[
+                    str,
+                    torch.Tensor]]]]]):
+    """Add language model inputs to nodes within a graph dataset.
+
+    :param dataset: A mapping from graph features to their values.
+    :param tokenizer: A tokenizer instance used to create inputs for language models.
+    :return: A modified dataset which includes entries for language model inputs.
+    """
+    for graph_id, graph in enumerate(dataset):
+        node_id_to_lm_inputs = {}
+        for node_id, node_text in graph['id_to_text'].items():
+            node_id_to_lm_inputs[node_id] = (tokenizer(node_text, return_tensors="pt", padding=True, truncation=True))
+        dataset[graph_id]['node_id_to_lm_inputs'] = node_id_to_lm_inputs
+    return dataset
 
 
 class CMVKGDataLoader(Dataset):
@@ -39,6 +67,7 @@ class CMVKGDataLoader(Dataset):
                         self.dataset.extend(examples)
                         example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
                         self.labels.extend(example_labels)
+        create_bert_inputs(self.dataset, tokenizer=BertTokenizer.from_pretrained("bert-base-uncased"))
 
     def __len__(self):
         return len(self.dataset)
@@ -48,9 +77,6 @@ class CMVKGDataLoader(Dataset):
             'graph': self.dataset[index],
             'label': self.labels[index]
         }
-
-    def embed_nodes(self, node_text):
-        pass
 
 
 def make_op_subgraph(bs_data: BeautifulSoup,
@@ -109,11 +135,7 @@ def make_op_reply_graph(rep: BeautifulSoup,
                         id_to_text: typing.Mapping[str, str],
                         idx_to_id: typing.Mapping[int, str],
                         edges: typing.Sequence[typing.Sequence[int]]) -> (
-    typing.Tuple[typing.Mapping[str, int],
-                 typing.Mapping[str, str],
-                 typing.Mapping[int, str],
-                 typing.Sequence[typing.Sequence[int]]]
-):
+        typing.Mapping[str, typing.Mapping[typing.Union[int, str], typing.Union[int, str]]]):
     """
         :param rep: reply object form a BeautifulSoup instance containing a parsed .xml file.
         :param id_to_idx: A mapping from string node IDs from OP (where nodes are either claims or premises) to node
@@ -123,13 +145,14 @@ def make_op_reply_graph(rep: BeautifulSoup,
             the corresponding .xml file.
         :param edges: OP edges, 2-d List where each entry corresponds to an individual "edge" (a list with 2 entries).
             The first entry within an edge list is the origin, and the second is the target.
-        :return: A tuple consisting of the following:
-            id_to_idx: OP and reply node mapping from string node IDs (where nodes are either claims or premises) to node
-                indices in the resulting knowledge graph.
+        :return: A dictionary consisting of the following (key, value) pairs (where keys are strings):
+            id_to_idx: OP and reply node mapping from string node IDs (where nodes are either claims or premises) to
+                node indices in the resulting knowledge graph.
+            id_to_text: Mapping from the ID of a particular node to the text contained within it.
             idx_to_id: OP and reply node mapping from node indices within the knowledge graph to the ID of the node
                 within the corresponding .xml file.
             edges: OP and reply edges, a 2-D List where each entry corresponds to an individual "edge" (a list with 2
-            entries). The first entry within an edge list is the origin, and the second is the target.
+                entries). The first entry within an edge list is the origin, and the second is the target.
         """
     res = rep.find_all(['premise', 'claim'])
     op_num_of_nodes = len(idx_to_id.keys())
@@ -154,17 +177,24 @@ def make_op_reply_graph(rep: BeautifulSoup,
                     if ref in id_to_idx.keys():  # Ignore edges from a different reply.
                         ref_idx = id_to_idx[ref]
                         edges.append([node_idx, ref_idx])
-    return id_to_idx, id_to_text, idx_to_id, edges
+    return {
+        'id_to_idx': id_to_idx,
+        'id_to_text': id_to_text,
+        'idx_to_id': idx_to_id,
+        'edges': edges,
+    }
 
 
 def make_op_reply_graphs(bs_data: BeautifulSoup,
                          file_name: str = None,
-                         is_positive: bool = None):
+                         is_positive: bool = None) -> (
+        typing.Sequence[typing.Mapping[str, typing.Mapping[typing.Union[int, str], typing.Union[int, str]]]]):
     """
         :param bs_data: A BeautifulSoup instance containing a parsed .xml file.
         :param file_name: The name of the .xml file which we've parsed.
         :param is_positive: True if the replies in the file were awarded a "Delta". False otherwise.
-        :return: A list of all examples extracted from file. Each example is a tuple consisting of the following:
+        :return: A list of all examples extracted from a file. Each example is a dictionary consisting of the
+            following keys:
             id_to_idx: A mapping from string node IDs (where nodes are either claims or premises) to node indices in the
                 resulting knowledge graph.
             idx_to_id: A mapping from node indices within the knowledge graph to the ID of the node within the corresponding
@@ -179,13 +209,14 @@ def make_op_reply_graphs(bs_data: BeautifulSoup,
     rep_data = bs_data.find_all("reply")
 
     examples = []
-    for rep in rep_data:
+    for reply_index, reply in enumerate(rep_data):
         id_to_idx = copy.deepcopy(orig_id_to_idx)
+        id_to_text = copy.deepcopy(orig_id_to_text)
         idx_to_id = copy.deepcopy(orig_idx_to_id)
         edges = copy.deepcopy(orig_edges)
-        example = make_op_reply_graph(
-            rep=rep, idx_to_id=idx_to_id, id_to_idx=id_to_idx, id_to_text=orig_id_to_text, edges=edges)
-        examples.append(example)
+        reply_examples = make_op_reply_graph(
+            rep=reply, idx_to_id=idx_to_id, id_to_idx=id_to_idx, id_to_text=id_to_text, edges=edges)
+        examples.append(reply_examples)
     return examples
 
 
