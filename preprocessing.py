@@ -5,7 +5,6 @@ import datasets
 import numpy as np
 import os.path
 import pandas as pd
-from sklearn.utils import resample
 import torch
 import transformers
 import typing
@@ -360,5 +359,10 @@ def downsample_dataset(dataset: datasets.Dataset,
         if num_examples > upper_bound:
             dataset = dataset.shuffle()
             label_to_dataset[label] = dataset.filter(lambda _, index: index < upper_bound, with_indices=True)
-    resulting_dataset = datasets.concatenate_datasets(list(label_to_dataset.values())).shuffle()
+    resulting_dataset = datasets.interleave_datasets(list(label_to_dataset.values())).shuffle()
     return resulting_dataset
+
+
+def upsample_dataset(dataset: datasets.Dataset,
+                     num_labels: int):
+    pass

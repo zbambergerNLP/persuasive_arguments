@@ -2,6 +2,8 @@ import copy
 import os
 from bs4 import BeautifulSoup
 import typing
+from torch.utils.data import Dataset
+
 
 XML = "xml"
 PREMISE = "premise"
@@ -16,6 +18,36 @@ cmv_modes_with_claims_versions = [v2_path]
 POSITIVE = 'positive'
 NEGATIVE = 'negative'
 sign_lst = [POSITIVE, NEGATIVE]
+
+
+class CMVKGDataLoader(Dataset):
+    def __init__(self, directory_path, version):
+        self.dataset = []
+        self.labels = []
+        for sign in sign_lst:
+            thread_directory = os.path.join(directory_path, version, sign)
+            for file_name in os.listdir(thread_directory):
+                if file_name.endswith(XML):
+                    file_path = os.path.join(thread_directory, file_name)
+                    with open(file_path, 'r') as fileHandle:
+                        data = fileHandle.read()
+                        bs_data = BeautifulSoup(data, XML)
+                        examples = make_op_replay_graphs(
+                            bs_data=bs_data,
+                            file_name=file_name,
+                            is_positive=(sign == POSITIVE))
+                        self.dataset.extend(examples)
+                        example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
+                        self.labels.extend(example_labels)
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        return {
+            'graph': self.dataset[index],
+            'label': self.labels[index]
+        }
 
 
 def make_op_subgraph(bs_data: BeautifulSoup,
@@ -89,7 +121,7 @@ def make_op_replay_graph(rep: BeautifulSoup,id_to_idx: dict, idx_to_id: dict, ed
     idx_to_id = {value: key for key, value in id_to_idx.items()}
 
     for node_id, node_idx in id_to_idx.items():
-        if node_id == 'title' or  node_idx < op_num_of_nodes:
+        if node_id == 'title' or node_idx < op_num_of_nodes:
             pass
         else:
             node = rep.find(id=node_id)
@@ -109,7 +141,7 @@ def make_op_replay_graphs(bs_data: BeautifulSoup,
         :param bs_data: A BeautifulSoup instance containing a parsed .xml file.
         :param file_name: The name of the .xml file which we've parsed.
         :param is_positive: True if the replies in the file were awarded a "Delta". False otherwise.
-        :return: A list of all examples extracted from file. Each ecample is a tuple consisting of the following:
+        :return: A list of all examples extracted from file. Each example is a tuple consisting of the following:
             id_to_idx: A mapping from string node IDs (where nodes are either claims or premises) to node indices in the
                 resulting knowledge graph.
             idx_to_id: A mapping from node indices within the knowledge graph to the ID of the node within the corresponding
@@ -133,28 +165,11 @@ def make_op_replay_graphs(bs_data: BeautifulSoup,
     return examples
 
 
-
-
 if __name__ == '__main__':
     claims_lst = []
     premises_lst = []
     label_lst = []
     database = []
     current_path = os.getcwd()
-    for sign in sign_lst:
-        thread_directories = os.path.join(current_path, v2_path, sign)
-        for file_name in os.listdir(thread_directories):
-            if file_name.endswith(XML):
-                with open(os.path.join(thread_directories, file_name), 'r') as f:
-                    data = f.read()
-                    bs_data = BeautifulSoup(data, XML)
-                    # id_to_idx, idx_to_id, edges = make_op_subgraph(
-                    #     bs_data=bs_data,
-                    #     file_name=file_name,
-                    #     is_positive=(sign == POSITIVE))
-                    examples = make_op_replay_graphs(
-                        bs_data=bs_data,
-                        file_name=file_name,
-                        is_positive=(sign == POSITIVE))
-                    database.extend(examples)
+    kg_dataset = CMVKGDataLoader(current_path, version=v2_path)
     print("Done")
