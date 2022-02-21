@@ -10,6 +10,7 @@ import datasets
 import os
 import pyarrow as pa
 import pyarrow.parquet as pq
+import shutil
 import sklearn
 import torch
 import torch.optim.lr_scheduler as lr_scheduler
@@ -36,7 +37,7 @@ def save_model_embeddings_on_batch(transformer_model: transformers.PreTrainedMod
     """
     # Remove any leftover saved files.
     if os.path.exists(probing_dir_path):
-        os.rmdir(path=probing_dir_path)
+        shutil.rmtree(probing_dir_path)
         os.mkdir(probing_dir_path)
 
     model_outputs = transformer_model.forward(
