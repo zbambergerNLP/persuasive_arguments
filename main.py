@@ -378,11 +378,14 @@ if __name__ == "__main__":
         for premise_mode in args.premise_modes:
             dataset = premise_modes_dataset_dict[premise_mode]
             if args.downsample_binary_premise_mode_prediction:
-                dataset = preprocessing.downsample_datasets(dataset, min_examples=args.downsampling_min_examples)
+                dataset = preprocessing.downsample_dataset(
+                    dataset=dataset,
+                    num_labels=constants.NUM_LABELS,
+                    min_examples=args.downsampling_min_examples)
             run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
                             task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                             premise_mode=premise_mode,
-                            dataset=preprocessing.CMVDataset(dataset),
+                            dataset=dataset,
                             model=model,
                             configuration=configuration,
                             is_probing=True,
