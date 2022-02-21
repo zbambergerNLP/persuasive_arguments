@@ -35,11 +35,6 @@ def save_model_embeddings_on_batch(transformer_model: transformers.PreTrainedMod
     :param probing_dir_path: The path to the probing directory in this repository.
     :return: The string path of the file we saved containing hidden states and label for probing examples.
     """
-    # Remove any leftover saved files.
-    if os.path.exists(probing_dir_path):
-        shutil.rmtree(probing_dir_path)
-        os.mkdir(probing_dir_path)
-
     model_outputs = transformer_model.forward(
         input_ids=batch[constants.INPUT_IDS],
         attention_mask=batch[constants.ATTENTION_MASK],
@@ -87,6 +82,11 @@ def save_hidden_state_outputs(fine_tuned_model_path: str,
     """
     assert pretrained_checkpoint_name or fine_tuned_model_path, "Hidden layers must be obtained from the model either" \
                                                                 " after pretraining or after fine-tuning."
+    # Remove any leftover saved files.
+    if os.path.exists(probing_dir_path):
+        shutil.rmtree(probing_dir_path)
+        os.mkdir(probing_dir_path)
+
     multiclass_prefix = 'multiclass'
     fine_tuned_base_file_name = 'finetuned_bert_hidden_states'
     pretrained_base_file_name = 'pretrained_bert_hidden_states'
