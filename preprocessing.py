@@ -363,6 +363,31 @@ def downsample_dataset(dataset: datasets.Dataset,
     return resulting_dataset
 
 
-def upsample_dataset(dataset: datasets.Dataset,
-                     num_labels: int):
-    pass
+# TODO: Use the commented out function below if labels remain imbalanced.
+# def train_test_split(dataset: datasets.Dataset,
+#                      verification_ratio: float) -> (
+#         typing.Mapping[str, datasets.Dataset]):
+#     """
+#
+#     :param dataset:
+#     :param verification_ratio:
+#     :return:
+#     """
+#     negative_label_examples = dataset.filter(lambda row: row[constants.LABEL] == 0)
+#     positive_label_examples = dataset.filter(lambda row: row[constants.LABEL] == 1)
+#     print(f'negative_examples: {negative_label_examples.num_rows},\n'
+#           f'positive_examples: {positive_label_examples.num_rows}')
+#     print(negative_label_examples, positive_label_examples)
+#     negative_dataset = negative_label_examples.train_test_split(test_size=verification_ratio)
+#     positive_dataset = positive_label_examples.train_test_split(test_size=verification_ratio)
+#     print(negative_dataset[constants.TRAIN], negative_dataset[constants.TEST])
+#     print(positive_dataset[constants.TRAIN], positive_dataset[constants.TEST])
+#     training_set = datasets.interleave_datasets(
+#         [positive_dataset[constants.TRAIN], positive_dataset[constants.TRAIN]]).shuffle()
+#     test_set = datasets.interleave_datasets(
+#         [positive_dataset[constants.TRAIN], positive_dataset[constants.TRAIN]]).shuffle()
+#     return {
+#         constants.TRAIN: training_set,
+#         constants.TEST: test_set
+#     }
+
