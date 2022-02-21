@@ -100,7 +100,7 @@ def save_hidden_state_outputs(fine_tuned_model_path: str,
     # We do not yet support multiclass probing on models that are fine-tuned on binary classification.
     if num_labels == constants.NUM_LABELS:
         fine_tuned_model = transformers.BertForSequenceClassification.from_pretrained(
-            os.path.join(current_path, fine_tuned_model_path), num_labels=num_labels)
+            os.path.join(os.getcwd(), fine_tuned_model_path), num_labels=num_labels)
 
     dataloader = torch.utils.data.DataLoader(probing_dataset, batch_size=hidden_states_batch_size)
     pretrained_hidden_state_files = []
