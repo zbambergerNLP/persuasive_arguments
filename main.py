@@ -107,7 +107,7 @@ parser.add_argument('--probing_model_scheduler_gamma',
 # Data Imbalance Flags
 parser.add_argument('--downsample_binary_premise_mode_prediction',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="True if we intend to downsample probing datasets for binary premise mode prediction.")
 parser.add_argument('--downsample_multi_class_premise_mode_prediction',
                     type=bool,
@@ -422,6 +422,7 @@ if __name__ == "__main__":
     # Perform probing on each of the premise mode binary classification tasks.
     if args.probe_model_on_premise_modes:
         for premise_mode in args.premise_modes:
+            print(f'Performing binary premise mode probing for {premise_mode}')
             dataset = premise_modes_dataset_dict[premise_mode]
             if args.downsample_binary_premise_mode_prediction:
                 dataset = preprocessing.downsample_dataset(
