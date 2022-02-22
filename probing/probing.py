@@ -154,12 +154,12 @@ def create_train_and_test_datasets(key_phrase: str,
             constants.HIDDEN_STATE: hidden_state_batches[constants.HIDDEN_STATE],
             constants.LABEL: hidden_state_batches[constants.LABEL]
         })
-    negative_label_examples = hidden_state_dataset.filter(lambda row: row[constants.LABEL] == 0)
-    positive_label_examples = hidden_state_dataset.filter(lambda row: row[constants.LABEL] == 1)
     hidden_state_dataset = hidden_state_dataset.train_test_split()
     hidden_state_dataset_train = preprocessing.CMVProbingDataset(hidden_state_dataset[constants.TRAIN])
 
     # TODO: Remove this debugging code later.
+    negative_label_examples = hidden_state_dataset.filter(lambda row: row[constants.LABEL] == 0)
+    positive_label_examples = hidden_state_dataset.filter(lambda row: row[constants.LABEL] == 1)
     print(f'negative_examples: {negative_label_examples.num_rows},\n'
           f'positive_examples: {positive_label_examples.num_rows}')
     negative_label_examples_train = hidden_state_dataset[constants.TRAIN].filter(lambda row: row[constants.LABEL] == 0)

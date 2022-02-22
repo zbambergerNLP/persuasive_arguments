@@ -354,11 +354,25 @@ def downsample_dataset(dataset: datasets.Dataset,
         label_to_count[label] = filtered_dataset.num_rows
     minority_label = min(label_to_count, key=label_to_count.get)
     upper_bound = max(label_to_count[minority_label], min_examples)
+
+    # TODO: Remove the below lines.
+    negative_label_examples = dataset.filter(lambda row: row[constants.LABEL] == 0)
+    positive_label_examples = dataset.filter(lambda row: row[constants.LABEL] == 1)
+    print(f'BEFORE negative_label_examples: {negative_label_examples.num_rows},\n'
+          f'BEFORE positive_label_examples: {positive_label_examples.num_rows}')
+
     for label, dataset in label_to_dataset.items():
         num_examples = dataset.num_rows
         if num_examples > upper_bound:
             dataset = dataset.shuffle()
             label_to_dataset[label] = dataset.filter(lambda _, index: index < upper_bound, with_indices=True)
     resulting_dataset = datasets.interleave_datasets(list(label_to_dataset.values())).shuffle()
+
+    # TODO: Remove the below lines.
+    negative_label_examples = resulting_dataset.filter(lambda row: row[constants.LABEL] == 0)
+    positive_label_examples = resulting_dataset.filter(lambda row: row[constants.LABEL] == 1)
+    print(f'AFTER negative_label_examples: {negative_label_examples.num_rows},\n'
+          f'AFTER positive_label_examples: {positive_label_examples.num_rows}')
+
     return resulting_dataset
 
