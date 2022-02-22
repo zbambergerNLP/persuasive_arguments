@@ -12,6 +12,8 @@ import argparse
 import logging
 import os
 import transformers
+
+import utils
 import wandb
 
 """
@@ -31,6 +33,7 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --probe_model_on_premise_modes True \
     --generate_new_premise_mode_probing_dataset True \
     --fine_tune_model_on_binary_premise_modes True \
+    --num_cross_validation_splits 5
     
     
 How to run intra-argument relations experiments:
@@ -47,6 +50,7 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --generate_new_relations_probing_dataset True \
     --downsample_binary_intra_argument_relation_prediction True \
     --fine_tune_model_on_argument_relations True \
+    --num_cross_validation_splits 5
     
 How to run multi-class premise mode experiments:
 srun --gres=gpu:1 -p nlp python3 main.py \
@@ -63,6 +67,7 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --multi_class_premise_mode_probing True \
     --generate_new_premise_mode_probing_dataset True \
     --fine_tune_model_on_multi_class_premise_modes True \
+    --num_cross_validation_splits 5
     
 
 * Note that an empty string on boolean flags is interpreted as `False`.
@@ -147,7 +152,7 @@ parser.add_argument('--fine_tune_model_on_argument_relations',
 # Probing on premise modes:
 parser.add_argument('--probe_model_on_premise_modes',
                     type=bool,
-                    default=True,
+                    default=False,
                     help=('Whether or not a pre-trained transformer language model should be trained and evaluated'
                           'on a probing task. In this case, the probing task involves classifying the argumentation '
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
@@ -176,7 +181,7 @@ parser.add_argument('--probe_model_fine_tuned_on_probing_task',
                          'otherwise. This "debug" setting is meant to test the validity of the probing infrastructure.')
 parser.add_argument('--multi_class_premise_mode_probing',
                     type=bool,
-                    default=False,
+                    default=True,
                     help='True if the label space for classifying premise mode (probing task) is the superset of '
                          '{"ethos", "logos", "pathos}. False if the label space is binary, where True indicates that'
                          'the premise entails the dataset-specific argumentative mode.')
@@ -223,6 +228,12 @@ parser.add_argument('--probing_logging_steps',
                     type=int,
                     default=10,
                     help="The number of steps a model takes between recording to logs.")
+parser.add_argument('--num_cross_validation_splits',
+                    type=int,
+                    default=5,
+                    help="An integer that represents the number of partitions formed during k-fold cross validation. "
+                         "The validation set size consists of `1 / num_cross_validation_splits` examples from the "
+                         "original dataset.")
 
 
 def run_fine_tuning(probing_wandb_entity: str,
@@ -329,11 +340,12 @@ if __name__ == "__main__":
                              entity=args.probing_wandb_entity,
                              reinit=True,
                              name='Intra argument relations probing')
-            pretrained_probing_model, fine_tuned_probing_model, eval_metrics = probing.probe_model_on_task(
-                probing_dataset=intra_argument_relations_probing_dataset,
+            probing_model, eval_metrics = probing.probe_model_on_task(
+                probing_dataset=preprocessing.CMVDataset(intra_argument_relations_probing_dataset),
                 probing_model=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
                 task_name=constants.INTRA_ARGUMENT_RELATIONS,
+                num_cross_validation_splits=args.num_cross_validation_splits,
                 probing_wandb_entity=args.probing_wandb_entity,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 fine_tuned_model_path=args.fine_tuned_model_path,
@@ -343,12 +355,7 @@ if __name__ == "__main__":
                 mlp_num_epochs=args.probing_num_training_epochs,
                 mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
             run.finish()
-            print('pretrained probe results:')
-            print(eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
-            print(eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
-            print('fine tuned probe results:')
-            print(eval_metrics[constants.FINE_TUNED][constants.CONFUSION_MATRIX])
-            print(eval_metrics[constants.FINE_TUNED][constants.CLASSIFICATION_REPORT])
+            utils.print_metrics(eval_metrics)
 
     if args.multi_class_premise_mode_probing:
         pretrained_multiclass_model = transformers.BertForSequenceClassification.from_pretrained(
@@ -375,11 +382,12 @@ if __name__ == "__main__":
                              entity=args.probing_wandb_entity,
                              reinit=True,
                              name='Multiclass premise model probing')
-            pretrained_probing_model, _, eval_metrics = probing.probe_model_on_task(
-                probing_dataset=multi_class_premise_mode_dataset,
+            probing_mode, eval_metrics = probing.probe_model_on_task(
+                probing_dataset=preprocessing.CMVDataset(multi_class_premise_mode_dataset),
                 probing_model=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                 task_name=constants.MULTICLASS,
+                num_cross_validation_splits=args.num_cross_validation_splits,
                 probing_wandb_entity=args.probing_wandb_entity,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 mlp_learning_rate=args.probing_model_learning_rate,
@@ -388,9 +396,7 @@ if __name__ == "__main__":
                 mlp_num_epochs=args.probing_num_training_epochs,
                 mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
             run.finish()
-            print('multiclass probe results:')
-            print(eval_metrics[constants.CONFUSION_MATRIX])
-            print(eval_metrics[constants.CLASSIFICATION_REPORT])
+            utils.print_metrics(eval_metrics)
 
     logos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                               tokenizer=tokenizer,
@@ -433,12 +439,13 @@ if __name__ == "__main__":
                              entity=args.probing_wandb_entity,
                              reinit=True,
                              name=f'Binary premise mode prediction ({premise_mode}) probing')
-            retrained_probing_model, fine_tuned_probing_model, eval_metrics = (
+            models, eval_metrics = (
                 probing.probe_model_on_task(
                     probing_dataset=preprocessing.CMVDataset(dataset),
                     probing_model=args.probing_model,
                     generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                     task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
+                    num_cross_validation_splits=args.num_cross_validation_splits,
                     probing_wandb_entity=args.probing_wandb_entity,
                     pretrained_checkpoint_name=args.model_checkpoint_name,
                     fine_tuned_model_path=args.fine_tuned_model_path,
@@ -449,9 +456,4 @@ if __name__ == "__main__":
                     mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
                     premise_mode=premise_mode))
             run.finish()
-            print(f'{constants.BINARY_PREMISE_MODE_PREDICTION} ({premise_mode}) pretrained probe results:')
-            print(eval_metrics[constants.PRETRAINED][constants.CONFUSION_MATRIX])
-            print(eval_metrics[constants.PRETRAINED][constants.CLASSIFICATION_REPORT])
-            print(f'{constants.BINARY_PREMISE_MODE_PREDICTION} ({premise_mode}) fine tuned probe results:')
-            print(eval_metrics[constants.FINE_TUNED][constants.CONFUSION_MATRIX])
-            print(eval_metrics[constants.FINE_TUNED][constants.CLASSIFICATION_REPORT])
+            utils.print_metrics(eval_metrics)
