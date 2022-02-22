@@ -15,18 +15,61 @@ import transformers
 import wandb
 
 """
-How to run fine-tuning on the relation extraction probing task:
-srun --gres=gpu:1 -p nlp python3 main.py \
-    --fine_tune_model_on_argument_relations True \
-    --probing_num_training_epochs 8
+Below are instructions on how to run this script.
     
-How to run probing experiments:
-srun --gres=gpu:1 -p nlp python3 main.py --probing_model "logistic_regression" \
-    --fine_tuned_model_path "results/checkpoint-500" \
+How to run premise mode experiments:
+srun --gres=gpu:1 -p nlp python3 main.py \
+    --probing_model "mlp" \
+    --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
+    --fine_tuning_on_probing_task_learning_rate 5e-6 \
+    --probing_model_scheduler_gamma 0.9 \
+    --probing_model_learning_rate 5e-2 \
+    --probing_num_training_epochs 30 \
+    --downsampling_min_examples 300 \
+    --fine_tuning_on_probing_task_num_training_epochs 4 \
+    --downsample_binary_premise_mode_prediction True \
+    --probe_model_on_premise_modes True \
+    --generate_new_premise_mode_probing_dataset True \
+    --fine_tune_model_on_binary_premise_modes True \
+    
+    
+How to run intra-argument relations experiments:
+srun --gres=gpu:1 -p nlp python3 main.py \
+    --probing_model "mlp" \
+    --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
+    --fine_tuning_on_probing_task_learning_rate 5e-6 \
+    --probing_model_scheduler_gamma 0.9 \
+    --probing_num_training_epochs 30 \
+    --downsampling_min_examples 300 \
+    --fine_tuning_on_probing_task_num_training_epochs 4 \
+    --probing_model_learning_rate 5e-2 \
+    --probing_num_training_epochs 30 \
+    --generate_new_relations_probing_dataset True \
+    --downsample_binary_intra_argument_relation_prediction True \
     --fine_tune_model_on_argument_relations True \
-    --probing_num_training_epochs 8
+    
+How to run multi-class premise mode experiments:
+srun --gres=gpu:1 -p nlp python3 main.py \
+    --probing_model "mlp" \
+    --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
+    --fine_tuning_on_probing_task_learning_rate 5e-6 \
+    --probing_model_scheduler_gamma 0.9 \
+    --probing_num_training_epochs 30 \
+    --downsampling_min_examples 300 \
+    --fine_tuning_on_probing_task_num_training_epochs 4 \
+    --probing_model_learning_rate 5e-2 \
+    --probing_num_training_epochs 30 \
+    --downsample_multi_class_premise_mode_prediction True \
+    --multi_class_premise_mode_probing True \
+    --generate_new_premise_mode_probing_dataset True \
+    --fine_tune_model_on_multi_class_premise_modes True \
+    
+
+* Note that an empty string on boolean flags is interpreted as `False`.
 """
 
+# TODO(zbamberger):Given https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse, you should
+#  update each of the boolean flags below according to one of the preferred approaches.
 parser = argparse.ArgumentParser(
     description='Process flags for fine-tuning transformers on an argumentation downstream task.')
 parser.add_argument('--probing_wandb_entity',
@@ -39,27 +82,22 @@ parser.add_argument('--probing_wandb_entity',
 parser.add_argument('--probing_model',
                     type=str,
                     default=constants.LOGISTIC_REGRESSION,
-                    required=False,
                     help="The string name of the model type used for probing. Either logistic regression or MLP.")
 parser.add_argument('--fine_tuned_model_path',
                     type=str,
-                    required=False,
                     default=os.path.join('fine_tuning', constants.RESULTS, 'checkpoint-1500'),
                     help='The path fine-tuned model trained on the argument persuasiveness prediction task.')
 parser.add_argument('--model_checkpoint_name',
                     type=str,
                     default=constants.BERT_BASE_CASED,
-                    required=False,
                     help="The name of the checkpoint from which we load our model and tokenizer.")
 parser.add_argument('--probing_model_learning_rate',
                     type=float,
                     default=5e-3,
-                    required=False,
                     help="The learning rate used by the probing model for the probing task.")
 parser.add_argument('--fine_tuning_on_probing_task_learning_rate',
                     type=float,
                     default=5e-6,
-                    required=False,
                     help="The learning rate used for fine tuning a transformer on the probing task.")
 parser.add_argument('--probing_model_scheduler_gamma',
                     type=float,
@@ -69,7 +107,7 @@ parser.add_argument('--probing_model_scheduler_gamma',
 # Data Imbalance Flags
 parser.add_argument('--downsample_binary_premise_mode_prediction',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="True if we intend to downsample probing datasets for binary premise mode prediction.")
 parser.add_argument('--downsample_multi_class_premise_mode_prediction',
                     type=bool,
@@ -89,8 +127,7 @@ parser.add_argument('--downsampling_min_examples',
 # Probing on intra-argument relations:
 parser.add_argument('--probe_model_on_intra_argument_relations',
                     type=bool,
-                    default=True,
-                    required=False,
+                    default=False,
                     help="Whether or not a pre-trained transformer language model should be trained and evaluated on a"
                          "probing task. In this case, the probing task involves classifying whether or not a relation"
                          "exist between the first argument preposition (either a claim or premise), and a second "
@@ -98,53 +135,48 @@ parser.add_argument('--probe_model_on_intra_argument_relations',
 parser.add_argument('--generate_new_relations_probing_dataset',
                     type=bool,
                     default=False,
-                    required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
 parser.add_argument('--fine_tune_model_on_argument_relations',
                     type=bool,
                     default=False,
-                    required=False,
                     help='Fine tune the model specified in `model_checkpoint_name` on the relation prediction probing'
                          ' dataset.')
-
 
 # Probing on premise modes:
 parser.add_argument('--probe_model_on_premise_modes',
                     type=bool,
                     default=True,
-                    required=False,
                     help=('Whether or not a pre-trained transformer language model should be trained and evaluated'
                           'on a probing task. In this case, the probing task involves classifying the argumentation '
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
 parser.add_argument('--premise_modes',
                     type=set,
                     default={constants.LOGOS, constants.PATHOS},
-                    required=False,
                     help="The premise modes we use for our probing experiments on binary premise mode prediction.")
 parser.add_argument('--generate_new_premise_mode_probing_dataset',
                     type=bool,
                     default=False,
-                    required=False,
                     help='True instructs the fine-tuned model to generate new hidden embeddings corresponding to each'
                          ' example. These embeddings serve as the input to an MLP probing model. False assumes that'
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
-parser.add_argument('--fine_tune_model_on_premise_modes',
+parser.add_argument('--fine_tune_model_on_binary_premise_modes',
                     type=bool,
                     default=False,
-                    required=False,
+                    help='Fine tune the model specified in `model_checkpoint_name` on the probing datasets.')
+parser.add_argument('--fine_tune_model_on_multi_class_premise_modes',
+                    type=bool,
+                    default=False,
                     help='Fine tune the model specified in `model_checkpoint_name` on the probing datasets.')
 parser.add_argument('--probe_model_fine_tuned_on_probing_task',
                     type=bool,
                     default=False,
-                    required=False,
                     help='True if we wish to perform probing on a model fine-tuned on the probing task. False '
                          'otherwise. This "debug" setting is meant to test the validity of the probing infrastructure.')
 parser.add_argument('--multi_class_premise_mode_probing',
                     type=bool,
-                    default=True,
-                    required=False,
+                    default=False,
                     help='True if the label space for classifying premise mode (probing task) is the superset of '
                          '{"ethos", "logos", "pathos}. False if the label space is binary, where True indicates that'
                          'the premise entails the dataset-specific argumentative mode.')
@@ -154,17 +186,14 @@ parser.add_argument('--multi_class_premise_mode_probing',
 parser.add_argument('--probing_output_dir',
                     type=str,
                     default='./results',
-                    required=False,
                     help="The directory in which probing model results are stored.")
 parser.add_argument('--fine_tuning_on_probing_task_num_training_epochs',
                     type=int,
                     default=4,
-                    required=False,
                     help="The number of training rounds for fine-tuning on the probing dataset.")
 parser.add_argument('--probing_num_training_epochs',
                     type=int,
                     default=40,
-                    required=False,
                     help="The number of training rounds over the probing dataset.")
 parser.add_argument('--probing_per_device_train_batch_size',
                     type=int,
@@ -189,7 +218,6 @@ parser.add_argument('--probing_weight_decay',
 parser.add_argument('--probing_logging_dir',
                     type=str,
                     default="./logs",
-                    required=False,
                     help="The directory in which the model stores logs.")
 parser.add_argument('--probing_logging_steps',
                     type=int,
@@ -333,7 +361,7 @@ if __name__ == "__main__":
                 dataset=multi_class_premise_mode_dataset,
                 num_labels=len(constants.PREMISE_MODE_TO_INT),
                 min_examples=args.downsampling_min_examples)
-        if args.fine_tune_model_on_premise_modes:
+        if args.fine_tune_model_on_multi_class_premise_modes:
             multi_class_tainer, multi_class_eval_metrics = (
                 run_fine_tuning(probing_wandb_entity=args.probing_wandb_entity,
                                 task_name=constants.MULTICLASS,
@@ -374,7 +402,7 @@ if __name__ == "__main__":
                                   constants.PATHOS: pathos_dataset}
 
     # Perform fine-tuning on each of the premise mode binary classification tasks.
-    if args.fine_tune_model_on_premise_modes:
+    if args.fine_tune_model_on_binary_premise_modes:
         for premise_mode in args.premise_modes:
             dataset = premise_modes_dataset_dict[premise_mode]
             if args.downsample_binary_premise_mode_prediction:
