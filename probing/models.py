@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import typing
+
 import numpy as np
 import sklearn
 import torch
 import wandb
+import metrics
 
 import constants
 
@@ -76,17 +79,15 @@ class MLP(torch.nn.Module):
             wandb.log({constants.ACCURACY: epoch_acc / num_batches,
                        constants.EPOCH: epoch,
                        constants.LOSS: epoch_loss / num_batches})
-            print(
-                f'{constants.EPOCH}: {epoch + 1:03}: | '
-                f'{constants.LOSS}: {epoch_loss / num_batches:.5f} |'
-                f'{constants.ACCURACY}: {epoch_acc / num_batches:.3f}'
-            )
 
-    def eval_probe(self, test_loader):
+    def eval_probe(self,
+                   test_loader: torch.utils.data.DataLoader,
+                   num_labels: int) -> typing.Mapping[str, float]:
         """Evaluate the trained classification probe on a held out test set.
 
         :param test_loader: A 'torch.utils.data.DataLoader' wrapping a 'preprocessing.CMVDataset' instance for some
             premise mode.
+        :param num_labels: The number of labels for the probing classification problem.
         :return: A 2-tuple containing ('confusion_matrix', 'classification_report'). 'confusion_matrix' is derived from
         'sklearn.metrics.confusion_matrix' while 'classification_report' is derived from
         'sklearn.metrics.classification_report'.
@@ -103,6 +104,9 @@ class MLP(torch.nn.Module):
                 targets_list.append(targets)
         preds_list = np.concatenate(preds_list)
         targets_list = np.concatenate(targets_list)
-        confusion_matrix = sklearn.metrics.confusion_matrix(targets_list, preds_list)
-        classification_report = sklearn.metrics.classification_report(targets_list, preds_list)
-        return confusion_matrix, classification_report
+        precision, recall, f1, _ = sklearn.metrics.precision_recall_fscore_support(
+            targets_list, preds_list, average='weighted')
+        eval_metrics = metrics.compute_metrics(num_labels=num_labels,
+                                               preds=preds_list,
+                                               targets=targets_list)
+        return eval_metrics

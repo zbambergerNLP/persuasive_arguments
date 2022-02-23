@@ -152,7 +152,7 @@ parser.add_argument('--fine_tune_model_on_argument_relations',
 # Probing on premise modes:
 parser.add_argument('--probe_model_on_premise_modes',
                     type=bool,
-                    default=False,
+                    default=True,
                     help=('Whether or not a pre-trained transformer language model should be trained and evaluated'
                           'on a probing task. In this case, the probing task involves classifying the argumentation '
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
@@ -181,7 +181,7 @@ parser.add_argument('--probe_model_fine_tuned_on_probing_task',
                          'otherwise. This "debug" setting is meant to test the validity of the probing infrastructure.')
 parser.add_argument('--multi_class_premise_mode_probing',
                     type=bool,
-                    default=True,
+                    default=False,
                     help='True if the label space for classifying premise mode (probing task) is the superset of '
                          '{"ethos", "logos", "pathos}. False if the label space is binary, where True indicates that'
                          'the premise entails the dataset-specific argumentative mode.')

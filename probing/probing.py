@@ -3,6 +3,7 @@ from __future__ import annotations
 import wandb
 
 import constants
+import metrics
 import preprocessing
 import probing.models as probing_models
 
@@ -16,7 +17,6 @@ import torch
 import torch.optim.lr_scheduler as lr_scheduler
 import transformers
 import typing
-
 import utils
 
 
@@ -211,15 +211,15 @@ def load_hidden_state_outputs(probing_dir_path: str = None,
 
 def probe_with_logistic_regression(
         training_set: datasets.Dataset,
-        validation_set: datasets.Dataset) -> (
+        validation_set: datasets.Dataset,
+        num_labels: int) -> (
         typing.Tuple[typing.Union[sklearn.linear_model.LogisticRegression, torch.nn.Module],
-                     typing.Mapping[str, typing.Union[sklearn.metrics.classification_report,
-                                                      sklearn.metrics.confusion_matrix,
-                                                      float]]]):
+                     typing.Mapping[str, float]]):
     """Train and evaluate a probing model on a dataset whose examples are hidden states from a transformer model.
 
     :param training_set: A datasets.Dataset instance containing the training split of the probing dataset.
     :param validation_set: A datasets.Dataset instance containing the test split of the probing dataset.
+    :param num_labels: The number of possible labels in the dataset's output space.
     :return: A two-tuple consisting of:
         (1) A trained probing model. This is a 'sklearn.linear_model.LogisticRegression' instance.
         (2) Model evaluation metrics on the test set. This is a A dictionary whose keys are base model type strings
@@ -239,22 +239,22 @@ def probe_with_logistic_regression(
     targets_eval = (
         dataset_test.labels)
     preds_eval = probing_model.predict(hidden_states_eval)
-    confusion_matrix = sklearn.metrics.confusion_matrix(targets_eval, preds_eval)
-    classification_report = sklearn.metrics.classification_report(targets_eval, preds_eval)
-    eval_metrics = {
-        constants.CONFUSION_MATRIX: confusion_matrix,
-        constants.CLASSIFICATION_REPORT: classification_report}
+    precision, recall, f1, _ = sklearn.metrics.precision_recall_fscore_support(
+        targets_eval, preds_eval, average='weighted')
+    eval_metrics = metrics.compute_metrics(num_labels=num_labels,
+                                           preds=preds_eval,
+                                           targets=targets_eval)
     return probing_model, eval_metrics
 
 
-def probe_model_with_mlp(training_set,
-                         validation_set,
-                         num_labels,
-                         learning_rate,
-                         training_batch_size,
-                         eval_batch_size,
-                         num_epochs,
-                         scheduler_gamma):
+def probe_model_with_mlp(training_set: datasets.Dataset,
+                         validation_set: datasets.Dataset,
+                         num_labels: int,
+                         learning_rate: float,
+                         training_batch_size: int,
+                         eval_batch_size: int,
+                         num_epochs: int,
+                         scheduler_gamma: float):
     """
     Train and evaluate a MLP probe on the premise type classification task (both binary and multiclass variations).
 
@@ -290,12 +290,7 @@ def probe_model_with_mlp(training_set,
                               loss_function=loss_function,
                               num_epochs=num_epochs,
                               scheduler=scheduler)
-    confusion_matrix, classification_report = (
-        probing_model.eval_probe(test_loader=test_loader))
-    eval_metrics = {
-        constants.CONFUSION_MATRIX: confusion_matrix,
-        constants.CLASSIFICATION_REPORT: classification_report
-    }
+    eval_metrics = probing_model.eval_probe(num_labels=num_labels, test_loader=test_loader)
     return probing_model, eval_metrics
 
 
@@ -305,7 +300,7 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                         task_name: str,
                         num_cross_validation_splits: int,
                         probing_wandb_entity: str = None,
-                        pretrained_checkpoint_name:str = None,
+                        pretrained_checkpoint_name: str = None,
                         fine_tuned_model_path: str = None,
                         mlp_learning_rate: float = None,
                         mlp_training_batch_size: int = None,
@@ -313,7 +308,9 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                         mlp_num_epochs: int = None,
                         mlp_optimizer_scheduler_gamma: float = None,
                         premise_mode: str = None) -> (
-        typing.Tuple[dict, dict]):
+        typing.Tuple[
+            typing.Mapping[str, typing.Sequence[typing.Union[torch.Module | sklearn.linear_model.LogisticRegression]]],
+            typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]]]):
     """
 
     :param probing_dataset: A 'preprocessing.CMVProbingDataset' instance. This dataset maps either premises or
@@ -379,18 +376,21 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
         hidden_state_datasets = (
             load_hidden_state_outputs(task_probing_dir_path, pretrained=True, fine_tuned=True, multiclass=False))
 
-    models = {}
-    eval_metrics = {}
-    for validation_set_index in range(num_cross_validation_splits):
-        base_model_type_probing_models = {}
-        base_model_type_eval_metrics = {}
-        for base_model_type, dataset in hidden_state_datasets.items():
+    models = {constants.PRETRAINED: [],
+              constants.FINE_TUNED: [],
+              constants.MULTICLASS: []}
+    eval_metrics = {constants.PRETRAINED: [],
+                    constants.FINE_TUNED: [],
+                    constants.MULTICLASS: []}
+    for base_model_type, dataset in hidden_state_datasets.items():
+        shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
+                  for i in range(num_cross_validation_splits)]
+        for validation_set_index in range(num_cross_validation_splits):
             num_labels = (
                 len(constants.PREMISE_MODE_TO_INT) if base_model_type == constants.MULTICLASS else constants.NUM_LABELS)
-            shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
-                      for i in range(num_cross_validation_splits)]
-            validation_set = shards.pop(validation_set_index).shuffle()
-            training_set = datasets.concatenate_datasets(shards).shuffle()
+            validation_set = shards[validation_set_index].shuffle()
+            training_set = datasets.concatenate_datasets(
+                shards[0:validation_set_index] + shards[validation_set_index+1:]).shuffle()
             if probing_model == constants.MLP:
                 run_name = f'Probe MLP on {task_name}, ' \
                            f'Base model type: {base_model_type}, ' \
@@ -414,17 +414,16 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                             scheduler_gamma=mlp_optimizer_scheduler_gamma)
                 if probing_wandb_entity:
                     run.finish()
-                base_model_type_probing_models[base_model_type] = mlp_model
-                base_model_type_eval_metrics[base_model_type] = mlp_eval_metrics
+                eval_metrics[base_model_type] = mlp_model
+                eval_metrics[base_model_type] = mlp_eval_metrics
 
             # TODO: Enable the possibility of running both MLP and logistic regression probes on the same run.
             elif probing_model == constants.LOGISTIC_REGRESSION:
                 logisitic_regression_model, logistic_regression_eval_metrics = probe_with_logistic_regression(
                     training_set=training_set,
                     validation_set=validation_set,
+                    num_labels=num_labels,
                 )
-                base_model_type_probing_models[base_model_type] = logisitic_regression_model
-                base_model_type_eval_metrics[base_model_type] = logistic_regression_eval_metrics
-        models[validation_set_index] = base_model_type_probing_models
-        eval_metrics[validation_set_index] = base_model_type_eval_metrics
+                models[base_model_type].append(logisitic_regression_model)
+                eval_metrics[base_model_type].append(logistic_regression_eval_metrics)
     return models, eval_metrics

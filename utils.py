@@ -1,4 +1,6 @@
 import random
+import typing
+
 import numpy as np
 import torch
 import os
@@ -19,12 +21,26 @@ def ensure_dir_exists(probing_dir_path):
         os.mkdir(probing_dir_path)
 
 
-def print_metrics(eval_metrics):
-    for split, base_model_type_eval_metrics in eval_metrics.items():
-        print(f'\tsplit #{split}')
-        for base_model_name, metrics_dict in base_model_type_eval_metrics.items():
-            print(f'\t\tbase model name: {base_model_name}')
-            for metric_name, metric_value in metrics_dict.items():
-                print(f'\tsplit: {split}, base model name: {base_model_name}')
-                print(metric_name)
-                print(metric_value)
+def print_metrics(eval_metrics: typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]]):
+    for base_model_type, base_model_eval_metrics in eval_metrics.items():
+        metrics_aggregates = {}
+        print(f'\n\nBase model type: {base_model_type}')
+        for split_index, split_metrics in enumerate(base_model_eval_metrics):
+            print(f'\tSplit #{split_index}')
+            for metric_name, metric_value in split_metrics.items():
+                if metric_name not in metrics_aggregates:
+                    metrics_aggregates[metric_name] = []
+                metrics_aggregates[metric_name].append(metric_value)
+                print(f'\t\tmetric_name: {metric_name}, metric_value: {metric_value}')
+
+        metric_averages = {}
+        metric_stds = {}
+        for metric_name, metric_values in metrics_aggregates.items():
+            metric_averages[metric_name] = sum(metric_values) / len(metric_values)
+            metric_stds[metric_name] = np.std(metric_values)
+
+        print('\n*** Overall Result: ***')
+        for metric_name in metric_averages.keys():
+            print(f'\tmetric name: {metric_name}\n'
+                  f'\t\tmean metric value: {metric_averages[metric_name]}\n'
+                  f'\t\tstandard deviation: {metric_stds[metric_name]}')
