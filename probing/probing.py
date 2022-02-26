@@ -425,7 +425,7 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                 if probing_wandb_entity:
                     run.finish()
                 models[base_model_type].append(mlp_model)
-                models[base_model_type].append(mlp_train_metrics)
+                train_metrics[base_model_type].append(mlp_train_metrics)
                 eval_metrics[base_model_type].append(mlp_eval_metrics)
 
             # TODO: Enable the possibility of running both MLP and logistic regression probes on the same run.
