@@ -104,8 +104,6 @@ class MLP(torch.nn.Module):
                 targets_list.append(targets)
         preds_list = np.concatenate(preds_list)
         targets_list = np.concatenate(targets_list)
-        precision, recall, f1, _ = sklearn.metrics.precision_recall_fscore_support(
-            targets_list, preds_list, average='weighted')
         eval_metrics = metrics.compute_metrics(num_labels=num_labels,
                                                preds=preds_list,
                                                targets=targets_list)

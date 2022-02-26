@@ -414,8 +414,8 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                             scheduler_gamma=mlp_optimizer_scheduler_gamma)
                 if probing_wandb_entity:
                     run.finish()
-                eval_metrics[base_model_type] = mlp_model
-                eval_metrics[base_model_type] = mlp_eval_metrics
+                models[base_model_type].append(mlp_model)
+                eval_metrics[base_model_type].append(mlp_eval_metrics)
 
             # TODO: Enable the possibility of running both MLP and logistic regression probes on the same run.
             elif probing_model == constants.LOGISTIC_REGRESSION:
