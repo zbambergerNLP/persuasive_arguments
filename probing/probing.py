@@ -213,8 +213,7 @@ def probe_with_logistic_regression(
         training_set: datasets.Dataset,
         validation_set: datasets.Dataset,
         num_labels: int) -> (
-        typing.Tuple[typing.Union[sklearn.linear_model.LogisticRegression, torch.nn.Module],
-                     typing.Mapping[str, float]]):
+        typing.Tuple[sklearn.linear_model.LogisticRegression, typing.Mapping[str, float], typing.Mapping[str, float]]):
     """Train and evaluate a probing model on a dataset whose examples are hidden states from a transformer model.
 
     :param training_set: A datasets.Dataset instance containing the training split of the probing dataset.
@@ -239,12 +238,16 @@ def probe_with_logistic_regression(
     targets_eval = (
         dataset_test.labels)
     preds_eval = probing_model.predict(hidden_states_eval)
+    preds_train = probing_model.predict(hidden_states_train)
     precision, recall, f1, _ = sklearn.metrics.precision_recall_fscore_support(
         targets_eval, preds_eval, average='weighted')
     eval_metrics = metrics.compute_metrics(num_labels=num_labels,
                                            preds=preds_eval,
                                            targets=targets_eval)
-    return probing_model, eval_metrics
+    train_metrics = metrics.compute_metrics(num_labels=num_labels,
+                                            preds=preds_train,
+                                            targets=targets_train)
+    return probing_model, train_metrics, eval_metrics
 
 
 def probe_model_with_mlp(training_set: datasets.Dataset,
@@ -254,7 +257,8 @@ def probe_model_with_mlp(training_set: datasets.Dataset,
                          training_batch_size: int,
                          eval_batch_size: int,
                          num_epochs: int,
-                         scheduler_gamma: float):
+                         scheduler_gamma: float) -> (
+        typing.Tuple[torch.nn.Module, typing.Mapping[str, float], typing.Mapping[str, float]]):
     """
     Train and evaluate a MLP probe on the premise type classification task (both binary and multiclass variations).
 
@@ -266,11 +270,12 @@ def probe_model_with_mlp(training_set: datasets.Dataset,
     :param eval_batch_size: The batch size used for probe evaluation. An integer.
     :param num_epochs: The number of epochs used to train our probing model.
     :param scheduler_gamma: Decays the learning rate of each parameter group by gamma every epoch.
-    :return: A two-tuple consisting of:
+    :return: A three-tuple consisting of:
         (1) A trained probing model. This is a 'torch.nn.Module' instance.
-        (2) Model evaluation metrics on the test set. This is a A dictionary whose keys are base model type strings
-         as defined above, and whose values are inner dictionaries. The inner dictionaries map metric names to their
-         corresponding values.
+        (2) Model evaluation metrics on the training set. This is a dictionary whose keys are metric names, and whose
+            values are floats.
+        (2) Model evaluation metrics on the test set. This is a dictionary whose keys are metric names, and whose
+            values are floats.
     """
     probing_model = probing_models.MLP(num_labels=num_labels)
     loss_function = torch.nn.BCELoss() if num_labels == constants.NUM_LABELS else torch.nn.CrossEntropyLoss()
@@ -291,7 +296,8 @@ def probe_model_with_mlp(training_set: datasets.Dataset,
                               num_epochs=num_epochs,
                               scheduler=scheduler)
     eval_metrics = probing_model.eval_probe(num_labels=num_labels, test_loader=test_loader)
-    return probing_model, eval_metrics
+    train_metrics = probing_model.eval_probe(num_labels=num_labels, test_loader=train_loader)
+    return probing_model, train_metrics, eval_metrics
 
 
 def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
@@ -310,6 +316,7 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                         premise_mode: str = None) -> (
         typing.Tuple[
             typing.Mapping[str, typing.Sequence[typing.Union[torch.Module | sklearn.linear_model.LogisticRegression]]],
+            typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]],
             typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]]]):
     """
 
@@ -382,6 +389,9 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
     eval_metrics = {constants.PRETRAINED: [],
                     constants.FINE_TUNED: [],
                     constants.MULTICLASS: []}
+    train_metrics = {constants.PRETRAINED: [],
+                     constants.FINE_TUNED: [],
+                     constants.MULTICLASS: []}
     for base_model_type, dataset in hidden_state_datasets.items():
         shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
                   for i in range(num_cross_validation_splits)]
@@ -403,7 +413,7 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                         entity=probing_wandb_entity,
                         reinit=True,
                         name=run_name)
-                mlp_model, mlp_eval_metrics = probe_model_with_mlp(
+                mlp_model, mlp_train_metrics, mlp_eval_metrics = probe_model_with_mlp(
                             training_set=training_set,
                             validation_set=validation_set,
                             num_labels=num_labels,
@@ -415,15 +425,19 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                 if probing_wandb_entity:
                     run.finish()
                 models[base_model_type].append(mlp_model)
+                models[base_model_type].append(mlp_train_metrics)
                 eval_metrics[base_model_type].append(mlp_eval_metrics)
 
             # TODO: Enable the possibility of running both MLP and logistic regression probes on the same run.
             elif probing_model == constants.LOGISTIC_REGRESSION:
-                logisitic_regression_model, logistic_regression_eval_metrics = probe_with_logistic_regression(
+                (logisitic_regression_model,
+                 logistic_regression_train_metrics,
+                 logistic_regression_eval_metrics) = probe_with_logistic_regression(
                     training_set=training_set,
                     validation_set=validation_set,
                     num_labels=num_labels,
                 )
                 models[base_model_type].append(logisitic_regression_model)
+                train_metrics[base_model_type].append(logistic_regression_train_metrics)
                 eval_metrics[base_model_type].append(logistic_regression_eval_metrics)
-    return models, eval_metrics
+    return models, train_metrics, eval_metrics

@@ -7,14 +7,13 @@ import constants
 import fine_tuning.fine_tuning as fine_tuning
 import preprocessing
 import probing.probing as probing
+import utils
 
 import argparse
 import logging
 import os
-import transformers
-
-import utils
 import wandb
+import transformers
 
 """
 Below are instructions on how to run this script.
@@ -298,7 +297,7 @@ if __name__ == "__main__":
         output_dir=args.probing_output_dir,
         num_train_epochs=args.fine_tuning_on_probing_task_num_training_epochs,
         eval_steps=args.eval_steps,
-        evaluation_strategy='steps',
+        evaluation_strategy=transformers.training_args.IntervalStrategy('steps'),
         learning_rate=args.fine_tuning_on_probing_task_learning_rate,
         per_device_train_batch_size=args.probing_per_device_train_batch_size,
         per_device_eval_batch_size=args.probing_per_device_eval_batch_size,
@@ -340,7 +339,7 @@ if __name__ == "__main__":
                              entity=args.probing_wandb_entity,
                              reinit=True,
                              name='Intra argument relations probing')
-            probing_model, eval_metrics = probing.probe_model_on_task(
+            probing_model, train_metrics, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=preprocessing.CMVDataset(intra_argument_relations_probing_dataset),
                 probing_model=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
@@ -355,6 +354,9 @@ if __name__ == "__main__":
                 mlp_num_epochs=args.probing_num_training_epochs,
                 mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
             run.finish()
+            print('\n*** Intra-Argument Relation Training Metrics: ***')
+            utils.print_metrics(train_metrics)
+            print('\n*** Intra-Argument Relation Evaluation Metrics: ***')
             utils.print_metrics(eval_metrics)
 
     if args.multi_class_premise_mode_probing:
@@ -382,7 +384,7 @@ if __name__ == "__main__":
                              entity=args.probing_wandb_entity,
                              reinit=True,
                              name='Multiclass premise model probing')
-            probing_mode, eval_metrics = probing.probe_model_on_task(
+            probing_mode, train_metrics, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=preprocessing.CMVDataset(multi_class_premise_mode_dataset),
                 probing_model=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
@@ -396,6 +398,9 @@ if __name__ == "__main__":
                 mlp_num_epochs=args.probing_num_training_epochs,
                 mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
             run.finish()
+            print('\n*** Multi-Class Training Metrics: ***')
+            utils.print_metrics(train_metrics)
+            print('\n*** Multi-Class Relation Evaluation Metrics: ***')
             utils.print_metrics(eval_metrics)
 
     logos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
@@ -439,7 +444,7 @@ if __name__ == "__main__":
                              entity=args.probing_wandb_entity,
                              reinit=True,
                              name=f'Binary premise mode prediction ({premise_mode}) probing')
-            models, eval_metrics = (
+            models, train_metrics, eval_metrics = (
                 probing.probe_model_on_task(
                     probing_dataset=preprocessing.CMVDataset(dataset),
                     probing_model=args.probing_model,
@@ -456,4 +461,7 @@ if __name__ == "__main__":
                     mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
                     premise_mode=premise_mode))
             run.finish()
+            print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Train Metrics: ***')
+            utils.print_metrics(train_metrics)
+            print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Evaluation Metrics: ***')
             utils.print_metrics(eval_metrics)
