@@ -24,14 +24,14 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
     --fine_tuning_on_probing_task_learning_rate 5e-6 \
     --probing_model_scheduler_gamma 0.9 \
-    --probing_model_learning_rate 5e-2 \
-    --probing_num_training_epochs 30 \
+    --probing_model_learning_rate 1e-1 \
+    --probing_num_training_epochs 100 \
     --downsampling_min_examples 300 \
     --fine_tuning_on_probing_task_num_training_epochs 4 \
     --downsample_binary_premise_mode_prediction True \
     --probe_model_on_premise_modes True \
-    --generate_new_premise_mode_probing_dataset True \
-    --fine_tune_model_on_binary_premise_modes True \
+    --generate_new_premise_mode_probing_dataset "" \
+    --fine_tune_model_on_binary_premise_modes "" \
     --num_cross_validation_splits 5
     
     
@@ -85,7 +85,7 @@ parser.add_argument('--probing_wandb_entity',
 # General probing parameters
 parser.add_argument('--probing_model',
                     type=str,
-                    default=constants.LOGISTIC_REGRESSION,
+                    default=constants.MLP,
                     help="The string name of the model type used for probing. Either logistic regression or MLP.")
 parser.add_argument('--fine_tuned_model_path',
                     type=str,
@@ -341,7 +341,7 @@ if __name__ == "__main__":
                              name='Intra argument relations probing')
             probing_model, train_metrics, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=preprocessing.CMVDataset(intra_argument_relations_probing_dataset),
-                probing_model=args.probing_model,
+                probing_model_name=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
                 task_name=constants.INTRA_ARGUMENT_RELATIONS,
                 num_cross_validation_splits=args.num_cross_validation_splits,
@@ -386,7 +386,7 @@ if __name__ == "__main__":
                              name='Multiclass premise model probing')
             probing_mode, train_metrics, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=preprocessing.CMVDataset(multi_class_premise_mode_dataset),
-                probing_model=args.probing_model,
+                probing_model_name=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                 task_name=constants.MULTICLASS,
                 num_cross_validation_splits=args.num_cross_validation_splits,
@@ -440,14 +440,10 @@ if __name__ == "__main__":
                     dataset=dataset,
                     num_labels=constants.NUM_LABELS,
                     min_examples=args.downsampling_min_examples)
-            run = wandb.init(project="persuasive_arguments",
-                             entity=args.probing_wandb_entity,
-                             reinit=True,
-                             name=f'Binary premise mode prediction ({premise_mode}) probing')
             models, train_metrics, eval_metrics = (
                 probing.probe_model_on_task(
                     probing_dataset=preprocessing.CMVDataset(dataset),
-                    probing_model=args.probing_model,
+                    probing_model_name=args.probing_model,
                     generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                     task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                     num_cross_validation_splits=args.num_cross_validation_splits,
@@ -460,7 +456,6 @@ if __name__ == "__main__":
                     mlp_num_epochs=args.probing_num_training_epochs,
                     mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
                     premise_mode=premise_mode))
-            run.finish()
             print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Train Metrics: ***')
             utils.print_metrics(train_metrics)
             print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Evaluation Metrics: ***')
