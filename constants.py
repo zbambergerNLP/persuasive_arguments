@@ -110,3 +110,6 @@ PARQUET = "parquet"
 # Wandb constants
 RESULTS = 'results'
 LOG = 'log'
+
+#GNN
+NODE_DIM =60

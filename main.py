@@ -79,7 +79,7 @@ parser = argparse.ArgumentParser(
     description='Process flags for fine-tuning transformers on an argumentation downstream task.')
 parser.add_argument('--probing_wandb_entity',
                     type=str,
-                    default='zbamberger',
+                    default='noambenmoshe',
                     help="The wandb entity used to track training.")
 
 

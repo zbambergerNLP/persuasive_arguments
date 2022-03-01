@@ -2,12 +2,14 @@ import copy
 import os
 
 import torch
-import transformers.tokenization_bert
+import transformers
+# import transformers.tokenization_bert
 from bs4 import BeautifulSoup
 from transformers import BertTokenizer, BertModel
 import typing
 from torch.utils.data import Dataset
-
+from torch_geometric.data import Data
+import constants
 
 XML = "xml"
 PREMISE = "premise"
@@ -46,17 +48,19 @@ def create_bert_inputs(dataset: (
         for node_id, node_text in graph['id_to_text'].items():
             graph_texts.append(node_text)
             graph_indices.append(node_id)
-        graph_lm_inputs = tokenizer(graph_texts, return_tensors="pt", padding=True, truncation=True)
-        model = BertModel.from_pretrained("bert-base-uncased")
-        model_outputs = model(**graph_lm_inputs)
-        last_hidden_states = model_outputs.last_hidden_state[:, 0, :]
-        dataset[graph_id]['id_to_embedding'] = {
-            node_id: node_embedding for node_id, node_embedding in zip(graph_indices, last_hidden_states)}
+        graph_lm_inputs = tokenizer(graph_texts, return_tensors="pt", padding='max_length', max_length=constants.NODE_DIM, truncation=True)
+        # model = BertModel.from_pretrained("bert-base-uncased")
+        # model_outputs = model(**graph_lm_inputs)
+        # last_hidden_states = model_outputs.last_hidden_state[:, 0, :]
+        # dataset[graph_id]['id_to_embedding'] = {
+        #     node_id: node_embedding for node_id, node_embedding in zip(graph_indices, last_hidden_states)}
+        dataset[graph_id]['id_to_token_ids'] = {
+            node_id: graph_lm_inputs[constants.INPUT_IDS][node_id].float() for node_id in range(graph_lm_inputs[constants.INPUT_IDS].shape[0])}
     return dataset
 
 
 class CMVKGDataLoader(Dataset):
-    def __init__(self, directory_path, version):
+    def __init__(self, directory_path, version, debug = False):
         self.dataset = []
         self.labels = []
         for sign in sign_lst:
@@ -71,20 +75,35 @@ class CMVKGDataLoader(Dataset):
                             bs_data=bs_data,
                             file_name=file_name,
                             is_positive=(sign == POSITIVE))
+                        print(f'Debug = {file_name}')
                         examples = create_bert_inputs(examples,
-                                                      tokenizer=BertTokenizer.from_pretrained("bert-base-uncased"))
+                                                      tokenizer=transformers.BertTokenizer.from_pretrained(
+                                                          constants.BERT_BASE_CASED))
+                                                      # tokenizer=BertTokenizer.from_pretrained("bert-base-uncased"))
                         self.dataset.extend(examples)
                         example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
                         self.labels.extend(example_labels)
+                        if debug:
+                            if len(self.labels) >= 5:
+                                break
 
     def __len__(self):
         return len(self.dataset)
 
     def __getitem__(self, index):
-        return {
-            'graph': self.dataset[index],
-            'label': self.labels[index]
-        }
+        print(f'getitem index = {index}')
+        # return {
+        #     'graph': self.dataset[index],
+        #     'label': self.labels[index]
+        # }
+        vals = torch.tensor(self.dataset[index]['id_to_token_ids'][0]).unsqueeze(dim=1)
+        for idx, val in enumerate(self.dataset[index]['id_to_token_ids'].values()):
+            if idx != 0:
+                vals = torch.cat((vals, val.unsqueeze(dim=1)), 1)
+
+        return Data(x=vals.T,
+                    edge_index= torch.tensor(self.dataset[index]['edges']).T,
+                    y=torch.tensor(self.labels[index]))
 
 
 def make_op_subgraph(bs_data: BeautifulSoup,
@@ -234,5 +253,5 @@ if __name__ == '__main__':
     label_lst = []
     database = []
     current_path = os.getcwd()
-    kg_dataset = CMVKGDataLoader(current_path, version=v2_path)
+    kg_dataset = CMVKGDataLoader(current_path+ "/change-my-view-modes-master", version=v2_path)
     print("Done")

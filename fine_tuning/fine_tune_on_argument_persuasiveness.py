@@ -87,7 +87,7 @@ parser.add_argument('--fine_tuning_logging_steps',
                     help="The number of steps a model takes between recording to logs.")
 parser.add_argument('--fine_tuning_wandb_entity',
                     type=str,
-                    default='zbamberger',
+                    default='noambenmoshe',
                     help="The wandb entity used to track training.")
 
 if __name__ == "__main__":
