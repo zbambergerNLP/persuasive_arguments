@@ -7,14 +7,13 @@ import constants
 import fine_tuning.fine_tuning as fine_tuning
 import preprocessing
 import probing.probing as probing
+import utils
 
 import argparse
 import logging
 import os
-import transformers
-
-import utils
 import wandb
+import transformers
 
 """
 Below are instructions on how to run this script.
@@ -25,14 +24,14 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
     --fine_tuning_on_probing_task_learning_rate 5e-6 \
     --probing_model_scheduler_gamma 0.9 \
-    --probing_model_learning_rate 5e-2 \
-    --probing_num_training_epochs 30 \
+    --probing_model_learning_rate 1e-1 \
+    --probing_num_training_epochs 100 \
     --downsampling_min_examples 300 \
     --fine_tuning_on_probing_task_num_training_epochs 4 \
     --downsample_binary_premise_mode_prediction True \
     --probe_model_on_premise_modes True \
-    --generate_new_premise_mode_probing_dataset True \
-    --fine_tune_model_on_binary_premise_modes True \
+    --generate_new_premise_mode_probing_dataset "" \
+    --fine_tune_model_on_binary_premise_modes "" \
     --num_cross_validation_splits 5
     
     
@@ -86,7 +85,7 @@ parser.add_argument('--probing_wandb_entity',
 # General probing parameters
 parser.add_argument('--probing_model',
                     type=str,
-                    default=constants.LOGISTIC_REGRESSION,
+                    default=constants.MLP,
                     help="The string name of the model type used for probing. Either logistic regression or MLP.")
 parser.add_argument('--fine_tuned_model_path',
                     type=str,
@@ -216,6 +215,10 @@ parser.add_argument('--probing_warmup_steps',
                     type=int,
                     default=200,
                     help="The number of warmup steps the model takes at the start of probing.")
+parser.add_argument('--probing_optimizer',
+                    type=str,
+                    default="sgd",
+                    help="The string name of the optimizer for training the probing model.")
 parser.add_argument('--probing_weight_decay',
                     type=float,
                     default=0.01,
@@ -298,7 +301,7 @@ if __name__ == "__main__":
         output_dir=args.probing_output_dir,
         num_train_epochs=args.fine_tuning_on_probing_task_num_training_epochs,
         eval_steps=args.eval_steps,
-        evaluation_strategy='steps',
+        evaluation_strategy=transformers.training_args.IntervalStrategy('steps'),
         learning_rate=args.fine_tuning_on_probing_task_learning_rate,
         per_device_train_batch_size=args.probing_per_device_train_batch_size,
         per_device_eval_batch_size=args.probing_per_device_eval_batch_size,
@@ -340,21 +343,25 @@ if __name__ == "__main__":
                              entity=args.probing_wandb_entity,
                              reinit=True,
                              name='Intra argument relations probing')
-            probing_model, eval_metrics = probing.probe_model_on_task(
+            probing_model, train_metrics, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=preprocessing.CMVDataset(intra_argument_relations_probing_dataset),
-                probing_model=args.probing_model,
+                probing_model_name=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
                 task_name=constants.INTRA_ARGUMENT_RELATIONS,
                 num_cross_validation_splits=args.num_cross_validation_splits,
                 probing_wandb_entity=args.probing_wandb_entity,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 fine_tuned_model_path=args.fine_tuned_model_path,
-                mlp_learning_rate=args.probing_model_learning_rate,
-                mlp_training_batch_size=args.probing_per_device_train_batch_size,
-                mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
-                mlp_num_epochs=args.probing_num_training_epochs,
-                mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+                probe_optimizer=args.probing_optimizer,
+                probe_learning_rate=args.probing_model_learning_rate,
+                probe_training_batch_size=args.probing_per_device_train_batch_size,
+                probe_eval_batch_size=args.probing_per_device_eval_batch_size,
+                probe_num_epochs=args.probing_num_training_epochs,
+                probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
             run.finish()
+            print('\n*** Intra-Argument Relation Training Metrics: ***')
+            utils.print_metrics(train_metrics)
+            print('\n*** Intra-Argument Relation Evaluation Metrics: ***')
             utils.print_metrics(eval_metrics)
 
     if args.multi_class_premise_mode_probing:
@@ -382,20 +389,24 @@ if __name__ == "__main__":
                              entity=args.probing_wandb_entity,
                              reinit=True,
                              name='Multiclass premise model probing')
-            probing_mode, eval_metrics = probing.probe_model_on_task(
+            probing_mode, train_metrics, eval_metrics = probing.probe_model_on_task(
                 probing_dataset=preprocessing.CMVDataset(multi_class_premise_mode_dataset),
-                probing_model=args.probing_model,
+                probing_model_name=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                 task_name=constants.MULTICLASS,
                 num_cross_validation_splits=args.num_cross_validation_splits,
                 probing_wandb_entity=args.probing_wandb_entity,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
-                mlp_learning_rate=args.probing_model_learning_rate,
-                mlp_training_batch_size=args.probing_per_device_train_batch_size,
-                mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
-                mlp_num_epochs=args.probing_num_training_epochs,
-                mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+                probe_optimizer=args.probing_optimizer,
+                probe_learning_rate=args.probing_model_learning_rate,
+                probe_training_batch_size=args.probing_per_device_train_batch_size,
+                probe_eval_batch_size=args.probing_per_device_eval_batch_size,
+                probe_num_epochs=args.probing_num_training_epochs,
+                probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
             run.finish()
+            print('\n*** Multi-Class Training Metrics: ***')
+            utils.print_metrics(train_metrics)
+            print('\n*** Multi-Class Relation Evaluation Metrics: ***')
             utils.print_metrics(eval_metrics)
 
     logos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
@@ -435,25 +446,24 @@ if __name__ == "__main__":
                     dataset=dataset,
                     num_labels=constants.NUM_LABELS,
                     min_examples=args.downsampling_min_examples)
-            run = wandb.init(project="persuasive_arguments",
-                             entity=args.probing_wandb_entity,
-                             reinit=True,
-                             name=f'Binary premise mode prediction ({premise_mode}) probing')
-            models, eval_metrics = (
+            models, train_metrics, eval_metrics = (
                 probing.probe_model_on_task(
                     probing_dataset=preprocessing.CMVDataset(dataset),
-                    probing_model=args.probing_model,
+                    probing_model_name=args.probing_model,
                     generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                     task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                     num_cross_validation_splits=args.num_cross_validation_splits,
                     probing_wandb_entity=args.probing_wandb_entity,
                     pretrained_checkpoint_name=args.model_checkpoint_name,
                     fine_tuned_model_path=args.fine_tuned_model_path,
-                    mlp_learning_rate=args.probing_model_learning_rate,
-                    mlp_training_batch_size=args.probing_per_device_train_batch_size,
-                    mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
-                    mlp_num_epochs=args.probing_num_training_epochs,
-                    mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
+                    probe_optimizer=args.probing_optimizer,
+                    probe_learning_rate=args.probing_model_learning_rate,
+                    probe_training_batch_size=args.probing_per_device_train_batch_size,
+                    probe_eval_batch_size=args.probing_per_device_eval_batch_size,
+                    probe_num_epochs=args.probing_num_training_epochs,
+                    probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
                     premise_mode=premise_mode))
-            run.finish()
+            print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Train Metrics: ***')
+            utils.print_metrics(train_metrics)
+            print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Evaluation Metrics: ***')
             utils.print_metrics(eval_metrics)

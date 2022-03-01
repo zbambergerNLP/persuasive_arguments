@@ -107,7 +107,7 @@ if __name__ == "__main__":
         per_device_train_batch_size=args.fine_tuning_per_device_train_batch_size,
         per_device_eval_batch_size=args.fine_tuning_per_device_eval_batch_size,
         eval_steps=args.eval_steps,
-        evaluation_strategy='steps',
+        evaluation_strategy=transformers.training_args.IntervalStrategy('steps'),
         learning_rate=args.fine_tuning_learning_rate,
         warmup_steps=args.fine_tuning_warmup_steps,
         weight_decay=args.fine_tuning_weight_decay,

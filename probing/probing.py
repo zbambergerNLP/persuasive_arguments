@@ -3,7 +3,6 @@ from __future__ import annotations
 import wandb
 
 import constants
-import metrics
 import preprocessing
 import probing.models as probing_models
 
@@ -12,7 +11,6 @@ import os
 import pyarrow as pa
 import pyarrow.parquet as pq
 import shutil
-import sklearn
 import torch
 import torch.optim.lr_scheduler as lr_scheduler
 import transformers
@@ -209,114 +207,32 @@ def load_hidden_state_outputs(probing_dir_path: str = None,
     return result
 
 
-def probe_with_logistic_regression(
-        training_set: datasets.Dataset,
-        validation_set: datasets.Dataset,
-        num_labels: int) -> (
-        typing.Tuple[typing.Union[sklearn.linear_model.LogisticRegression, torch.nn.Module],
-                     typing.Mapping[str, float]]):
-    """Train and evaluate a probing model on a dataset whose examples are hidden states from a transformer model.
-
-    :param training_set: A datasets.Dataset instance containing the training split of the probing dataset.
-    :param validation_set: A datasets.Dataset instance containing the test split of the probing dataset.
-    :param num_labels: The number of possible labels in the dataset's output space.
-    :return: A two-tuple consisting of:
-        (1) A trained probing model. This is a 'sklearn.linear_model.LogisticRegression' instance.
-        (2) Model evaluation metrics on the test set. This is a A dictionary whose keys are base model type strings
-         as defined above, and whose values are inner dictionaries. The inner dictionaries map metric names to their
-         corresponding values.
-    """
-    dataset_train = preprocessing.CMVProbingDataset(training_set)
-    dataset_test = preprocessing.CMVProbingDataset(validation_set)
-    hidden_states_train = dataset_train.hidden_states
-    targets_train = dataset_train.labels
-
-    # TODO: Implement a sweep to try to identify optimal logistic regression hyper-parameters at scale.
-    probing_model = sklearn.linear_model.LogisticRegression(max_iter=10e5).fit(hidden_states_train, targets_train)
-
-    hidden_states_eval = (
-        dataset_test.hidden_states)
-    targets_eval = (
-        dataset_test.labels)
-    preds_eval = probing_model.predict(hidden_states_eval)
-    precision, recall, f1, _ = sklearn.metrics.precision_recall_fscore_support(
-        targets_eval, preds_eval, average='weighted')
-    eval_metrics = metrics.compute_metrics(num_labels=num_labels,
-                                           preds=preds_eval,
-                                           targets=targets_eval)
-    return probing_model, eval_metrics
-
-
-def probe_model_with_mlp(training_set: datasets.Dataset,
-                         validation_set: datasets.Dataset,
-                         num_labels: int,
-                         learning_rate: float,
-                         training_batch_size: int,
-                         eval_batch_size: int,
-                         num_epochs: int,
-                         scheduler_gamma: float):
-    """
-    Train and evaluate a MLP probe on the premise type classification task (both binary and multiclass variations).
-
-    :param training_set: A datasets.Dataset instance containing the training split of the probing dataset.
-    :param validation_set: A datasets.Dataset instance containing the test split of the probing dataset.
-    :param num_labels: The number of labels for the probing classification problem.
-    :param learning_rate: A float representing the learning rate used by the optimizer while training the probe.
-    :param training_batch_size: The batch size used while training the probe. An integer.
-    :param eval_batch_size: The batch size used for probe evaluation. An integer.
-    :param num_epochs: The number of epochs used to train our probing model.
-    :param scheduler_gamma: Decays the learning rate of each parameter group by gamma every epoch.
-    :return: A two-tuple consisting of:
-        (1) A trained probing model. This is a 'torch.nn.Module' instance.
-        (2) Model evaluation metrics on the test set. This is a A dictionary whose keys are base model type strings
-         as defined above, and whose values are inner dictionaries. The inner dictionaries map metric names to their
-         corresponding values.
-    """
-    probing_model = probing_models.MLP(num_labels=num_labels)
-    loss_function = torch.nn.BCELoss() if num_labels == constants.NUM_LABELS else torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(probing_model.parameters(), lr=learning_rate)
-    scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=scheduler_gamma)
-    train_loader = torch.utils.data.DataLoader(
-        preprocessing.CMVProbingDataset(training_set),
-        batch_size=training_batch_size,
-        shuffle=True)
-    test_loader = torch.utils.data.DataLoader(
-        preprocessing.CMVProbingDataset(validation_set),
-        batch_size=eval_batch_size,
-        shuffle=True)
-    probing_model.train_probe(train_loader,
-                              optimizer,
-                              num_labels=num_labels,
-                              loss_function=loss_function,
-                              num_epochs=num_epochs,
-                              scheduler=scheduler)
-    eval_metrics = probing_model.eval_probe(num_labels=num_labels, test_loader=test_loader)
-    return probing_model, eval_metrics
-
-
 def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
-                        probing_model: str,
+                        probing_model_name: str,
                         generate_new_hidden_state_dataset: bool,
                         task_name: str,
                         num_cross_validation_splits: int,
+                        probe_learning_rate: float,
+                        probe_training_batch_size: int,
+                        probe_eval_batch_size: int,
+                        probe_num_epochs: int,
+                        probe_optimizer: str = 'sgd',
                         probing_wandb_entity: str = None,
                         pretrained_checkpoint_name: str = None,
                         fine_tuned_model_path: str = None,
-                        mlp_learning_rate: float = None,
-                        mlp_training_batch_size: int = None,
-                        mlp_eval_batch_size: int = None,
-                        mlp_num_epochs: int = None,
-                        mlp_optimizer_scheduler_gamma: float = None,
+                        probe_optimizer_scheduler_gamma: float = None,
                         premise_mode: str = None) -> (
         typing.Tuple[
-            typing.Mapping[str, typing.Sequence[typing.Union[torch.Module | sklearn.linear_model.LogisticRegression]]],
+            typing.Mapping[str, typing.Sequence[torch.Module]],
+            typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]],
             typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]]]):
     """
 
     :param probing_dataset: A 'preprocessing.CMVProbingDataset' instance. This dataset maps either premises or
         claims + premises to a binary label corresponding to whether the text's premise is associated with
         'premise_mode'.
-    :param probing_model: A string representing the model type used for probing. Either 'MLP' or 'logistic_regression'.
+    :param probing_model_name: A string representing the model type used for probing. Either 'MLP' or
+        'logistic_regression'.
     :param generate_new_hidden_state_dataset: A boolean. True if the user intends to generate a new dictionary mapping
         hidden representations of premises/claims+premises to premise mode.
     :param task_name: A string. One of {'multiclass', 'binary_premise_mode_prediction', 'intra_argument_relations',
@@ -376,12 +292,15 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
         hidden_state_datasets = (
             load_hidden_state_outputs(task_probing_dir_path, pretrained=True, fine_tuned=True, multiclass=False))
 
-    models = {constants.PRETRAINED: [],
+    all_models = {constants.PRETRAINED: [],
               constants.FINE_TUNED: [],
               constants.MULTICLASS: []}
-    eval_metrics = {constants.PRETRAINED: [],
+    all_eval_metrics = {constants.PRETRAINED: [],
                     constants.FINE_TUNED: [],
                     constants.MULTICLASS: []}
+    all_train_metrics = {constants.PRETRAINED: [],
+                     constants.FINE_TUNED: [],
+                     constants.MULTICLASS: []}
     for base_model_type, dataset in hidden_state_datasets.items():
         shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
                   for i in range(num_cross_validation_splits)]
@@ -391,39 +310,55 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
             validation_set = shards[validation_set_index].shuffle()
             training_set = datasets.concatenate_datasets(
                 shards[0:validation_set_index] + shards[validation_set_index+1:]).shuffle()
-            if probing_model == constants.MLP:
-                run_name = f'Probe MLP on {task_name}, ' \
-                           f'Base model type: {base_model_type}, ' \
-                           f'Split #{validation_set_index + 1}'
-                if premise_mode:
-                    run_name += f' ({premise_mode})'
-                if probing_wandb_entity:
-                    run = wandb.init(
-                        project="persuasive_arguments",
-                        entity=probing_wandb_entity,
-                        reinit=True,
-                        name=run_name)
-                mlp_model, mlp_eval_metrics = probe_model_with_mlp(
-                            training_set=training_set,
-                            validation_set=validation_set,
-                            num_labels=num_labels,
-                            learning_rate=mlp_learning_rate,
-                            training_batch_size=mlp_training_batch_size,
-                            eval_batch_size=mlp_eval_batch_size,
-                            num_epochs=mlp_num_epochs,
-                            scheduler_gamma=mlp_optimizer_scheduler_gamma)
-                if probing_wandb_entity:
-                    run.finish()
-                eval_metrics[base_model_type] = mlp_model
-                eval_metrics[base_model_type] = mlp_eval_metrics
+            run_name = f'Probe {probing_model_name} on {task_name}, ' \
+                       f'base model type: {base_model_type}, ' \
+                       f'Split #{validation_set_index + 1}'
+            if premise_mode:
+                run_name += f' ({premise_mode})'
+            if probing_wandb_entity:
+                run = wandb.init(
+                    project="persuasive_arguments",
+                    entity=probing_wandb_entity,
+                    reinit=True,
+                    name=run_name)
+            if probing_model_name == constants.MLP:
+                probing_model = probing_models.MLP(num_labels=num_labels)
+            else:
+                probing_model = probing_models.LogisticRegression(num_labels=num_labels)
+            loss_function = torch.nn.BCELoss() if num_labels == constants.NUM_LABELS else torch.nn.CrossEntropyLoss()
 
-            # TODO: Enable the possibility of running both MLP and logistic regression probes on the same run.
-            elif probing_model == constants.LOGISTIC_REGRESSION:
-                logisitic_regression_model, logistic_regression_eval_metrics = probe_with_logistic_regression(
-                    training_set=training_set,
-                    validation_set=validation_set,
-                    num_labels=num_labels,
-                )
-                models[base_model_type].append(logisitic_regression_model)
-                eval_metrics[base_model_type].append(logistic_regression_eval_metrics)
-    return models, eval_metrics
+            # Initialize the optimizer.
+            if probe_optimizer == 'sgd':
+                optimizer = torch.optim.SGD(probing_model.parameters(), lr=probe_learning_rate)
+            elif probe_optimizer == 'adam':
+                optimizer = torch.optim.Adam(probing_model.parameters(), lr=probe_learning_rate)
+
+            scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=probe_optimizer_scheduler_gamma)
+            train_loader = torch.utils.data.DataLoader(
+                preprocessing.CMVProbingDataset(training_set),
+                batch_size=probe_training_batch_size,
+                shuffle=True)
+            test_loader = torch.utils.data.DataLoader(
+                preprocessing.CMVProbingDataset(validation_set),
+                batch_size=probe_eval_batch_size,
+                shuffle=True)
+
+            trained_model = probing_models.train_probe(probing_model=probing_model,
+                                                       train_loader=train_loader,
+                                                       optimizer=optimizer,
+                                                       num_labels=num_labels,
+                                                       loss_function=loss_function,
+                                                       num_epochs=probe_num_epochs,
+                                                       scheduler=scheduler)
+            train_metrics = probing_models.eval_probe(probing_model=trained_model,
+                                                      num_labels=num_labels,
+                                                      test_loader=train_loader)
+            eval_metrics = probing_models.eval_probe(probing_model=trained_model,
+                                                     num_labels=num_labels,
+                                                     test_loader=test_loader)
+            all_models[base_model_type].append(trained_model)
+            all_train_metrics[base_model_type].append(train_metrics)
+            all_eval_metrics[base_model_type].append(eval_metrics)
+            if probing_wandb_entity:
+                run.finish()
+    return all_models, all_train_metrics, all_eval_metrics
