@@ -215,6 +215,10 @@ parser.add_argument('--probing_warmup_steps',
                     type=int,
                     default=200,
                     help="The number of warmup steps the model takes at the start of probing.")
+parser.add_argument('--probing_optimizer',
+                    type=str,
+                    default="sgd",
+                    help="The string name of the optimizer for training the probing model.")
 parser.add_argument('--probing_weight_decay',
                     type=float,
                     default=0.01,
@@ -348,11 +352,12 @@ if __name__ == "__main__":
                 probing_wandb_entity=args.probing_wandb_entity,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
                 fine_tuned_model_path=args.fine_tuned_model_path,
-                mlp_learning_rate=args.probing_model_learning_rate,
-                mlp_training_batch_size=args.probing_per_device_train_batch_size,
-                mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
-                mlp_num_epochs=args.probing_num_training_epochs,
-                mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+                probe_optimizer=args.probing_optimizer,
+                probe_learning_rate=args.probing_model_learning_rate,
+                probe_training_batch_size=args.probing_per_device_train_batch_size,
+                probe_eval_batch_size=args.probing_per_device_eval_batch_size,
+                probe_num_epochs=args.probing_num_training_epochs,
+                probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
             run.finish()
             print('\n*** Intra-Argument Relation Training Metrics: ***')
             utils.print_metrics(train_metrics)
@@ -392,11 +397,12 @@ if __name__ == "__main__":
                 num_cross_validation_splits=args.num_cross_validation_splits,
                 probing_wandb_entity=args.probing_wandb_entity,
                 pretrained_checkpoint_name=args.model_checkpoint_name,
-                mlp_learning_rate=args.probing_model_learning_rate,
-                mlp_training_batch_size=args.probing_per_device_train_batch_size,
-                mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
-                mlp_num_epochs=args.probing_num_training_epochs,
-                mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+                probe_optimizer=args.probing_optimizer,
+                probe_learning_rate=args.probing_model_learning_rate,
+                probe_training_batch_size=args.probing_per_device_train_batch_size,
+                probe_eval_batch_size=args.probing_per_device_eval_batch_size,
+                probe_num_epochs=args.probing_num_training_epochs,
+                probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
             run.finish()
             print('\n*** Multi-Class Training Metrics: ***')
             utils.print_metrics(train_metrics)
@@ -450,11 +456,12 @@ if __name__ == "__main__":
                     probing_wandb_entity=args.probing_wandb_entity,
                     pretrained_checkpoint_name=args.model_checkpoint_name,
                     fine_tuned_model_path=args.fine_tuned_model_path,
-                    mlp_learning_rate=args.probing_model_learning_rate,
-                    mlp_training_batch_size=args.probing_per_device_train_batch_size,
-                    mlp_eval_batch_size=args.probing_per_device_eval_batch_size,
-                    mlp_num_epochs=args.probing_num_training_epochs,
-                    mlp_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
+                    probe_optimizer=args.probing_optimizer,
+                    probe_learning_rate=args.probing_model_learning_rate,
+                    probe_training_batch_size=args.probing_per_device_train_batch_size,
+                    probe_eval_batch_size=args.probing_per_device_eval_batch_size,
+                    probe_num_epochs=args.probing_num_training_epochs,
+                    probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
                     premise_mode=premise_mode))
             print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Train Metrics: ***')
             utils.print_metrics(train_metrics)

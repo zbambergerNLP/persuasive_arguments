@@ -212,14 +212,15 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                         generate_new_hidden_state_dataset: bool,
                         task_name: str,
                         num_cross_validation_splits: int,
+                        probe_learning_rate: float,
+                        probe_training_batch_size: int,
+                        probe_eval_batch_size: int,
+                        probe_num_epochs: int,
+                        probe_optimizer: str = 'sgd',
                         probing_wandb_entity: str = None,
                         pretrained_checkpoint_name: str = None,
                         fine_tuned_model_path: str = None,
-                        mlp_learning_rate: float = None,
-                        mlp_training_batch_size: int = None,
-                        mlp_eval_batch_size: int = None,
-                        mlp_num_epochs: int = None,
-                        mlp_optimizer_scheduler_gamma: float = None,
+                        probe_optimizer_scheduler_gamma: float = None,
                         premise_mode: str = None) -> (
         typing.Tuple[
             typing.Mapping[str, typing.Sequence[torch.Module]],
@@ -291,13 +292,13 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
         hidden_state_datasets = (
             load_hidden_state_outputs(task_probing_dir_path, pretrained=True, fine_tuned=True, multiclass=False))
 
-    models = {constants.PRETRAINED: [],
+    all_models = {constants.PRETRAINED: [],
               constants.FINE_TUNED: [],
               constants.MULTICLASS: []}
-    eval_metrics = {constants.PRETRAINED: [],
+    all_eval_metrics = {constants.PRETRAINED: [],
                     constants.FINE_TUNED: [],
                     constants.MULTICLASS: []}
-    train_metrics = {constants.PRETRAINED: [],
+    all_train_metrics = {constants.PRETRAINED: [],
                      constants.FINE_TUNED: [],
                      constants.MULTICLASS: []}
     for base_model_type, dataset in hidden_state_datasets.items():
@@ -325,15 +326,21 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
             else:
                 probing_model = probing_models.LogisticRegression(num_labels=num_labels)
             loss_function = torch.nn.BCELoss() if num_labels == constants.NUM_LABELS else torch.nn.CrossEntropyLoss()
-            optimizer = torch.optim.SGD(probing_model.parameters(), lr=mlp_learning_rate)
-            scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=mlp_optimizer_scheduler_gamma)
+
+            # Initialize the optimizer.
+            if probe_optimizer == 'sgd':
+                optimizer = torch.optim.SGD(probing_model.parameters(), lr=probe_learning_rate)
+            elif probe_optimizer == 'adam':
+                optimizer = torch.optim.Adam(probing_model.parameters(), lr=probe_learning_rate)
+
+            scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=probe_optimizer_scheduler_gamma)
             train_loader = torch.utils.data.DataLoader(
                 preprocessing.CMVProbingDataset(training_set),
-                batch_size=mlp_training_batch_size,
+                batch_size=probe_training_batch_size,
                 shuffle=True)
             test_loader = torch.utils.data.DataLoader(
                 preprocessing.CMVProbingDataset(validation_set),
-                batch_size=mlp_eval_batch_size,
+                batch_size=probe_eval_batch_size,
                 shuffle=True)
 
             trained_model = probing_models.train_probe(probing_model=probing_model,
@@ -341,7 +348,7 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                                                        optimizer=optimizer,
                                                        num_labels=num_labels,
                                                        loss_function=loss_function,
-                                                       num_epochs=mlp_num_epochs,
+                                                       num_epochs=probe_num_epochs,
                                                        scheduler=scheduler)
             train_metrics = probing_models.eval_probe(probing_model=trained_model,
                                                       num_labels=num_labels,
@@ -349,6 +356,9 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
             eval_metrics = probing_models.eval_probe(probing_model=trained_model,
                                                      num_labels=num_labels,
                                                      test_loader=test_loader)
+            all_models[base_model_type].append(trained_model)
+            all_train_metrics[base_model_type].append(train_metrics)
+            all_eval_metrics[base_model_type].append(eval_metrics)
             if probing_wandb_entity:
                 run.finish()
-    return models, train_metrics, eval_metrics
+    return all_models, all_train_metrics, all_eval_metrics
