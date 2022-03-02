@@ -29,7 +29,7 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --probing_model_learning_rate 1e-3 \
     --probing_num_training_epochs 50 \
     --downsampling_min_examples 300 \
-    --fine_tuning_on_probing_task_num_training_epochs 8 \
+    --fine_tuning_on_probing_task_num_training_epochs 20 \
     --downsample_binary_premise_mode_prediction True \
     --probe_model_on_binary_premise_modes True \
     --generate_new_premise_mode_probing_dataset "" \
@@ -44,7 +44,7 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --fine_tuning_on_probing_task_learning_rate 5e-6 \
     --probing_model_scheduler_gamma 0.9 \
     --downsampling_min_examples 300 \
-    --fine_tuning_on_probing_task_num_training_epochs 4 \
+    --fine_tuning_on_probing_task_num_training_epochs 20 \
     --probing_model_learning_rate 1e-1 \
     --probing_num_training_epochs 50 \
     --probe_model_on_intra_argument_relations True \
@@ -61,7 +61,7 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --probing_model_scheduler_gamma 0.9 \
     --probing_num_training_epochs 30 \
     --downsampling_min_examples 300 \
-    --fine_tuning_on_probing_task_num_training_epochs 4 \
+    --fine_tuning_on_probing_task_num_training_epochs 20 \
     --probing_model_learning_rate 5e-2 \
     --probing_num_training_epochs 30 \
     --downsample_multi_class_premise_mode_prediction True \
@@ -197,7 +197,7 @@ parser.add_argument('--probing_output_dir',
                     help="The directory in which probing model results are stored.")
 parser.add_argument('--fine_tuning_on_probing_task_num_training_epochs',
                     type=int,
-                    default=4,
+                    default=20,
                     help="The number of training rounds for fine-tuning on the probing dataset.")
 parser.add_argument('--probing_num_training_epochs',
                     type=int,
@@ -267,14 +267,6 @@ def run_fine_tuning(probing_wandb_entity: str,
     :return:  A 2-tuple of the form (trainer, eval_metrics). The trainer is a 'transformers.Trainer' instance used to
         fine-tune the model, and the metrics are a dictionary derived from evaluating the model on the verification set.
     """
-    # run_name = f'Fine tune on {task_name}'
-    # if premise_mode:
-    #     run_name += f' ({premise_mode})'
-    # if probing_wandb_entity:
-    #     run = wandb.init(project="persuasive_arguments",
-    #                      entity=probing_wandb_entity,
-    #                      reinit=True,
-    #                      name=run_name)
     trainer, eval_metrics = (
         fine_tuning.fine_tune_on_task(dataset=dataset,
                                       model=model,
@@ -284,10 +276,6 @@ def run_fine_tuning(probing_wandb_entity: str,
                                       premise_mode=premise_mode,
                                       logger=logger,
                                       probing_wandb_entity=probing_wandb_entity))
-    # prefix = f'{task_name} ({premise_mode})' if premise_mode else f'{task_name}'
-    # print(f'{prefix} eval metrics:\n{eval_metrics}')
-    # if probing_wandb_entity:
-    #     run.finish()
     return trainer, eval_metrics
 
 

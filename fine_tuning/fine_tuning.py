@@ -74,6 +74,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
     shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
               for i in range(num_cross_validation_splits)]
     for validation_set_index in range(num_cross_validation_splits):
+        split_model = copy.deepcopy(model)
         validation_set = shards[validation_set_index].shuffle()
         training_set = datasets.concatenate_datasets(
             shards[0:validation_set_index] + shards[validation_set_index + 1:]).shuffle()
@@ -91,7 +92,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
             metrics.compute_metrics_for_multi_class_classification if task_name == constants.MULTICLASS else
             metrics.compute_metrics_for_binary_classification)
         trainer = transformers.Trainer(
-            model=model,
+            model=split_model,
             args=configuration,
             train_dataset=training_set,
             eval_dataset=validation_set,
