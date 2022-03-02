@@ -89,16 +89,23 @@ def get_baseline_scores(task_name: str,
                         corpus_df: pd.DataFrame,
                         num_cross_validation_splits: int = 5,
                         premise_mode: str = None,
-                        batch_size: int = 16) -> (
+                        num_epochs: int = 50,
+                        batch_size: int = 16,
+                        learning_rate: float = 1e-2,
+                        optimizer_gamma: float = 0.9) -> (
         typing.Tuple[typing.Mapping[str, float],
                      typing.Mapping[str, float]]):
-    """Evaluate the performance of an n-gram language model on a probing task.
+    """
 
-    :param task_name: A string. One of {'multiclass', 'binary_premise_mode_prediction', 'intra_argument_relations',
-        'binary_cmv_delta_prediction'}
-    :param corpus_df: A pandas DataFrame instance with the columns {OP_COMMENT, REPLY, LABEL}. The OP_COMMENT
-        and REPLY columns consist of text entries while LABEL is {0, 1}.
-    :return: A dictionary of metrics containing the following keys: precision, recall, f1, accuracy.
+    :param task_name:
+    :param corpus_df:
+    :param num_cross_validation_splits:
+    :param premise_mode:
+    :param num_epochs:
+    :param batch_size:
+    :param learning_rate:
+    :param optimizer_gamma:
+    :return:
     """
     corpus_df = create_combined_column(task_name=task_name, corpus_df=corpus_df)
     X, y = extract_bigram_features(corpus_df=corpus_df, premise_mode=premise_mode)
@@ -110,8 +117,8 @@ def get_baseline_scores(task_name: str,
         X_train, X_test = X[train_index], X[test_index]
         y_train, y_test = y[train_index], y[test_index]
         logistic_regression = models.BaselineLogisticRegression(num_features=X_train.shape[1], num_labels=num_labels)
-        optimizer = torch.optim.Adam(logistic_regression.parameters(), lr=1e-2)
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=0.9)
+        optimizer = torch.optim.Adam(logistic_regression.parameters(), lr=learning_rate)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=optimizer_gamma)
         logistic_regression.fit(
             train_loader=torch.utils.data.DataLoader(
                 data_loaders.BaselineLoader(X_train, y_train),
@@ -119,6 +126,7 @@ def get_baseline_scores(task_name: str,
                 shuffle=True),
             num_labels=num_labels,
             loss_function=torch.nn.BCELoss() if num_labels == 2 else torch.nn.CrossEntropyLoss(),
+            num_epochs=num_epochs,
             optimizer=optimizer,
             scheduler=scheduler,
         )
@@ -146,10 +154,10 @@ def get_baseline_scores(task_name: str,
 
     eval_metric_averages, eval_metric_stds = get_metrics_avg_and_std_across_splits(
         metric_aggregates=eval_metric_aggregates,
-        is_train=False)
+        is_train=False,
+        print_results=True)
     get_metrics_avg_and_std_across_splits(
         metric_aggregates=train_metric_aggregates,
         is_train=True,
-        print_results=True
-    )
+        print_results=True)
     return eval_metric_averages, eval_metric_stds

@@ -239,13 +239,14 @@ def transform_df_to_dataset(task_name: str,
         corpus_df.to_csv(f'{task_name}.csv', index=False)
         print(f'wrote pandas dataframe into memory: {os.path.join(os.getcwd(), f"{task_name}.csv")}')
 
-    baseline_results = baseline.get_baseline_scores(
+    # Run baseline experiments.
+    baseline_report_prefix = (
+        f'Baseline results for {task_name} ({premise_mode}):' if premise_mode else f'Baseline results for {task_name}:')
+    print(baseline_report_prefix)
+    baseline.get_baseline_scores(
         task_name=task_name,
         corpus_df=corpus_df,
         premise_mode=premise_mode)
-    baseline_report_prefix = (
-        f'Baseline results for {task_name} ({premise_mode})' if premise_mode else f'Baseline results for {task_name}')
-    print(f'{baseline_report_prefix} predictions are:\n{baseline_results}\n\n')
 
     dataset = datasets.Dataset.from_dict(
         tokenize_for_task(
