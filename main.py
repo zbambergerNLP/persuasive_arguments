@@ -4,6 +4,7 @@ import datasets
 import torch
 
 import constants
+import data_loaders
 import fine_tuning.fine_tuning as fine_tuning
 import preprocessing
 import probing.probing as probing
@@ -23,9 +24,10 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --probing_model "mlp" \
     --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
     --fine_tuning_on_probing_task_learning_rate 5e-6 \
+    --probing_optimizer "adam" \
     --probing_model_scheduler_gamma 0.9 \
-    --probing_model_learning_rate 1e-1 \
-    --probing_num_training_epochs 100 \
+    --probing_model_learning_rate 1e-3 \
+    --probing_num_training_epochs 50 \
     --downsampling_min_examples 300 \
     --fine_tuning_on_probing_task_num_training_epochs 4 \
     --downsample_binary_premise_mode_prediction True \
@@ -41,14 +43,14 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
     --fine_tuning_on_probing_task_learning_rate 5e-6 \
     --probing_model_scheduler_gamma 0.9 \
-    --probing_num_training_epochs 30 \
     --downsampling_min_examples 300 \
     --fine_tuning_on_probing_task_num_training_epochs 4 \
-    --probing_model_learning_rate 5e-2 \
-    --probing_num_training_epochs 30 \
-    --generate_new_relations_probing_dataset True \
-    --downsample_binary_intra_argument_relation_prediction True \
-    --fine_tune_model_on_argument_relations True \
+    --probing_model_learning_rate 1e-1 \
+    --probing_num_training_epochs 50 \
+    --probe_model_on_intra_argument_relations True \
+    --generate_new_relations_probing_dataset "" \
+    --downsample_binary_intra_argument_relation_prediction "" \
+    --fine_tune_model_on_argument_relations "" \
     --num_cross_validation_splits 5
     
 How to run multi-class premise mode experiments:
@@ -78,7 +80,7 @@ parser = argparse.ArgumentParser(
     description='Process flags for fine-tuning transformers on an argumentation downstream task.')
 parser.add_argument('--probing_wandb_entity',
                     type=str,
-                    default='noambenmoshe',
+                    default='zbamberger',
                     help="The wandb entity used to track training.")
 
 
@@ -448,7 +450,7 @@ if __name__ == "__main__":
                     min_examples=args.downsampling_min_examples)
             models, train_metrics, eval_metrics = (
                 probing.probe_model_on_task(
-                    probing_dataset=preprocessing.CMVDataset(dataset),
+                    probing_dataset=data_loaders.CMVDataset(dataset),
                     probing_model_name=args.probing_model,
                     generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
                     task_name=constants.BINARY_PREMISE_MODE_PREDICTION,

@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import os
 
+import constants
+
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -19,6 +21,10 @@ def ensure_dir_exists(probing_dir_path):
     if not os.path.exists(probing_dir_path):
         print(f'Creating directory: {probing_dir_path}')
         os.mkdir(probing_dir_path)
+
+
+def get_num_labels(task_name):
+    return len(constants.PREMISE_MODE_TO_INT) if task_name == constants.MULTICLASS else constants.NUM_LABELS
 
 
 def print_metrics(eval_metrics: typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]]):

@@ -8,7 +8,7 @@ from torch_geometric.loader import DataLoader
 import torch_geometric.data as geom_data
 
 from cmv_modes.preprocessing_knowledge_graph import CMVKGDataLoader, v2_path
-from model import GCN
+from models import GCN
 import constants
 
 def train(model, dl, epochs, optimizer):

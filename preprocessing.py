@@ -1,5 +1,3 @@
-import random
-
 from convokit import Corpus, download
 import datasets
 import numpy as np
@@ -9,45 +7,10 @@ import torch
 import transformers
 import typing
 
-
 import cmv_modes.preprocessing_cmv_ampersand as cmv_probing
 import constants
-import metrics
-
-
-class CMVProbingDataset(torch.utils.data.Dataset):
-    """A Change My View dataset for probing."""
-
-    def __init__(self, cmv_probing_dataset):
-        self.cmv_probing_dataset = cmv_probing_dataset.to_dict()
-        self.hidden_states = cmv_probing_dataset[constants.HIDDEN_STATE]
-        self.labels = cmv_probing_dataset[constants.LABEL]
-        self.num_examples = cmv_probing_dataset.num_rows
-
-    def __getitem__(self, idx):
-        return {constants.HIDDEN_STATE: torch.tensor(self.hidden_states[idx]),
-                constants.LABEL: torch.tensor(self.labels[idx])}
-
-    def __len__(self):
-        return self.num_examples
-
-
-class CMVDataset(torch.utils.data.Dataset):
-    """A Change My View dataset for fine tuning.."""
-
-    def __init__(self, cmv_dataset):
-        self.cmv_dataset = cmv_dataset.to_dict()
-        self.num_examples = cmv_dataset.num_rows
-
-    def __getitem__(self, idx):
-        item = {}
-        for key, value in self.cmv_dataset.items():
-            if key in [constants.INPUT_IDS, constants.TOKEN_TYPE_IDS, constants.ATTENTION_MASK, constants.LABEL]:
-                item[key] = torch.tensor(value[idx])
-        return item
-
-    def __len__(self):
-        return self.num_examples
+import models
+from cmv_modes import baseline
 
 
 def find_comment_id_by_shortened_id(cmv_corpus, shortened_comment_id):
@@ -276,10 +239,13 @@ def transform_df_to_dataset(task_name: str,
         corpus_df.to_csv(f'{task_name}.csv', index=False)
         print(f'wrote pandas dataframe into memory: {os.path.join(os.getcwd(), f"{task_name}.csv")}')
 
-    baseline_results = metrics.get_baseline_scores(task_name=task_name, corpus_df=corpus_df)
+    baseline_results = baseline.get_baseline_scores(
+        task_name=task_name,
+        corpus_df=corpus_df,
+        premise_mode=premise_mode)
     baseline_report_prefix = (
         f'Baseline results for {task_name} ({premise_mode})' if premise_mode else f'Baseline results for {task_name}')
-    print(f'{baseline_report_prefix} predictions are:\n{baseline_results}')
+    print(f'{baseline_report_prefix} predictions are:\n{baseline_results}\n\n')
 
     dataset = datasets.Dataset.from_dict(
         tokenize_for_task(
@@ -363,4 +329,3 @@ def downsample_dataset(dataset: datasets.Dataset,
     resulting_dataset = datasets.interleave_datasets(list(label_to_dataset.values())).shuffle()
 
     return resulting_dataset
-

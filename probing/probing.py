@@ -3,8 +3,8 @@ from __future__ import annotations
 import wandb
 
 import constants
-import preprocessing
-import probing.models as probing_models
+import data_loaders
+import models
 
 import datasets
 import os
@@ -57,7 +57,7 @@ def save_model_embeddings_on_batch(transformer_model: transformers.PreTrainedMod
 
 
 def save_hidden_state_outputs(fine_tuned_model_path: str,
-                              probing_dataset: preprocessing.CMVProbingDataset,
+                              probing_dataset: data_loaders.CMVProbingDataset,
                               probing_dir_path: str,
                               pretrained_checkpoint_name: str,
                               num_labels: int = 2,
@@ -207,7 +207,7 @@ def load_hidden_state_outputs(probing_dir_path: str = None,
     return result
 
 
-def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
+def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
                         probing_model_name: str,
                         generate_new_hidden_state_dataset: bool,
                         task_name: str,
@@ -228,7 +228,7 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
             typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]]]):
     """
 
-    :param probing_dataset: A 'preprocessing.CMVProbingDataset' instance. This dataset maps either premises or
+    :param probing_dataset: A 'data_loaders.CMVProbingDataset' instance. This dataset maps either premises or
         claims + premises to a binary label corresponding to whether the text's premise is associated with
         'premise_mode'.
     :param probing_model_name: A string representing the model type used for probing. Either 'MLP' or
@@ -244,11 +244,12 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
     :param pretrained_checkpoint_name: The string name of the pretrained model checkpoint to load.
     :param fine_tuned_model_path: The path to the file containing a saved language model that was fine-tuned on the
         downstream task.
-    :param mlp_learning_rate: A float representing the learning rate used by the optimizer while training the probe.
-    :param mlp_training_batch_size: The batch size used while training the probe. An integer.
-    :param mlp_eval_batch_size: The batch size used for probe evaluation. An integer.
-    :param mlp_num_epochs: The number of training epochs used to train the probe if using a MLP.
-    :param mlp_optimizer_scheduler_gamma: Decays the learning rate of each parameter group by gamma every epoch.
+    :param probe_optimizer: The string name of the optimizer used to train the probing model.
+    :param probe_learning_rate: A float representing the learning rate used by the optimizer while training the probe.
+    :param probe_training_batch_size: The batch size used while training the probe. An integer.
+    :param probe_eval_batch_size: The batch size used for probe evaluation. An integer.
+    :param probe_num_epochs: The number of training epochs used to train the probe if using a MLP.
+    :param probe_optimizer_scheduler_gamma: Decays the learning rate of each parameter group by gamma every epoch.
     :param premise_mode: A string representing the premise mode towards which the dataset is oriented. For example,
         if the mode were 'ethos', then positive labels would be premises who's label contains 'ethos'.
     :return: A tuple consisting of three entries:
@@ -321,10 +322,11 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
                     entity=probing_wandb_entity,
                     reinit=True,
                     name=run_name)
+
             if probing_model_name == constants.MLP:
-                probing_model = probing_models.MLP(num_labels=num_labels)
+                probing_model = models.MLPProbe(num_labels=num_labels)
             else:
-                probing_model = probing_models.LogisticRegression(num_labels=num_labels)
+                probing_model = models.LogisticRegressionProbe(num_labels=num_labels)
             loss_function = torch.nn.BCELoss() if num_labels == constants.NUM_LABELS else torch.nn.CrossEntropyLoss()
 
             # Initialize the optimizer.
@@ -335,30 +337,31 @@ def probe_model_on_task(probing_dataset: preprocessing.CMVProbingDataset,
 
             scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=probe_optimizer_scheduler_gamma)
             train_loader = torch.utils.data.DataLoader(
-                preprocessing.CMVProbingDataset(training_set),
+                data_loaders.CMVProbingDataset(training_set),
                 batch_size=probe_training_batch_size,
                 shuffle=True)
             test_loader = torch.utils.data.DataLoader(
-                preprocessing.CMVProbingDataset(validation_set),
+                data_loaders.CMVProbingDataset(validation_set),
                 batch_size=probe_eval_batch_size,
                 shuffle=True)
 
-            trained_model = probing_models.train_probe(probing_model=probing_model,
-                                                       train_loader=train_loader,
-                                                       optimizer=optimizer,
-                                                       num_labels=num_labels,
-                                                       loss_function=loss_function,
-                                                       num_epochs=probe_num_epochs,
-                                                       scheduler=scheduler)
-            train_metrics = probing_models.eval_probe(probing_model=trained_model,
-                                                      num_labels=num_labels,
-                                                      test_loader=train_loader)
-            eval_metrics = probing_models.eval_probe(probing_model=trained_model,
-                                                     num_labels=num_labels,
-                                                     test_loader=test_loader)
+            trained_model = models.train_probe(probing_model=probing_model,
+                                               train_loader=train_loader,
+                                               optimizer=optimizer,
+                                               num_labels=num_labels,
+                                               loss_function=loss_function,
+                                               num_epochs=probe_num_epochs,
+                                               scheduler=scheduler)
+            train_metrics = models.eval_probe(probing_model=trained_model,
+                                              num_labels=num_labels,
+                                              test_loader=train_loader)
+            eval_metrics = models.eval_probe(probing_model=trained_model,
+                                             num_labels=num_labels,
+                                             test_loader=test_loader)
             all_models[base_model_type].append(trained_model)
             all_train_metrics[base_model_type].append(train_metrics)
             all_eval_metrics[base_model_type].append(eval_metrics)
             if probing_wandb_entity:
                 run.finish()
+
     return all_models, all_train_metrics, all_eval_metrics
