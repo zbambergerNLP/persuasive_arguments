@@ -26,7 +26,7 @@ class TrainingMetricsCallback(transformers.TrainerCallback):
         training_metrics = self._trainer.evaluate(
             eval_dataset=self._trainer.train_dataset,
             metric_key_prefix=constants.TRAIN)
-        training_metrics['train_accuracy'] = training_metrics['train_accuracy'][constants.ACCURACY]
+        training_metrics['train_accuracy'] = training_metrics['train_accuracy']
         self._trainer.log_metrics(constants.TRAIN, training_metrics)
         self._trainer.save_metrics(constants.TRAIN, training_metrics)
         return control_copy

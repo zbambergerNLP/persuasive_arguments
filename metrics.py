@@ -59,7 +59,7 @@ def compute_metrics_for_binary_classification(
         constants.PRECISION: precision,
         constants.RECALL: recall,
         constants.F1: f1,
-        constants.ACCURACY: accuracy.compute(predictions=predictions, references=labels)
+        constants.ACCURACY: accuracy.compute(predictions=predictions, references=labels)[constants.ACCURACY]
     }
     return metrics
 

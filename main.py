@@ -29,11 +29,11 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --probing_model_learning_rate 1e-3 \
     --probing_num_training_epochs 50 \
     --downsampling_min_examples 300 \
-    --fine_tuning_on_probing_task_num_training_epochs 4 \
+    --fine_tuning_on_probing_task_num_training_epochs 8 \
     --downsample_binary_premise_mode_prediction True \
     --probe_model_on_binary_premise_modes True \
     --generate_new_premise_mode_probing_dataset "" \
-    --fine_tune_model_on_binary_premise_modes "" \
+    --fine_tune_model_on_binary_premise_modes True \
     --num_cross_validation_splits 5
     
     
@@ -118,7 +118,7 @@ parser.add_argument('--run_baseline_experiment',
 # Data Imbalance Flags
 parser.add_argument('--downsample_binary_premise_mode_prediction',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="True if we intend to downsample probing datasets for binary premise mode prediction.")
 parser.add_argument('--downsample_multi_class_premise_mode_prediction',
                     type=bool,
@@ -158,7 +158,7 @@ parser.add_argument('--fine_tune_model_on_argument_relations',
 # Binary Premise Mode Probing:
 parser.add_argument('--probe_model_on_binary_premise_modes',
                     type=bool,
-                    default=True,
+                    default=False,
                     help=('Whether or not a pre-trained transformer language model should be trained and evaluated'
                           'on a probing task. In this case, the probing task involves classifying the argumentation '
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
@@ -174,7 +174,7 @@ parser.add_argument('--generate_new_premise_mode_probing_dataset',
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
 parser.add_argument('--fine_tune_model_on_binary_premise_modes',
                     type=bool,
-                    default=True,
+                    default=False,
                     help='Fine tune the model specified in `model_checkpoint_name` on the probing datasets.')
 
 # Multi-Class Premise Mode Probing:
@@ -233,7 +233,7 @@ parser.add_argument('--probing_logging_dir',
                     help="The directory in which the model stores logs.")
 parser.add_argument('--probing_logging_steps',
                     type=int,
-                    default=10,
+                    default=50,
                     help="The number of steps a model takes between recording to logs.")
 parser.add_argument('--num_cross_validation_splits',
                     type=int,
