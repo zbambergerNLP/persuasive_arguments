@@ -8,7 +8,7 @@ import torch
 import transformers
 import typing
 
-import preprocessing
+import data_loaders
 import constants
 import metrics
 
@@ -66,8 +66,8 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         configuration.logging_dir = os.path.join(target_dir_path, constants.LOG)
 
     dataset = dataset.train_test_split()
-    train_dataset = preprocessing.CMVDataset(dataset[constants.TRAIN])
-    test_dataset = preprocessing.CMVDataset(dataset[constants.TEST])
+    train_dataset = data_loaders.CMVDataset(dataset[constants.TRAIN])
+    test_dataset = data_loaders.CMVDataset(dataset[constants.TEST])
 
     metrics_function = (
         metrics.compute_metrics_for_multi_class_classification if task_name == constants.MULTICLASS else
