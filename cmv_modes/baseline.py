@@ -45,46 +45,6 @@ def extract_bigram_features(corpus_df: pd.DataFrame,
     return X, y
 
 
-def aggregate_metrics_across_splits(
-        split_metrics: typing.Sequence[typing.Mapping[str, float]]) -> typing.Mapping[str, typing.Sequence[float]]:
-    """
-
-    :param split_metrics:
-    :return:
-    """
-    metrics_aggregates = {}
-    for split_index, split_metrics_dict in enumerate(split_metrics):
-        for metric_name, metric_value in split_metrics_dict.items():
-            if metric_name not in metrics_aggregates:
-                metrics_aggregates[metric_name] = []
-            metrics_aggregates[metric_name].append(metric_value)
-    return metrics_aggregates
-
-
-def get_metrics_avg_and_std_across_splits(
-        metric_aggregates: typing.Mapping[str, typing.Sequence[float]],
-        print_results: bool = False,
-        is_train: bool = False) -> typing.Tuple[typing.Mapping[str, float], typing.Mapping[str, float]]:
-    """
-
-    :param metric_aggregates:
-    :param print_results:
-    :param is_train:
-    :return:
-    """
-    metric_averages = {}
-    metric_stds = {}
-    for metric_name, metric_values in metric_aggregates.items():
-        metric_averages[metric_name] = sum(metric_values) / len(metric_values)
-        metric_stds[metric_name] = np.std(metric_values, axis=-1)
-    if print_results:
-        for metric_name in metric_averages.keys():
-            print(f'\t\tmetric name ({"train" if is_train else "eval"}): {metric_name}\n'
-                  f'\t\t\tmean metric value ({"train" if is_train else "eval"}): {metric_averages[metric_name]}\n'
-                  f'\t\t\tstandard deviation ({"train" if is_train else "eval"}): {metric_stds[metric_name]}')
-    return metric_averages, metric_stds
-
-
 def get_baseline_scores(task_name: str,
                         corpus_df: pd.DataFrame,
                         num_cross_validation_splits: int = 5,
@@ -149,14 +109,14 @@ def get_baseline_scores(task_name: str,
             num_labels=num_labels)
         split_eval_metrics.append(eval_metrics)
 
-    eval_metric_aggregates = aggregate_metrics_across_splits(split_eval_metrics)
-    train_metric_aggregates = aggregate_metrics_across_splits(split_train_metrics)
+    eval_metric_aggregates = utils.aggregate_metrics_across_splits(split_eval_metrics)
+    train_metric_aggregates = utils.aggregate_metrics_across_splits(split_train_metrics)
 
-    eval_metric_averages, eval_metric_stds = get_metrics_avg_and_std_across_splits(
+    eval_metric_averages, eval_metric_stds = utils.get_metrics_avg_and_std_across_splits(
         metric_aggregates=eval_metric_aggregates,
         is_train=False,
         print_results=True)
-    get_metrics_avg_and_std_across_splits(
+    utils.get_metrics_avg_and_std_across_splits(
         metric_aggregates=train_metric_aggregates,
         is_train=True,
         print_results=True)

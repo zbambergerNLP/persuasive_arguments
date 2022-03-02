@@ -208,7 +208,8 @@ def transform_df_to_dataset(task_name: str,
                             corpus_df: pd.DataFrame,
                             tokenizer: transformers.PreTrainedTokenizer,
                             save_text_datasets: bool,
-                            premise_mode=None) -> datasets.Dataset:
+                            premise_mode: str = None,
+                            run_baseline_experiment: bool = False) -> datasets.Dataset:
     """
 
     :param task_name: A string. One of {'multiclass', 'binary_premise_mode_prediction', 'intra_argument_relations',
@@ -240,13 +241,14 @@ def transform_df_to_dataset(task_name: str,
         print(f'wrote pandas dataframe into memory: {os.path.join(os.getcwd(), f"{task_name}.csv")}')
 
     # Run baseline experiments.
-    baseline_report_prefix = (
-        f'Baseline results for {task_name} ({premise_mode}):' if premise_mode else f'Baseline results for {task_name}:')
-    print(baseline_report_prefix)
-    baseline.get_baseline_scores(
-        task_name=task_name,
-        corpus_df=corpus_df,
-        premise_mode=premise_mode)
+    if run_baseline_experiment:
+        baseline_report_prefix = (
+            f'Baseline results for {task_name} ({premise_mode}):' if premise_mode else f'Baseline results for {task_name}:')
+        print(baseline_report_prefix)
+        baseline.get_baseline_scores(
+            task_name=task_name,
+            corpus_df=corpus_df,
+            premise_mode=premise_mode)
 
     dataset = datasets.Dataset.from_dict(
         tokenize_for_task(
@@ -267,7 +269,8 @@ def get_dataset(task_name: str,
                 tokenizer: transformers.PreTrainedTokenizer,
                 save_text_datasets: bool = False,
                 dataset_name: str = None,
-                premise_mode: str = None) -> datasets.Dataset:
+                premise_mode: str = None,
+                run_baseline_experiment: bool = False) -> datasets.Dataset:
     """
 
     :param task_name: A string. One of {'multiclass', 'binary_premise_mode_prediction', 'intra_argument_relations',
@@ -300,7 +303,8 @@ def get_dataset(task_name: str,
                                    corpus_df=corpus_df,
                                    tokenizer=tokenizer,
                                    save_text_datasets=save_text_datasets,
-                                   premise_mode=premise_mode)
+                                   premise_mode=premise_mode,
+                                   run_baseline_experiment=run_baseline_experiment)
 
 
 def downsample_dataset(dataset: datasets.Dataset,

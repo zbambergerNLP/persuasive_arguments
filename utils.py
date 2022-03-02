@@ -27,6 +27,46 @@ def get_num_labels(task_name):
     return len(constants.PREMISE_MODE_TO_INT) if task_name == constants.MULTICLASS else constants.NUM_LABELS
 
 
+def aggregate_metrics_across_splits(
+        split_metrics: typing.Sequence[typing.Mapping[str, float]]) -> typing.Mapping[str, typing.Sequence[float]]:
+    """
+
+    :param split_metrics:
+    :return:
+    """
+    metrics_aggregates = {}
+    for split_index, split_metrics_dict in enumerate(split_metrics):
+        for metric_name, metric_value in split_metrics_dict.items():
+            if metric_name not in metrics_aggregates:
+                metrics_aggregates[metric_name] = []
+            metrics_aggregates[metric_name].append(metric_value)
+    return metrics_aggregates
+
+
+def get_metrics_avg_and_std_across_splits(
+        metric_aggregates: typing.Mapping[str, typing.Sequence[float]],
+        print_results: bool = False,
+        is_train: bool = False) -> typing.Tuple[typing.Mapping[str, float], typing.Mapping[str, float]]:
+    """
+
+    :param metric_aggregates:
+    :param print_results:
+    :param is_train:
+    :return:
+    """
+    metric_averages = {}
+    metric_stds = {}
+    for metric_name, metric_values in metric_aggregates.items():
+        metric_averages[metric_name] = sum(metric_values) / len(metric_values)
+        metric_stds[metric_name] = np.std(metric_values, axis=-1)
+    if print_results:
+        for metric_name in metric_averages.keys():
+            print(f'\t\tmetric name ({"train" if is_train else "eval"}): {metric_name}\n'
+                  f'\t\t\tmean metric value ({"train" if is_train else "eval"}): {metric_averages[metric_name]}\n'
+                  f'\t\t\tstandard deviation ({"train" if is_train else "eval"}): {metric_stds[metric_name]}')
+    return metric_averages, metric_stds
+
+
 def print_metrics(eval_metrics: typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]]):
     for base_model_type, base_model_eval_metrics in eval_metrics.items():
         metrics_aggregates = {}

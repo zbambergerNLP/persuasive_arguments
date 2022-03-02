@@ -8,7 +8,9 @@ import torch
 import transformers
 import typing
 
-import data_loaders
+import utils
+import wandb
+
 import constants
 import metrics
 
@@ -36,7 +38,9 @@ def fine_tune_on_task(dataset: datasets.Dataset,
                       task_name: str,
                       is_probing: bool = False,
                       premise_mode: str = None,
-                      logger: logging.Logger = None) -> typing.Tuple[transformers.Trainer, dict]:
+                      num_cross_validation_splits: int = 5,
+                      logger: logging.Logger = None,
+                      probing_wandb_entity: str = None) -> typing.Tuple[transformers.Trainer, dict]:
     """Fine tune a transformer language model on the provided dataset.
 
     :param dataset: The dataset on which we fine-tune the given model.
@@ -65,32 +69,60 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         configuration.output_dir = os.path.join(target_dir_path, constants.RESULTS)
         configuration.logging_dir = os.path.join(target_dir_path, constants.LOG)
 
-    dataset = dataset.train_test_split()
-    train_dataset = data_loaders.CMVDataset(dataset[constants.TRAIN])
-    test_dataset = data_loaders.CMVDataset(dataset[constants.TEST])
+    shard_train_metrics = []
+    shard_eval_metrics = []
+    shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
+              for i in range(num_cross_validation_splits)]
+    for validation_set_index in range(num_cross_validation_splits):
+        validation_set = shards[validation_set_index].shuffle()
+        training_set = datasets.concatenate_datasets(
+            shards[0:validation_set_index] + shards[validation_set_index + 1:]).shuffle()
+        if probing_wandb_entity:
+            run_name = f'Fine-tune BERT on {task_name}, ' \
+                       f'Split #{validation_set_index + 1}'
+            if premise_mode:
+                run_name += f' ({premise_mode})'
+            run = wandb.init(
+                project="persuasive_arguments",
+                entity=probing_wandb_entity,
+                reinit=True,
+                name=run_name)
+        metrics_function = (
+            metrics.compute_metrics_for_multi_class_classification if task_name == constants.MULTICLASS else
+            metrics.compute_metrics_for_binary_classification)
+        trainer = transformers.Trainer(
+            model=model,
+            args=configuration,
+            train_dataset=training_set,
+            eval_dataset=validation_set,
+            compute_metrics=metrics_function)
+        trainer.add_callback(TrainingMetricsCallback(trainer))
+        # Training
+        logger.info("*** Train ***")
+        train_result = trainer.train()
+        training_metrics = train_result.metrics
+        shard_train_metrics.append(training_metrics)
 
-    metrics_function = (
-        metrics.compute_metrics_for_multi_class_classification if task_name == constants.MULTICLASS else
-        metrics.compute_metrics_for_binary_classification)
+        trainer.save_model()
+        trainer.save_metrics(split=constants.TRAIN, metrics=training_metrics)
 
-    trainer = transformers.Trainer(
-        model=model,
-        args=configuration,
-        train_dataset=train_dataset,
-        eval_dataset=test_dataset,
-        compute_metrics=metrics_function)
-    trainer.add_callback(TrainingMetricsCallback(trainer))
+        # Evaluation
+        logger.info("*** Evaluate ***")
+        eval_metrics = trainer.evaluate()
+        shard_eval_metrics.append(eval_metrics)
+        if probing_wandb_entity:
+            run.finish()
 
-    # Training
-    logger.info("*** Train ***")
-    train_result = trainer.train()
-    training_metrics = train_result.metrics
+    eval_metric_aggregates = utils.aggregate_metrics_across_splits(shard_eval_metrics)
+    train_metric_aggregates = utils.aggregate_metrics_across_splits(shard_train_metrics)
+    eval_metric_averages, eval_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+        metric_aggregates=eval_metric_aggregates,
+        is_train=False,
+        print_results=True)
+    utils.get_metrics_avg_and_std_across_splits(
+        metric_aggregates=train_metric_aggregates,
+        is_train=True,
+        print_results=True)
 
-    trainer.save_model()
-    trainer.save_metrics(split=constants.TRAIN, metrics=training_metrics)
-
-    # Evaluation
-    logger.info("*** Evaluate ***")
-    eval_metrics = trainer.evaluate()
-
-    return trainer, eval_metrics
+    # TODO: Return the best performing trainer as opposed to the most recent one.
+    return trainer, eval_metric_averages
