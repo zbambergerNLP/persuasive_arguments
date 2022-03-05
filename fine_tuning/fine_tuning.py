@@ -114,6 +114,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         if probing_wandb_entity:
             run.finish()
 
+    # TODO(zbamberger): Ensure that training metrics include the ones tracked during training.
     eval_metric_aggregates = utils.aggregate_metrics_across_splits(shard_eval_metrics)
     train_metric_aggregates = utils.aggregate_metrics_across_splits(shard_train_metrics)
     eval_metric_averages, eval_metric_stds = utils.get_metrics_avg_and_std_across_splits(

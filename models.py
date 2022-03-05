@@ -129,11 +129,25 @@ def eval_probe(probing_model: torch.nn.Module,
 
 
 class BaselineLogisticRegression(torch.nn.Module):
+    """
+
+    """
+
     def __init__(self, num_features, num_labels):
+        """
+
+        :param num_features:
+        :param num_labels:
+        """
         super(BaselineLogisticRegression, self).__init__()
         self.linear = torch.nn.Linear(num_features, num_labels)
 
     def forward(self, x):
+        """
+
+        :param x:
+        :return:
+        """
         outputs = torch.sigmoid(self.linear(x.float()))
         return outputs
 
@@ -144,7 +158,20 @@ class BaselineLogisticRegression(torch.nn.Module):
             num_epochs: int = 100,
             optimizer: torch.optim.Optimizer = torch.optim.SGD,
             scheduler: typing.Union[torch.optim.lr_scheduler.ExponentialLR,
-                                    torch.optim.lr_scheduler.ConstantLR] = None):
+                                    torch.optim.lr_scheduler.ConstantLR] = None,
+            validation_loader=None
+            ):
+        """
+
+        :param train_loader:
+        :param num_labels:
+        :param loss_function:
+        :param num_epochs:
+        :param optimizer:
+        :param scheduler:
+        :param validation_loader:
+        :return:
+        """
         self.train()
         for epoch in range(num_epochs):
             epoch_loss = 0.0
@@ -158,14 +185,43 @@ class BaselineLogisticRegression(torch.nn.Module):
                 loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
                 loss.backward()
                 optimizer.step()
-                epoch_loss += loss.item()
                 num_correct_preds = (preds == targets).sum().float()
                 accuracy = num_correct_preds / targets.shape[0] * 100
-                epoch_acc += accuracy
                 num_batches += 1
+                epoch_loss += loss.item()
+                epoch_acc += accuracy
+            wandb.log({f'training_{constants.ACCURACY}': epoch_acc / num_batches,
+                       f'training_{constants.EPOCH}': epoch,
+                       f'training_{constants.LOSS}': epoch_loss / num_batches})
             scheduler.step()
 
+            # Perform evaluation.
+            if epoch % 5 == 0:
+                epoch_loss = 0.0
+                epoch_acc = 0.0
+                num_batches = 0
+                self.eval()
+                for i, data in enumerate(validation_loader):
+                    targets = data[constants.LABEL]
+                    outputs = self(data['features'])
+                    preds = torch.argmax(outputs, dim=1)
+                    loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
+                    num_correct_preds = (preds == targets).sum().float()
+                    accuracy = num_correct_preds / targets.shape[0] * 100
+                    num_batches += 1
+                    epoch_loss += loss.item()
+                    epoch_acc += accuracy
+                wandb.log({f'validation_{constants.ACCURACY}': epoch_acc / num_batches,
+                           f'validation_{constants.EPOCH}': epoch,
+                           f'validation_{constants.LOSS}': epoch_loss / num_batches})
+
     def evaluate(self, test_loader, num_labels):
+        """
+
+        :param test_loader:
+        :param num_labels:
+        :return:
+        """
         preds_list = []
         targets_list = []
         self.eval()

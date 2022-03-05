@@ -22,6 +22,7 @@ Below are instructions on how to run this script.
 How to run binary premise mode experiments:
 srun --gres=gpu:1 -p nlp python3 main.py \
     --probing_model "mlp" \
+    --run_baseline_experiment True \
     --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
     --fine_tuning_on_probing_task_learning_rate 5e-6 \
     --probing_optimizer "adam" \
@@ -29,10 +30,10 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --probing_model_learning_rate 1e-3 \
     --probing_num_training_epochs 50 \
     --downsampling_min_examples 300 \
-    --fine_tuning_on_probing_task_num_training_epochs 20 \
+    --fine_tuning_on_probing_task_num_training_epochs 12 \
     --downsample_binary_premise_mode_prediction True \
     --probe_model_on_binary_premise_modes True \
-    --generate_new_premise_mode_probing_dataset "" \
+    --generate_new_premise_mode_probing_dataset True \
     --fine_tune_model_on_binary_premise_modes True \
     --num_cross_validation_splits 5
     
@@ -40,28 +41,31 @@ srun --gres=gpu:1 -p nlp python3 main.py \
 How to run intra-argument relations experiments:
 srun --gres=gpu:1 -p nlp python3 main.py \
     --probing_model "mlp" \
+    --run_baseline_experiment True \
     --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
-    --fine_tuning_on_probing_task_learning_rate 5e-6 \
+    --fine_tuning_on_probing_task_learning_rate 1e-4 \
+    --probing_optimizer "adam" \
     --probing_model_scheduler_gamma 0.9 \
     --downsampling_min_examples 300 \
-    --fine_tuning_on_probing_task_num_training_epochs 20 \
-    --probing_model_learning_rate 1e-1 \
+    --fine_tuning_on_probing_task_num_training_epochs 8 \
+    --probing_model_learning_rate 1e-3 \
     --probing_num_training_epochs 50 \
     --probe_model_on_intra_argument_relations True \
-    --generate_new_relations_probing_dataset "" \
-    --downsample_binary_intra_argument_relation_prediction "" \
-    --fine_tune_model_on_argument_relations "" \
+    --generate_new_relations_probing_dataset True \
+    --downsample_binary_intra_argument_relation_prediction True \
+    --fine_tune_model_on_argument_relations True \
     --num_cross_validation_splits 5
     
 How to run multi-class premise mode experiments:
 srun --gres=gpu:1 -p nlp python3 main.py \
     --probing_model "mlp" \
     --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
+    --run_baseline_experiment True \
     --fine_tuning_on_probing_task_learning_rate 5e-6 \
     --probing_model_scheduler_gamma 0.9 \
     --probing_num_training_epochs 30 \
     --downsampling_min_examples 300 \
-    --fine_tuning_on_probing_task_num_training_epochs 20 \
+    --fine_tuning_on_probing_task_num_training_epochs 12 \
     --probing_model_learning_rate 5e-2 \
     --probing_num_training_epochs 30 \
     --downsample_multi_class_premise_mode_prediction True \
@@ -76,6 +80,13 @@ srun --gres=gpu:1 -p nlp python3 main.py \
 
 # TODO(zbamberger):Given https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse, you should
 #  update each of the boolean flags below according to one of the preferred approaches.
+
+# TODO(zbamberger): Enable k-fold cross validation as a flag. Create the possibility of a simple train/test split
+#  without k-fold cross validation.
+
+# TODO(zbamberger): Create a generalized function for k-fold cross validation regardless of the model or task.
+#  This should decrease code duplication across this repository.
+
 parser = argparse.ArgumentParser(
     description='Process flags for fine-tuning transformers on an argumentation downstream task.')
 parser.add_argument('--probing_wandb_entity',
@@ -197,7 +208,7 @@ parser.add_argument('--probing_output_dir',
                     help="The directory in which probing model results are stored.")
 parser.add_argument('--fine_tuning_on_probing_task_num_training_epochs',
                     type=int,
-                    default=20,
+                    default=12,
                     help="The number of training rounds for fine-tuning on the probing dataset.")
 parser.add_argument('--probing_num_training_epochs',
                     type=int,
@@ -338,7 +349,7 @@ if __name__ == "__main__":
                              reinit=True,
                              name='Intra argument relations probing')
             probing_model, train_metrics, eval_metrics = probing.probe_model_on_task(
-                probing_dataset=preprocessing.CMVDataset(intra_argument_relations_probing_dataset),
+                probing_dataset=data_loaders.CMVDataset(intra_argument_relations_probing_dataset),
                 probing_model_name=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
                 task_name=constants.INTRA_ARGUMENT_RELATIONS,

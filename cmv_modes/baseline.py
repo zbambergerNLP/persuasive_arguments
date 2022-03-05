@@ -2,6 +2,7 @@ import typing
 import torch
 import pandas as pd
 import numpy as np
+import wandb
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.model_selection import KFold
 
@@ -9,6 +10,8 @@ import constants
 import data_loaders
 import models
 import utils
+
+# TODO(zbamberger): Document all functions in this file.
 
 
 def create_combined_column(task_name: str, corpus_df: pd.DataFrame) -> pd.DataFrame:
@@ -27,6 +30,7 @@ def create_combined_column(task_name: str, corpus_df: pd.DataFrame) -> pd.DataFr
     return corpus_df
 
 
+# TODO(zbamberger): Enable wandb logging on baseline experiments.
 def extract_bigram_features(corpus_df: pd.DataFrame,
                             premise_mode: str = None) -> typing.Tuple[np.ndarray, np.ndarray]:
     """
@@ -49,10 +53,11 @@ def get_baseline_scores(task_name: str,
                         corpus_df: pd.DataFrame,
                         num_cross_validation_splits: int = 5,
                         premise_mode: str = None,
-                        num_epochs: int = 50,
+                        num_epochs: int = 100,
                         batch_size: int = 16,
-                        learning_rate: float = 1e-2,
-                        optimizer_gamma: float = 0.9) -> (
+                        learning_rate: float = 1e-3,
+                        optimizer_gamma: float = 0.9,
+                        probing_wandb_entity: str = 'zbamberger') -> (
         typing.Tuple[typing.Mapping[str, float],
                      typing.Mapping[str, float]]):
     """
@@ -73,9 +78,20 @@ def get_baseline_scores(task_name: str,
     num_labels = utils.get_num_labels(task_name=task_name)
     split_train_metrics = []
     split_eval_metrics = []
-    for train_index, test_index in kf.split(X, y):
-        X_train, X_test = X[train_index], X[test_index]
-        y_train, y_test = y[train_index], y[test_index]
+    for validation_set_index, (train_index, test_index) in enumerate(kf.split(X, y)):
+        X_train, X_test = np.array(X)[train_index.astype(int)], np.array(X)[test_index.astype(int)]
+        y_train, y_test = np.array(y)[train_index.astype(int)], np.array(y)[test_index.astype(int)]
+        if probing_wandb_entity:
+            run_name = f'Baseline experiment: {task_name}, ' \
+                       f'Logistic regression over bigram features, ' \
+                       f'Split #{validation_set_index + 1}'
+            if premise_mode:
+                run_name += f' ({premise_mode})'
+            run = wandb.init(
+                project="persuasive_arguments",
+                entity=probing_wandb_entity,
+                reinit=True,
+                name=run_name)
         logistic_regression = models.BaselineLogisticRegression(num_features=X_train.shape[1], num_labels=num_labels)
         optimizer = torch.optim.Adam(logistic_regression.parameters(), lr=learning_rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=optimizer_gamma)
@@ -84,6 +100,10 @@ def get_baseline_scores(task_name: str,
                 data_loaders.BaselineLoader(X_train, y_train),
                 batch_size=batch_size,
                 shuffle=True),
+            validation_loader=torch.utils.data.DataLoader(
+              data_loaders.BaselineLoader(X_test, y_test),
+              batch_size=batch_size,
+              shuffle=True),
             num_labels=num_labels,
             loss_function=torch.nn.BCELoss() if num_labels == 2 else torch.nn.CrossEntropyLoss(),
             num_epochs=num_epochs,
@@ -98,6 +118,8 @@ def get_baseline_scores(task_name: str,
                 shuffle=True,
             ),
             num_labels=num_labels)
+        if probing_wandb_entity:
+            run.finish()
         split_train_metrics.append(train_metrics)
 
         eval_metrics = logistic_regression.evaluate(
