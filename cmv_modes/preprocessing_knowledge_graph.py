@@ -7,6 +7,7 @@ import transformers
 from bs4 import BeautifulSoup
 from transformers import BertTokenizer, BertModel
 import typing
+import typing
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
 import constants
@@ -48,14 +49,21 @@ def create_bert_inputs(dataset: (
         for node_id, node_text in graph['id_to_text'].items():
             graph_texts.append(node_text)
             graph_indices.append(node_id)
-        graph_lm_inputs = tokenizer(graph_texts, return_tensors="pt", padding='max_length', max_length=constants.NODE_DIM, truncation=True)
+        graph_lm_inputs = tokenizer(
+            graph_texts,
+            return_tensors="pt",
+            padding='max_length',
+            max_length=constants.NODE_DIM,
+            truncation=True)
         # model = BertModel.from_pretrained("bert-base-uncased")
         # model_outputs = model(**graph_lm_inputs)
         # last_hidden_states = model_outputs.last_hidden_state[:, 0, :]
         # dataset[graph_id]['id_to_embedding'] = {
         #     node_id: node_embedding for node_id, node_embedding in zip(graph_indices, last_hidden_states)}
-        dataset[graph_id]['id_to_token_ids'] = {
-            node_id: graph_lm_inputs[constants.INPUT_IDS][node_id].float() for node_id in range(graph_lm_inputs[constants.INPUT_IDS].shape[0])}
+        for bert_input_type, bert_input_value in graph_lm_inputs.items():
+            dataset[graph_id][f'id_to_{bert_input_type}'] = {
+                node_id: bert_input_value[node_id].float() for node_id in range(bert_input_value.shape[0])
+            }
     return dataset
 
 
@@ -96,8 +104,8 @@ class CMVKGDataLoader(Dataset):
         #     'graph': self.dataset[index],
         #     'label': self.labels[index]
         # }
-        vals = torch.tensor(self.dataset[index]['id_to_token_ids'][0]).unsqueeze(dim=1)
-        for idx, val in enumerate(self.dataset[index]['id_to_token_ids'].values()):
+        vals = torch.tensor(self.dataset[index]['id_to_input_ids'][0]).unsqueeze(dim=1)
+        for idx, val in enumerate(self.dataset[index]['id_to_input_ids'].values()):
             if idx != 0:
                 vals = torch.cat((vals, val.unsqueeze(dim=1)), 1)
 
@@ -253,5 +261,5 @@ if __name__ == '__main__':
     label_lst = []
     database = []
     current_path = os.getcwd()
-    kg_dataset = CMVKGDataLoader(current_path+ "/change-my-view-modes-master", version=v2_path)
+    kg_dataset = CMVKGDataLoader(current_path, version=v2_path)
     print("Done")

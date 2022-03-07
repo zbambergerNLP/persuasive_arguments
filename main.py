@@ -122,7 +122,7 @@ parser.add_argument('--probing_model_scheduler_gamma',
                     help="Decays the learning rate of each parameter group by gamma every epoch.")
 parser.add_argument('--run_baseline_experiment',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="True if we wish to run a baseline experiment using logistic regression over bigram features."
                          "False otherwise.")
 
