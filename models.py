@@ -4,6 +4,8 @@ import typing
 
 import torch
 import torch.nn.functional as F
+import torch_geometric.data
+import transformers
 from torch_geometric.nn import GCNConv, global_mean_pool
 import torch.nn as nn
 import numpy as np
@@ -236,9 +238,27 @@ class BaselineLogisticRegression(torch.nn.Module):
         return eval_metrics
 
 
-class GCN(torch.nn.Module):
-    def __init__(self, num_node_features, num_classes, hidden_layer_dim):
+class GCNWithBertEmbeddings(torch.nn.Module):
+    def __init__(self,
+                 num_node_features: int,
+                 num_classes: int,
+                 hidden_layer_dim: int,
+                 use_frozen_bert: bool = True):
+        """
+
+        :param num_node_features: The dimensionality of each node within the batch of graph inputs.
+        :param num_classes: The number of possible output classes produced by the final layer of the model.
+        :param hidden_layer_dim: The dimensionality of the GNN's intermediate layers.
+        :param use_frozen_bert: A boolean denoting whether or not the BERT model which produces node embeddings should
+            be updated during training.
+        """
         super().__init__()
+
+        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
+        if use_frozen_bert:
+            for param in self.bert_model.parameters():
+                param.requires_grad = False
+
         self.num_node_features = num_node_features
         self.num_classes = num_classes
         self.hidden_layer_dim = hidden_layer_dim
@@ -246,10 +266,23 @@ class GCN(torch.nn.Module):
         self.conv2 = GCNConv(self.hidden_layer_dim, self.num_classes)
         self.loss = nn.BCEWithLogitsLoss()
 
-    def forward(self, data):
-        x, edge_index = data.x, data.edge_index
+    def forward(self,
+                data: torch_geometric.data.Data):
+        """
 
-        x = self.conv1(x, edge_index)
+        :param data: A collection of node and edge data corresponding to a batch of graphs inputted to the model.
+        :return: A probability distribution over the output labels. A torch tensor of shape
+            [batch_size, num_output_labels].
+        """
+        x, edge_index = data.x, data.edge_index
+        input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
+        bert_outputs = self.bert_model(
+            input_ids=torch.squeeze(input_ids, dim=1).long(),
+            token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
+            attention_mask=torch.squeeze(attention_mask, dim=1).long(),
+        )
+        node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
+        x = self.conv1(node_embeddings, edge_index)
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
         x = self.conv2(x, edge_index)
@@ -258,7 +291,7 @@ class GCN(torch.nn.Module):
 
 
 if __name__ == '__main__':
-    model = GCN(256, 2, 16)
+    model = GCNWithBertEmbeddings(256, 2, 16)
     print(model)
     pass
 

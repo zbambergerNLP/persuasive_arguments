@@ -111,5 +111,6 @@ PARQUET = "parquet"
 RESULTS = 'results'
 LOG = 'log'
 
-#GNN
-NODE_DIM =60
+# GNN
+NODE_DIM = 60
+BERT_HIDDEN_DIM = 768

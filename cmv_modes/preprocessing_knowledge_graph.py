@@ -68,7 +68,20 @@ def create_bert_inputs(dataset: (
 
 
 class CMVKGDataLoader(Dataset):
-    def __init__(self, directory_path, version, debug = False):
+
+    def __init__(self,
+                 directory_path: str,
+                 version: str,
+                 debug: bool = False):
+        """
+
+        :param directory_path: The string path to the 'change-my-view-modes-master' directory, which contains versions
+            versions of the change my view dataset.
+        :param version: A version of the cmv datasets (i.e.. one of 'v2.0', 'v1.0', and 'original') included within the
+            'chamge-my-view-modes-master' directory.
+        :param debug: A boolean denoting whether or not we are in debug mode (in which our input dataset is
+            significantly smaller).
+        """
         self.dataset = []
         self.labels = []
         for sign in sign_lst:
@@ -83,11 +96,9 @@ class CMVKGDataLoader(Dataset):
                             bs_data=bs_data,
                             file_name=file_name,
                             is_positive=(sign == POSITIVE))
-                        print(f'Debug = {file_name}')
                         examples = create_bert_inputs(examples,
                                                       tokenizer=transformers.BertTokenizer.from_pretrained(
                                                           constants.BERT_BASE_CASED))
-                                                      # tokenizer=BertTokenizer.from_pretrained("bert-base-uncased"))
                         self.dataset.extend(examples)
                         example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
                         self.labels.extend(example_labels)
@@ -98,19 +109,20 @@ class CMVKGDataLoader(Dataset):
     def __len__(self):
         return len(self.dataset)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int):
         print(f'getitem index = {index}')
-        # return {
-        #     'graph': self.dataset[index],
-        #     'label': self.labels[index]
-        # }
-        vals = torch.tensor(self.dataset[index]['id_to_input_ids'][0]).unsqueeze(dim=1)
-        for idx, val in enumerate(self.dataset[index]['id_to_input_ids'].values()):
-            if idx != 0:
-                vals = torch.cat((vals, val.unsqueeze(dim=1)), 1)
-
-        return Data(x=vals.T,
-                    edge_index= torch.tensor(self.dataset[index]['edges']).T,
+        bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
+                                f'id_to_{constants.TOKEN_TYPE_IDS}',
+                                f'id_to_{constants.ATTENTION_MASK}']
+        formatted_bert_inputs = {}
+        for input_name in bert_input_key_names:
+            formatted_bert_inputs[input_name] = torch.cat(
+                [ids.unsqueeze(dim=1) for ids in self.dataset[index][input_name].values()],
+                dim=1,
+            )
+        stacked_bert_inputs = torch.stack([t for t in formatted_bert_inputs.values()], dim=1)
+        return Data(x=stacked_bert_inputs.T,
+                    edge_index=torch.tensor(self.dataset[index]['edges']).T,
                     y=torch.tensor(self.labels[index]))
 
 
