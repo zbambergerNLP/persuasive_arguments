@@ -17,10 +17,98 @@ from tqdm import tqdm
 
 cmv_modes_versions = [constants.v1_path]
 cmv_modes_with_claims_versions = [constants.v2_path]
-
-
 sign_lst = [constants.POSITIVE, constants.NEGATIVE]
 
+def find_op_and_title_text(bs_data: BeautifulSoup,
+                     file_name: str = None,
+                     is_positive: bool = None):
+    """
+    :param bs_data: A BeautifulSoup instance containing a parsed .xml file.
+    :param file_name: The name of the .xml file which we've parsed.
+    :param is_positive: True if the replies in the file were awarded a "Delta". False otherwise.
+    :return: title_op_text - [title text, op text]
+    """
+    title_op_text = []
+    op_data = bs_data.find(constants.OP)
+    title = bs_data.find(constants.TITLE)
+    assert len(title.contents) == 1, f"We expect the title to only contain a single claim/premise," \
+                                     f" but the title in file {file_name} ({is_positive}) had {len(title.contents)}."
+    title_node = title.contents[0]
+    title_op_text.append(title_node.text)
+
+    res = op_data.find_all(['premise', 'claim'])
+    op_text = ''
+    for r in res:
+       op_text = op_text + " " + r.text
+
+    title_op_text.append(op_text)
+    return title_op_text
+
+
+def find_op_reply_text(bs_data: BeautifulSoup,
+                         file_name: str = None,
+                         is_positive: bool = None):
+    """
+    :param bs_data: A BeautifulSoup instance containing a parsed .xml file.
+    :param file_name: The name of the .xml file which we've parsed.
+    :param is_positive: True if the replies in the file were awarded a "Delta". False otherwise.
+    :return: examples - a list of data examples extracted from file_name in the following construction:
+        [[title text, op text], reply text ]
+    """
+
+    orig_title_op_text = find_op_and_title_text(
+        bs_data=bs_data,
+        file_name=file_name,
+        is_positive=is_positive)
+    rep_data = bs_data.find_all("reply")
+
+    examples = []
+    for reply in rep_data:
+        title_op_text = copy.deepcopy(orig_title_op_text)
+        res = reply.find_all(['premise', 'claim'])
+        reply_text = ""
+        for item in res:
+           reply_text = reply_text + " " + item.text
+        reply_examples = [title_op_text, reply_text]
+        examples.append(reply_examples)
+    return examples
+
+def create_simple_bert_inputs(directory_path: str,
+                 version: str,
+                 debug: bool = False):
+    """
+    create input to BERT by taken relevant text from each xml file
+    :param directory_path: The string path to the 'change-my-view-modes-master' directory, which contains versions
+            versions of the change my view dataset.
+    :param version: A version of the cmv datasets (i.e.. one of 'v2.0', 'v1.0', and 'original') included within the
+        'chamge-my-view-modes-master' directory.
+    :param debug: A boolean denoting whether or not we are in debug mode (in which our input dataset is
+        significantly smaller).
+    :return: dataset - a list of data examples in the following construction:
+        [[title text, op text], reply text ]
+        labels - the label of the data examples 1 for positive and 0 for negative
+    """
+    dataset = []
+    labels = []
+    for sign in sign_lst:
+        thread_directory = os.path.join(directory_path, version, sign)
+        for file_name in tqdm(os.listdir(thread_directory)):
+            if file_name.endswith(constants.XML):
+                file_path = os.path.join(thread_directory, file_name)
+                with open(file_path, 'r') as fileHandle:
+                    data = fileHandle.read()
+                    bs_data = BeautifulSoup(data, constants.XML)
+                    examples = find_op_reply_text(
+                        bs_data=bs_data,
+                        file_name=file_name,
+                        is_positive=(sign == constants.POSITIVE))
+                    dataset.extend(examples)
+                    example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
+                    labels.extend(example_labels)
+                    if debug:
+                        if len(labels) >= 5:
+                            break
+    return dataset, labels
 
 def create_bert_inputs(dataset: (
         typing.Sequence[typing.Mapping[str, typing.Mapping[typing.Union[int, str], typing.Union[int, str]]]]),
@@ -270,5 +358,6 @@ if __name__ == '__main__':
     label_lst = []
     database = []
     current_path = os.getcwd()
-    kg_dataset = CMVKGDataLoader(current_path, version=constants.v2_path)
+    dataset, labels = create_simple_bert_inputs(current_path + "/change-my-view-modes-master", version=constants.v2_path, debug=False)
+    # kg_dataset = CMVKGDataLoader(current_path, version=constants.v2_path)
     print("Done")
