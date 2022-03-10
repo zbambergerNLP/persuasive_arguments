@@ -11,20 +11,15 @@ import typing
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
 import constants
+from tqdm import tqdm
 
-XML = "xml"
-PREMISE = "premise"
-TYPE = "type"
 
-v1_path = 'v1.0'
-v2_path = 'v2.0'
 
-cmv_modes_versions = [v1_path]
-cmv_modes_with_claims_versions = [v2_path]
+cmv_modes_versions = [constants.v1_path]
+cmv_modes_with_claims_versions = [constants.v2_path]
 
-POSITIVE = 'positive'
-NEGATIVE = 'negative'
-sign_lst = [POSITIVE, NEGATIVE]
+
+sign_lst = [constants.POSITIVE, constants.NEGATIVE]
 
 
 def create_bert_inputs(dataset: (
@@ -86,16 +81,16 @@ class CMVKGDataLoader(Dataset):
         self.labels = []
         for sign in sign_lst:
             thread_directory = os.path.join(directory_path, version, sign)
-            for file_name in os.listdir(thread_directory):
-                if file_name.endswith(XML):
+            for file_name in tqdm(os.listdir(thread_directory)):
+                if file_name.endswith(constants.XML):
                     file_path = os.path.join(thread_directory, file_name)
                     with open(file_path, 'r') as fileHandle:
                         data = fileHandle.read()
-                        bs_data = BeautifulSoup(data, XML)
+                        bs_data = BeautifulSoup(data, constants.XML)
                         examples = make_op_reply_graphs(
                             bs_data=bs_data,
                             file_name=file_name,
-                            is_positive=(sign == POSITIVE))
+                            is_positive=(sign == constants.POSITIVE))
                         examples = create_bert_inputs(examples,
                                                       tokenizer=transformers.BertTokenizer.from_pretrained(
                                                           constants.BERT_BASE_CASED))
@@ -149,23 +144,23 @@ def make_op_subgraph(bs_data: BeautifulSoup,
         edges: A 2-d List where each entry corresponds to an individual "edge" (a list with 2 entries). The first
             entry within an edge list is the origin, and the second is the target.
     """
-    op_data = bs_data.find("OP")
-    title = bs_data.find('title')
+    op_data = bs_data.find(constants.OP)
+    title = bs_data.find(constants.TITLE)
     assert len(title.contents) == 1, f"We expect the title to only contain a single claim/premise," \
                                      f" but the title in file {file_name} ({is_positive}) had {len(title.contents)}."
     title_node = title.contents[0]
     edges = []
 
     res = op_data.find_all(['premise', 'claim'])
-    id_to_idx = {'title': 0}
-    id_to_text = {'title': title.text}
+    id_to_idx = {constants.TITLE: 0}
+    id_to_text = {constants.TITLE: title.text}
     for i, item in enumerate(res):
         node_idx = i + 1
-        id_to_idx[item['id']] = node_idx
-        id_to_text[item['id']] = item.text
+        id_to_idx[item[constants.NODE_ID]] = node_idx
+        id_to_text[item[constants.NODE_ID]] = item.text
     idx_to_id = {value: key for key, value in id_to_idx.items()}
     for node_id, node_idx in id_to_idx.items():
-        if node_id == 'title':
+        if node_id == constants.TITLE:
             node = title_node
         else:
             node = op_data.find(id=node_id)
@@ -207,14 +202,14 @@ def make_op_reply_graph(rep: BeautifulSoup,
     # Construct node mappings.
     for i, item in enumerate(res):
         node_idx = i + op_num_of_nodes
-        id_to_idx[item['id']] = node_idx
-        id_to_text[item['id']] = item.text
+        id_to_idx[item[constants.NODE_ID]] = node_idx
+        id_to_text[item[constants.NODE_ID]] = item.text
 
     idx_to_id = {value: key for key, value in id_to_idx.items()}
 
     # Construct edges.
     for node_id, node_idx in id_to_idx.items():
-        if node_id == 'title' or node_idx < op_num_of_nodes:
+        if node_id == constants.TITLE or node_idx < op_num_of_nodes:
             pass
         else:
             node = rep.find(id=node_id)
@@ -267,11 +262,13 @@ def make_op_reply_graphs(bs_data: BeautifulSoup,
     return examples
 
 
+
+
 if __name__ == '__main__':
     claims_lst = []
     premises_lst = []
     label_lst = []
     database = []
     current_path = os.getcwd()
-    kg_dataset = CMVKGDataLoader(current_path, version=v2_path)
+    kg_dataset = CMVKGDataLoader(current_path, version=constants.v2_path)
     print("Done")

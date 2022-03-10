@@ -3,6 +3,16 @@ EVAL = "eval"
 TEST = "test"
 VALIDATION = "validation"
 
+
+
+
+
+v1_path = 'v1.0'
+v2_path = 'v2.0'
+
+POSITIVE = 'positive'
+NEGATIVE = 'negative'
+
 # Flag names
 FINE_TUNE_MODEL = 'fine_tune_model'
 PROBE_MODEL_ON_PREMISE_MODES = 'probe_model_on_premise_modes'
@@ -106,6 +116,7 @@ HIDDEN_STATE = "hidden_state"
 JSON = "json"
 PYTORCH = "pt"
 PARQUET = "parquet"
+XML = "xml"
 
 # Wandb constants
 RESULTS = 'results'
@@ -114,3 +125,10 @@ LOG = 'log'
 # GNN
 NODE_DIM = 60
 BERT_HIDDEN_DIM = 768
+
+# Pre-processing
+OP = "OP"
+TITLE = "title"
+NODE_ID = "id"
+PREMISE = "premise"
+TYPE = "type"
