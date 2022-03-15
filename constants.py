@@ -4,15 +4,6 @@ TEST = "test"
 VALIDATION = "validation"
 
 
-
-
-
-v1_path = 'v1.0'
-v2_path = 'v2.0'
-
-POSITIVE = 'positive'
-NEGATIVE = 'negative'
-
 # Flag names
 FINE_TUNE_MODEL = 'fine_tune_model'
 PROBE_MODEL_ON_PREMISE_MODES = 'probe_model_on_premise_modes'
@@ -88,7 +79,6 @@ INITIAL_PREMISE_TYPES_TO_CONSIDER = 3
 
 # Pandas column names
 OP_COMMENT = 'op_comment'
-REPLY = 'reply'
 LABEL = 'label'
 
 
@@ -127,8 +117,20 @@ NODE_DIM = 60
 BERT_HIDDEN_DIM = 768
 
 # Pre-processing
+v1_path = 'v1.0'
+v2_path = 'v2.0'
+POSITIVE = 'positive'
+NEGATIVE = 'negative'
+SIGN_LIST = [POSITIVE, NEGATIVE]
 OP = "OP"
 TITLE = "title"
 NODE_ID = "id"
 PREMISE = "premise"
+CLAIM = "claim"
 TYPE = "type"
+REPLY = 'reply'
+REFERENCE = 'ref'
+ID_TO_INDEX = 'id_to_idx'
+ID_TO_TEXT = 'id_to_text'
+INDEX_TO_ID = 'idx_to_id'
+EDGES = 'edges'
