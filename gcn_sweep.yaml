@@ -1,0 +1,25 @@
+# Run as follows:
+# $ wandb sweep gcn_sweep.yaml
+# $ wandb agent <USERNAME/persuasive_arguments/SWEEPID>
+
+program: train.py
+method: bayes
+
+
+metric:
+  name: validation_loss
+  goal: minimize
+
+
+parameters:
+  learning_rate:
+    min: 1e-4
+    max: 1e-1
+
+  weigh_decay:
+    min: 1e-6
+    max: 1e-3
+
+  gcn_hidden_layer_dim:
+    values: [64, 128, 256]
+

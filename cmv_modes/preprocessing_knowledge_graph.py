@@ -344,6 +344,10 @@ def create_bert_inputs(
     :param tokenizer: A tokenizer instance used to create inputs for language models.
     :return: A modified dataset which includes entries for language model inputs.
     """
+
+    # TODO: Include node features within the returned example dictionaries. For example, we'd like to encode whether
+    #  a node is a claim or a premise. Furthermore, we'd like to distinguish between different kinds of claims and
+    #  premises.
     for graph_id, graph in enumerate(graph_dataset):
         graph_texts = []
         graph_indices = []
@@ -358,7 +362,6 @@ def create_bert_inputs(
             truncation=True)
 
         # Add BERT inputs to the dataset (corresponding to each node).
-        # TODO: Consider separating BERT inputs to a separate output.
         for bert_input_type, bert_input_value in graph_lm_inputs.items():
             graph_dataset[graph_id][f'id_to_{bert_input_type}'] = {
                 node_id: bert_input_value[node_id].float() for node_id in range(bert_input_value.shape[0])

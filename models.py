@@ -238,6 +238,7 @@ class BaselineLogisticRegression(torch.nn.Module):
         return eval_metrics
 
 
+# TODO: Expand this model's GCN architecture.
 class GCNWithBertEmbeddings(torch.nn.Module):
     def __init__(self,
                  num_node_features: int,

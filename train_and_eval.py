@@ -17,7 +17,7 @@ parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--num_epochs',
                     type=int,
-                    default=10,
+                    default=30,
                     help="The number of training rounds over the knowledge graph dataset.")
 parser.add_argument('--batch_size',
                     type=int,
@@ -40,18 +40,26 @@ parser.add_argument('--test_percent',
                     default=0.2,
                     help='The proportion (ratio) of samples dedicated to the test set. The remaining examples are used'
                          'for training.')
+parser.add_argument('--rounds_between_evals',
+                    type=int,
+                    default=5,
+                    help="An integer denoting the number of epcohs that occur between each evaluation run.")
 
 
 def train(model: GCNWithBertEmbeddings,
-          dl: geom_data.DataLoader,
+          training_loader: geom_data.DataLoader,
+          validation_loader: geom_data.DataLoader,
           epochs: int,
-          optimizer: torch.optim.Optimizer):
+          optimizer: torch.optim.Optimizer,
+          rounds_between_evals: int) -> GCNWithBertEmbeddings:
     """
 
     :param model: A torch module consisting of a BERT model (used to produce node embeddings), followed by a GCN.
-    :param dl: A torch geometric data loader used to feed batches from the train and test sets to the model.
+    :param training_loader: A torch geometric data loader used to feed batches from the training set to the model.
+    :param validation_loader: A torch geometric data loader used to feed batches from the validation set to the model.
     :param epochs: The number of iterations over the training set during model training.
     :param optimizer: The torch optimizer used for weight updates during trianing.
+    :param rounds_between_evals: An integer denoting the number of epcohs that occur between each evaluation run.
     :return: A trained model.
     """
     model.train()
@@ -60,22 +68,43 @@ def train(model: GCNWithBertEmbeddings,
         epoch_loss = 0.0
         epoch_acc = 0.0
         num_batches = 0
-        for sampled_data in tqdm(dl):
+        for sampled_data in tqdm(training_loader):
             optimizer.zero_grad()
             out = model(sampled_data)
             preds = torch.argmax(out, dim=1)
             y_one_hot = F.one_hot(sampled_data.y, 2)
-            loss = model.loss(out.float(),y_one_hot.float() )
+            loss = model.loss(out.float(), y_one_hot.float())
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
             num_correct_preds = (preds == sampled_data.y).sum().float()
-            accuracy = num_correct_preds /sampled_data.y.shape[0] * 100
+            accuracy = num_correct_preds / sampled_data.y.shape[0] * 100
             epoch_acc += accuracy
             num_batches += 1
-        wandb.log({constants.ACCURACY: epoch_acc / num_batches,
-                   constants.EPOCH: epoch,
-                   constants.LOSS: epoch_loss / num_batches})
+        wandb.log({f'training_{constants.ACCURACY}': epoch_acc / num_batches,
+                   f'training_{constants.EPOCH}': epoch,
+                   f'training_{constants.LOSS}': epoch_loss / num_batches})
+
+        # Perform evaluation on the validation set.
+        if epoch % rounds_between_evals == 0:
+            epoch_loss = 0.0
+            epoch_acc = 0.0
+            num_batches = 0
+            model.eval()
+            for sampled_data in tqdm(validation_loader):
+                targets = sampled_data[constants.LABEL]
+                outputs = model(sampled_data)
+                preds = torch.argmax(outputs, dim=1)
+                y_one_hot = F.one_hot(sampled_data.y, 2)
+                loss = model.loss(outputs.float(), y_one_hot.float())
+                num_correct_preds = (preds == targets).sum().float()
+                accuracy = num_correct_preds / sampled_data.y.shape[0] * 100
+                num_batches += 1
+                epoch_loss += loss.item()
+                epoch_acc += accuracy
+            wandb.log({f'validation_{constants.ACCURACY}': epoch_acc / num_batches,
+                       f'validation_{constants.EPOCH}': epoch,
+                       f'validation_{constants.LOSS}': epoch_loss / num_batches})
     return model
 
 
@@ -149,8 +178,11 @@ if __name__ == '__main__':
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
         hidden_layer_dim=args.gcn_hidden_layer_dim,
+        rounds_between_evals=args.rounds_between_evals,
+        test_percent=args.test_percent,
     )
-    with wandb.init(project="persuasive_arguments", config=config):
+
+    with wandb.init(project="persuasive_arguments", config=config, name="GCN with BERT Embeddings"):
         kg_dataset = CMVKGDataset(
             current_path + "/cmv_modes/change-my-view-modes-master",
             version=constants.v2_path,
@@ -158,11 +190,22 @@ if __name__ == '__main__':
         config = wandb.config
         dl_train, dl_test = create_dataloaders(kg_dataset,
                                                batch_size=config.batch_size,
-                                               test_percent=args.test_percent)
-        model = GCNWithBertEmbeddings(num_node_features,
-                                      num_classes=2,
-                                      hidden_layer_dim=config.hidden_layer_dim)
+                                               test_percent=config.test_percent)
+        model = GCNWithBertEmbeddings(
+            num_node_features,
+            num_classes=2,
+            hidden_layer_dim=config.hidden_layer_dim)
+
         wandb.watch(model, log='all', log_freq=10)
-        optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
-        model = train(model, dl_train, args.num_epochs, optimizer)
+
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=config.learning_rate,
+            weight_decay=config.weight_decay)
+        model = train(model=model,
+                      training_loader=dl_train,
+                      validation_loader=dl_test,
+                      epochs=config.epcohs,
+                      optimizer=optimizer,
+                      rounds_between_evals=config.args_between_evals)
         eval(model, dl_test)
