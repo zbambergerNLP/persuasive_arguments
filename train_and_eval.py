@@ -52,7 +52,7 @@ def train(model: GCNWithBertEmbeddings,
           epochs: int,
           optimizer: torch.optim.Optimizer,
           rounds_between_evals: int) -> GCNWithBertEmbeddings:
-    """
+    """Train a GCNWithBERTEmbeddings model on examples consisting of persuasive argument knowledge graphs.
 
     :param model: A torch module consisting of a BERT model (used to produce node embeddings), followed by a GCN.
     :param training_loader: A torch geometric data loader used to feed batches from the training set to the model.
@@ -111,10 +111,12 @@ def train(model: GCNWithBertEmbeddings,
 def eval(model: GCNWithBertEmbeddings,
          dataset: CMVKGDataset):
     """
+    Evaluate the performance of a GCNWithBertEmbeddings model.
+
+    The test set used for this evaluation consists of distinct examples from those used by the model during training.
 
     :param model: A torch module consisting of a BERT model (used to produce node embeddings), followed by a GCN.
     :param dataset: A CMVKGDataLoader instance
-    :return:
     """
     model.eval()
     acc = 0.0
@@ -135,7 +137,7 @@ def create_dataloaders(graph_dataset: Dataset,
                        batch_size: int,
                        test_percent: float,
                        num_workers: int = 0):
-    """
+    """Create dataloaders over persuasive argument knowledge graphs.
 
     :param graph_dataset: A 'CMVKGDataset' instance whose examples correspond to knowledge graphs of persuasive
         arguments.
@@ -172,17 +174,7 @@ if __name__ == '__main__':
     num_node_features = constants.BERT_HIDDEN_DIM
     current_path = os.getcwd()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    config = dict(
-        epochs=args.num_epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        hidden_layer_dim=args.gcn_hidden_layer_dim,
-        rounds_between_evals=args.rounds_between_evals,
-        test_percent=args.test_percent,
-    )
-
-    with wandb.init(project="persuasive_arguments", config=config, name="GCN with BERT Embeddings"):
+    with wandb.init(project="persuasive_arguments", config=args, name="GCN with BERT Embeddings"):
         kg_dataset = CMVKGDataset(
             current_path + "/cmv_modes/change-my-view-modes-master",
             version=constants.v2_path,
@@ -194,9 +186,10 @@ if __name__ == '__main__':
         model = GCNWithBertEmbeddings(
             num_node_features,
             num_classes=2,
-            hidden_layer_dim=config.hidden_layer_dim)
+            hidden_layer_dim=config.gcn_hidden_layer_dim)
 
-        wandb.watch(model, log='all', log_freq=10)
+        # TODO: Make log_freq a flag.
+        wandb.watch(model, log='all', log_freq=5)
 
         optimizer = torch.optim.Adam(
             model.parameters(),
