@@ -15,6 +15,31 @@ from tqdm import tqdm
 
 parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
+parser.add_argument('--num_epochs',
+                    type=int,
+                    default=10,
+                    help="The number of training rounds over the knowledge graph dataset.")
+parser.add_argument('--batch_size',
+                    type=int,
+                    default=16,
+                    help="The number of examples per batch per device during both training and evaluation.")
+parser.add_argument('--learning_rate',
+                    type=float,
+                    default=1e-2,
+                    help="The learning rate used by the GCN+BERT model during training.")
+parser.add_argument('--weight_decay',
+                    type=float,
+                    default=5e-4,
+                    help="The weight decay parameter supplied to the optimizer for use during training.")
+parser.add_argument('--gcn_hidden_layer_dim',
+                    type=int,
+                    default=128,
+                    help="The dimensionality of the hidden layer within the GCN component of the GCN+BERT model.")
+parser.add_argument('--test_percent',
+                    type=float,
+                    default=0.2,
+                    help='The proportion (ratio) of samples dedicated to the test set. The remaining examples are used'
+                         'for training.')
 
 
 def train(model: GCNWithBertEmbeddings,
@@ -109,21 +134,21 @@ def create_dataloaders(graph_dataset: Dataset,
 
 
 if __name__ == '__main__':
-    epochs = 2
-    batch_size = 8
-    learning_rate = 0.01
-    weight_decay = 5e-4
-    test_percent = 0.2
-    hidden_layer_dim = 128
+
+    args = parser.parse_args()
+    args_dict = vars(args)
+    for parameter, value in args_dict.items():
+        print(f'{parameter}: {value}')
+
     num_node_features = constants.BERT_HIDDEN_DIM
     current_path = os.getcwd()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     config = dict(
-        epochs=epochs,
-        batch_size=batch_size,
-        learning_rate=learning_rate,
-        weight_decay=weight_decay,
-        hidden_layer_dim=hidden_layer_dim
+        epochs=args.num_epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        hidden_layer_dim=args.gcn_hidden_layer_dim,
     )
     with wandb.init(project="persuasive_arguments", config=config):
         kg_dataset = CMVKGDataset(
@@ -133,11 +158,11 @@ if __name__ == '__main__':
         config = wandb.config
         dl_train, dl_test = create_dataloaders(kg_dataset,
                                                batch_size=config.batch_size,
-                                               test_percent=test_percent)
+                                               test_percent=args.test_percent)
         model = GCNWithBertEmbeddings(num_node_features,
                                       num_classes=2,
                                       hidden_layer_dim=config.hidden_layer_dim)
         wandb.watch(model, log='all', log_freq=10)
         optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
-        model = train(model, dl_train, epochs, optimizer)
+        model = train(model, dl_train, args.num_epochs, optimizer)
         eval(model, dl_test)
