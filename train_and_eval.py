@@ -198,7 +198,7 @@ if __name__ == '__main__':
         model = train(model=model,
                       training_loader=dl_train,
                       validation_loader=dl_test,
-                      epochs=config.epcohs,
+                      epochs=config.num_epochs,
                       optimizer=optimizer,
                       rounds_between_evals=config.args_between_evals)
         eval(model, dl_test)
