@@ -1,6 +1,9 @@
 import argparse
 import logging
 import os
+
+import datasets
+
 import wandb
 import sys
 import transformers
@@ -8,16 +11,15 @@ import transformers
 # This is necessary when running this script from the server.
 try:
     import constants
-    import fine_tuning
-    import preprocessing
 except ModuleNotFoundError as e:
     # Extend the persuasive_argumentation package.
     package_path = os.sep.join(os.getcwd().split(os.sep)[:-1])
     print(f'Adding package path {package_path} to "sys.path"')
     sys.path.extend([package_path])
     import constants
-    import fine_tuning
-    import preprocessing
+import fine_tuning
+import preprocessing
+import cmv_modes.preprocessing_knowledge_graph as preprocessing_knowledge_graph
 
 """
 Example command on Newton Cluster:
@@ -85,6 +87,12 @@ parser.add_argument('--fine_tuning_logging_steps',
                     type=int,
                     default=10,
                     help="The number of steps a model takes between recording to logs.")
+parser.add_argument('--fine_tune_on_discourse_annotated_cmv',
+                    type=bool,
+                    default=False,
+                    help="True if we intend to fine tune BERT on a subset of the original CMV dataset (i.e., a subset "
+                         "which includes human-annotated tags for claims/premises as well as the relations between "
+                         "them). False otherwise.")
 parser.add_argument('--fine_tuning_wandb_entity',
                     type=str,
                     default='zbamberger',
@@ -118,11 +126,35 @@ if __name__ == "__main__":
     model = transformers.BertForSequenceClassification.from_pretrained(
         args.fine_tuning_model_checkpoint_name,
         num_labels=constants.NUM_LABELS)
-    dataset = (
-        preprocessing.get_dataset(task_name=constants.BINARY_CMV_DELTA_PREDICTION,
-                                  tokenizer=transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED),
-                                  save_text_datasets=True,
-                                  dataset_name=args.fine_tuning_dataset_name))
+
+    tokenizer = transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
+    if args.fine_tune_on_discourse_annotated_cmv:
+        examples = preprocessing_knowledge_graph.create_simple_bert_inputs(
+            directory_path='../cmv_modes/change-my-view-modes-master',
+            version=constants.v2_path)
+        features = examples[0]
+        labels = examples[1]
+        op_text = [pair[0] for pair in features]
+        reply_text = [pair[1] for pair in features]
+        verbosity = transformers.logging.get_verbosity()
+        transformers.logging.set_verbosity_error()
+        tokenized_inputs = tokenizer(op_text, reply_text, padding=True, truncation=True)
+        transformers.logging.set_verbosity(verbosity)
+        dataset_dict = {input_name: input_value for input_name, input_value in tokenized_inputs.items()}
+        dataset_dict[constants.LABEL] = labels
+        dataset = datasets.Dataset.from_dict(dataset_dict)
+        dataset.set_format(type='torch',
+                           columns=[
+                               constants.INPUT_IDS,
+                               constants.TOKEN_TYPE_IDS,
+                               constants.ATTENTION_MASK,
+                               constants.LABEL])
+    else:
+        dataset = (
+            preprocessing.get_dataset(task_name=constants.BINARY_CMV_DELTA_PREDICTION,
+                                      tokenizer=tokenizer,
+                                      save_text_datasets=True,
+                                      dataset_name=args.fine_tuning_dataset_name))
     fine_tuned_model, downstream_metrics = (
         fine_tuning.fine_tune_on_task(dataset=dataset,
                                       model=model,

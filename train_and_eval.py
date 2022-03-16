@@ -92,12 +92,11 @@ def train(model: GCNWithBertEmbeddings,
             num_batches = 0
             model.eval()
             for sampled_data in tqdm(validation_loader):
-                targets = sampled_data[constants.LABEL]
                 outputs = model(sampled_data)
                 preds = torch.argmax(outputs, dim=1)
                 y_one_hot = F.one_hot(sampled_data.y, 2)
                 loss = model.loss(outputs.float(), y_one_hot.float())
-                num_correct_preds = (preds == targets).sum().float()
+                num_correct_preds = (preds == sampled_data.y).sum().float()
                 accuracy = num_correct_preds / sampled_data.y.shape[0] * 100
                 num_batches += 1
                 epoch_loss += loss.item()
