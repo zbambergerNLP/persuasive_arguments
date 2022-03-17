@@ -39,9 +39,12 @@ parser.add_argument('--gcn_hidden_layer_dim',
                     help="The dimensionality of the hidden layer within the GCN component of the GCN+BERT model.")
 parser.add_argument('--test_percent',
                     type=float,
-                    default=0.2,
-                    help='The proportion (ratio) of samples dedicated to the test set. The remaining examples are used'
-                         'for training.')
+                    default=0.1,
+                    help='The proportion (ratio) of samples dedicated to the test set.')
+parser.add_argument('--val_percent',
+                    type=float,
+                    default=0.1,
+                    help='The proportion (ratio) of samples dedicated to the validation set.')
 parser.add_argument('--rounds_between_evals',
                     type=int,
                     default=5,
@@ -136,6 +139,7 @@ def eval(model: GCNWithBertEmbeddings,
 
 def create_dataloaders(graph_dataset: Dataset,
                        batch_size: int,
+                       val_percent: float,
                        test_percent: float,
                        num_workers: int = 0):
     """Create dataloaders over persuasive argument knowledge graphs.
@@ -149,20 +153,28 @@ def create_dataloaders(graph_dataset: Dataset,
     :return:
     """
     num_of_examples = len(graph_dataset.dataset)
-    train_len = int((1.0 - test_percent) * num_of_examples)
+    test_len = int(test_percent * num_of_examples)
+    val_len = int(val_percent * num_of_examples)
+    train_len = num_of_examples - test_len -val_len
 
     indexes = random.sample(range(num_of_examples), num_of_examples)
-    train_indexes = indexes[:train_len]
-    test_indexes = indexes[train_len:]
+    test_indexes = indexes[:test_len]
+    val_indexes = indexes[test_len:test_len + val_len]
+    train_indexes = indexes[test_len + val_len:-1]
+
     dl_train = geom_data.DataLoader(graph_dataset,
                                     batch_size=batch_size,
                                     num_workers=num_workers,
                                     sampler=SubsetRandomSampler(train_indexes))
+    dl_val = geom_data.DataLoader(graph_dataset,
+                                    batch_size=batch_size,
+                                    num_workers=num_workers,
+                                    sampler=SubsetRandomSampler(val_indexes))
     dl_test = geom_data.DataLoader(graph_dataset,
                                    batch_size=batch_size,
                                    num_workers=num_workers,
                                    sampler=SubsetRandomSampler(test_indexes))
-    return dl_train, dl_test
+    return dl_train, dl_val, dl_test
 
 
 if __name__ == '__main__':
@@ -180,10 +192,11 @@ if __name__ == '__main__':
             current_path + "/cmv_modes/change-my-view-modes-master",
             version=constants.v2_path,
             debug=False)
-        utils.get_dataset_stats(kg_dataset)
+        # utils.get_dataset_stats(kg_dataset)
         config = wandb.config
-        dl_train, dl_test = create_dataloaders(kg_dataset,
+        dl_train,dl_val, dl_test = create_dataloaders(kg_dataset,
                                                batch_size=config.batch_size,
+                                               val_percent=config.val_percent,
                                                test_percent=config.test_percent)
         model = GCNWithBertEmbeddings(
             num_node_features,
@@ -199,7 +212,7 @@ if __name__ == '__main__':
             weight_decay=config.weight_decay)
         model = train(model=model,
                       training_loader=dl_train,
-                      validation_loader=dl_test,
+                      validation_loader=dl_val,
                       epochs=config.num_epochs,
                       optimizer=optimizer,
                       rounds_between_evals=config.rounds_between_evals)
