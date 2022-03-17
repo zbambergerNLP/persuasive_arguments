@@ -5,6 +5,8 @@ import random
 from torch.utils.data import Dataset
 from torch.utils.data import SubsetRandomSampler
 import torch_geometric.loader as geom_data
+
+import utils
 import wandb
 from data_loaders import CMVKGDataset
 from models import GCNWithBertEmbeddings
@@ -178,6 +180,7 @@ if __name__ == '__main__':
             current_path + "/cmv_modes/change-my-view-modes-master",
             version=constants.v2_path,
             debug=False)
+        utils.get_dataset_stats(kg_dataset)
         config = wandb.config
         dl_train, dl_test = create_dataloaders(kg_dataset,
                                                batch_size=config.batch_size,

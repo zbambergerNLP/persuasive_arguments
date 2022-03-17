@@ -4,7 +4,7 @@ import typing
 import numpy as np
 import torch
 import os
-
+import re
 import constants
 
 
@@ -87,3 +87,28 @@ def print_metrics(eval_metrics: typing.Mapping[str, typing.Sequence[typing.Mappi
             print(f'\t\tmetric name: {metric_name}\n'
                   f'\t\t\tmean metric value: {metric_averages[metric_name]}\n'
                   f'\t\t\tstandard deviation: {metric_stds[metric_name]}')
+
+
+def get_dataset_stats(kg_dataset):
+    num_of_positive_examples = sum(kg_dataset.labels)
+    num_of_negative_examples = len(kg_dataset.labels) - num_of_positive_examples
+
+    num_of_nodes = 0
+    words_in_nodes = 0
+    sentences_in_node = 0
+    for s in kg_dataset.dataset:
+        n = s['id_to_text']
+        num_of_nodes += len(n)
+        for key in n:
+            words_in_nodes += len(n[key].split())
+            re_len = len(re.split(r'[.!?]+', n[key]))
+            if re_len > 1:
+                print(re_len)
+                re_len -=1
+            sentences_in_node+=re_len
+    avg_num_of_words_in_nodes = words_in_nodes / num_of_nodes
+    avg_num_of_sentences_in_nodes = sentences_in_node / num_of_nodes
+    print(f'number of positive examples {num_of_positive_examples}')
+    print(f'number of negatibe examples {num_of_negative_examples}')
+    print(f'average number of words in each node {avg_num_of_words_in_nodes}')
+    print(f'average number of sentences in each node {avg_num_of_sentences_in_nodes}')
