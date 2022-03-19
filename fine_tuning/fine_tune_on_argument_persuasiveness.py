@@ -24,7 +24,7 @@ import cmv_modes.preprocessing_knowledge_graph as preprocessing_knowledge_graph
 """
 Example command on Newton Cluster:
 srun --gres=gpu:1 -p nlp python3 fine_tune_on_argument_persuasiveness.py \
-    --fine_tuning_num_training_epochs 4 \
+    --fine_tuning_num_training_epochs 10 \
     --fine_tuning_learning_rate 1e-5 \
     --fine_tuning_per_device_train_batch_size 8 \
     --fine_tuning_per_device_eval_batch_size 16
