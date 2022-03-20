@@ -15,19 +15,15 @@ accuracy = load_metric(constants.ACCURACY)
 def compute_metrics(num_labels: int,
                     preds: typing.Union[torch.Tensor | typing.Sequence[int]],
                     targets: typing.Union[torch.Tensor | typing.Sequence[int]],
-                    logits: torch.Tensor = None,
                     is_train: bool = False) -> typing.Mapping[str, float]:
     """
 
     :param num_labels: The number of labels for the probing classification problem.
     :param preds: Model predictions that are compared to ground truth labels to compute metrics.
     :param targets: The ground truth labels supplied by the dataset.
-    :param logits: A tensor from which predictions are drawn.
     :param is_train: True if we are computing metrics in train mode. False otherwise.
     :return:
     """
-    if logits:
-        preds = np.argmax(logits, axis=-1)
     average = 'binary' if num_labels == 2 else 'micro'
     precision, recall, f1, _ = precision_recall_fscore_support(y_true=targets, y_pred=preds, average=average)
     precision_key = f'{constants.TRAIN}_{constants.PRECISION}' if is_train else constants.PRECISION
@@ -54,13 +50,7 @@ def compute_metrics_for_binary_classification(
     """
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
-    precision, recall, f1, _ = precision_recall_fscore_support(y_true=labels, y_pred=predictions, average='binary')
-    metrics = {
-        constants.PRECISION: precision,
-        constants.RECALL: recall,
-        constants.F1: f1,
-        constants.ACCURACY: accuracy.compute(predictions=predictions, references=labels)[constants.ACCURACY]
-    }
+    metrics = compute_metrics(num_labels=constants.NUM_LABELS, preds=predictions, targets=labels)
     return metrics
 
 

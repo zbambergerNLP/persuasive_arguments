@@ -46,8 +46,8 @@ class ValidationMetricsCallback(transformers.TrainerCallback):
             **kwargs) -> transformers.TrainerControl:
         control_copy = copy.deepcopy(control)
         validation_metrics = self._trainer.evaluate(
-            eval_dataset=self._trainer.validation_set,
-            metric_key_prefix=constants.TRAIN)
+            eval_dataset=self._trainer.eval_dataset,
+            metric_key_prefix=constants.VALIDATION)
         validation_metrics['validation_accuracy'] = validation_metrics['validation_accuracy']
         self._trainer.log_metrics(constants.VALIDATION, validation_metrics)
         self._trainer.save_metrics(constants.VALIDATION, validation_metrics)
@@ -121,10 +121,11 @@ def fine_tune_on_task(dataset: datasets.Dataset,
             compute_metrics=metrics_function)
         trainer.add_callback(TrainingMetricsCallback(trainer))
         trainer.add_callback(ValidationMetricsCallback(trainer))
+
         # Training
         logger.info("*** Train ***")
-        train_result = trainer.train()
-        training_metrics = train_result.metrics
+        trainer.train()
+        training_metrics = trainer.evaluate(training_set)
         shard_train_metrics.append(training_metrics)
 
         trainer.save_model()
@@ -132,7 +133,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
 
         # Evaluation
         logger.info("*** Evaluate ***")
-        eval_metrics = trainer.evaluate()
+        eval_metrics = trainer.evaluate(validation_set)
         shard_eval_metrics.append(eval_metrics)
         if probing_wandb_entity:
             run.finish()

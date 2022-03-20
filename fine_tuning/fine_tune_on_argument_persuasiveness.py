@@ -102,9 +102,6 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     args = parser.parse_args()
 
-    if args.fine_tuning_wandb_entity:
-        wandb.init(project="persuasive_arguments", entity=args.fine_tuning_wandb_entity)
-
     args_dict = vars(args)
     for parameter, value in args_dict.items():
         print(f'{parameter}: {value}')
@@ -155,10 +152,12 @@ if __name__ == "__main__":
                                       tokenizer=tokenizer,
                                       save_text_datasets=True,
                                       dataset_name=args.fine_tuning_dataset_name))
-    fine_tuned_model, downstream_metrics = (
+
+    _, eval_metrics = (
         fine_tuning.fine_tune_on_task(dataset=dataset,
                                       model=model,
                                       configuration=configuration,
                                       task_name=constants.BINARY_CMV_DELTA_PREDICTION,
                                       is_probing=False,
-                                      logger=logger))
+                                      logger=logger,
+                                      probing_wandb_entity=args.fine_tuning_wandb_entity))
