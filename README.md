@@ -2,6 +2,7 @@
 Build and analyze of models trained on argumentative text.
 
 
+
 Dependencies:
 * transformers
 * torch
@@ -15,3 +16,5 @@ Dependencies:
 * pandas
 * wandb
 * bs4
+
+**Note:**  torch-geometric is incompatible with conda.

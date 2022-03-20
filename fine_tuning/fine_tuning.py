@@ -32,6 +32,28 @@ class TrainingMetricsCallback(transformers.TrainerCallback):
         return control_copy
 
 
+class ValidationMetricsCallback(transformers.TrainerCallback):
+    
+    def __init__(self, trainer) -> None:
+        super().__init__()
+        self._trainer = trainer
+    
+    def on_epoch_begin(
+            self, 
+            args: transformers.TrainingArguments, 
+            state: transformers.TrainerState, 
+            control: transformers.TrainerControl,
+            **kwargs) -> transformers.TrainerControl:
+        control_copy = copy.deepcopy(control)
+        validation_metrics = self._trainer.evaluate(
+            eval_dataset=self._trainer.eval_dataset,
+            metric_key_prefix=constants.VALIDATION)
+        validation_metrics['validation_accuracy'] = validation_metrics['validation_accuracy']
+        self._trainer.log_metrics(constants.VALIDATION, validation_metrics)
+        self._trainer.save_metrics(constants.VALIDATION, validation_metrics)
+        return control_copy
+
+
 def fine_tune_on_task(dataset: datasets.Dataset,
                       model: transformers.PreTrainedModel | torch.torch.nn.Module,
                       configuration: transformers.TrainingArguments,
@@ -98,10 +120,12 @@ def fine_tune_on_task(dataset: datasets.Dataset,
             eval_dataset=validation_set,
             compute_metrics=metrics_function)
         trainer.add_callback(TrainingMetricsCallback(trainer))
+        trainer.add_callback(ValidationMetricsCallback(trainer))
+
         # Training
         logger.info("*** Train ***")
-        train_result = trainer.train()
-        training_metrics = train_result.metrics
+        trainer.train()
+        training_metrics = trainer.evaluate(training_set)
         shard_train_metrics.append(training_metrics)
 
         trainer.save_model()
@@ -109,7 +133,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
 
         # Evaluation
         logger.info("*** Evaluate ***")
-        eval_metrics = trainer.evaluate()
+        eval_metrics = trainer.evaluate(validation_set)
         shard_eval_metrics.append(eval_metrics)
         if probing_wandb_entity:
             run.finish()

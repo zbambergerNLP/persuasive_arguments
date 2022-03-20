@@ -1,6 +1,16 @@
-import torch
-import constants
+import os
 
+import torch
+import transformers
+from bs4 import BeautifulSoup
+from tqdm import tqdm
+from torch_geometric.data import Data
+
+import constants
+from cmv_modes.preprocessing_knowledge_graph import make_op_reply_graphs, create_bert_inputs
+
+
+# TODO: Ensure that both the BERT model and its corresponding tokenizer are accessible even without internet connection.
 
 class CMVProbingDataset(torch.utils.data.Dataset):
     """A Change My View dataset for probing."""
@@ -49,3 +59,60 @@ class BaselineLoader(torch.utils.data.Dataset):
 
     def __len__(self):
         return self.num_examples
+
+
+class CMVKGDataset(torch.utils.data.Dataset):
+    def __init__(self,
+                 directory_path: str,
+                 version: str,
+                 debug: bool = False):
+        """
+
+        :param directory_path: The string path to the 'change-my-view-modes-master' directory, which contains versions
+            versions of the change my view dataset.
+        :param version: A version of the cmv datasets (i.e.. one of 'v2.0', 'v1.0', and 'original') included within the
+            'chamge-my-view-modes-master' directory.
+        :param debug: A boolean denoting whether or not we are in debug mode (in which our input dataset is
+            significantly smaller).
+        """
+        self.dataset = []
+        self.labels = []
+        for sign in constants.SIGN_LIST:
+            thread_directory = os.path.join(directory_path, version, sign)
+            for file_name in tqdm(os.listdir(thread_directory)):
+                if file_name.endswith(constants.XML):
+                    file_path = os.path.join(thread_directory, file_name)
+                    with open(file_path, 'r') as fileHandle:
+                        data = fileHandle.read()
+                        bs_data = BeautifulSoup(data, constants.XML)
+                        examples = make_op_reply_graphs(
+                            bs_data=bs_data,
+                            file_name=file_name,
+                            is_positive=(sign == constants.POSITIVE))
+                        examples = create_bert_inputs(examples,
+                                                      tokenizer=transformers.BertTokenizer.from_pretrained(
+                                                          constants.BERT_BASE_CASED))
+                        self.dataset.extend(examples)
+                        example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
+                        self.labels.extend(example_labels)
+                        if debug:
+                            if len(self.labels) >= 5:
+                                break
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index: int):
+        bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
+                                f'id_to_{constants.TOKEN_TYPE_IDS}',
+                                f'id_to_{constants.ATTENTION_MASK}']
+        formatted_bert_inputs = {}
+        for input_name in bert_input_key_names:
+            formatted_bert_inputs[input_name] = torch.cat(
+                [ids.unsqueeze(dim=1) for ids in self.dataset[index][input_name].values()],
+                dim=1,
+            )
+        stacked_bert_inputs = torch.stack([t for t in formatted_bert_inputs.values()], dim=1)
+        return Data(x=stacked_bert_inputs.T,
+                    edge_index=torch.tensor(self.dataset[index]['edges']).T,
+                    y=torch.tensor(self.labels[index]))
