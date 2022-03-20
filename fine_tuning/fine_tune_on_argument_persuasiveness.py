@@ -98,6 +98,11 @@ parser.add_argument('--fine_tuning_wandb_entity',
                     default='zbamberger',
                     help="The wandb entity used to track training.")
 
+parser.add_argument('--grad_accum',
+                    type=int,
+                    default=4,
+                    help="The number of batches to accumulate before doing back propagation")
+
 if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     args = parser.parse_args()
@@ -111,6 +116,7 @@ if __name__ == "__main__":
         num_train_epochs=args.fine_tuning_num_training_epochs,
         per_device_train_batch_size=args.fine_tuning_per_device_train_batch_size,
         per_device_eval_batch_size=args.fine_tuning_per_device_eval_batch_size,
+        gradient_accumulation_steps=args.grad_accum,
         eval_steps=args.eval_steps,
         evaluation_strategy=transformers.training_args.IntervalStrategy('steps'),
         learning_rate=args.fine_tuning_learning_rate,
