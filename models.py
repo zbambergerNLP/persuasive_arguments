@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import typing
 
 import torch
@@ -55,24 +56,39 @@ class MLPProbe(torch.nn.Module):
 
 def train_probe(probing_model: torch.nn.Module,
                 train_loader: torch.utils.data.DataLoader,
+                validation_loader: torch.utils.data.DataLoader,
                 optimizer: torch.optim.optimizer.Optimizer,
                 num_labels: int,
                 loss_function: torch.nn.BCELoss | torch.nn.CrossEntropyLoss,
                 num_epochs: int,
+                max_num_rounds_no_improvement: int = None,
+                metric_for_early_stopping: str = None,
                 scheduler=None):
     """Train the probing model on a classification task given the provided training set and parameters.
 
     :param probing_model: A torch.nn.Module on which we are performing training.
-    :param train_loader: A 'torch.utils.data.DataLoader' wrapping a 'preprocessing.CMVDataset' instance for some
-        premise mode.
+    :param train_loader: A 'torch.utils.data.DataLoader' wrapping a 'preprocessing.CMVDataset' instance. This loader
+        contains the training set.
+    :param validation_loader: A 'torch.utils.data.DataLoader` wrapping a `preprocessing.CMVDataset` instance. This
+        loader contains the validation set.
     :param optimizer: A 'torch.optim' optimizer instance (e.g., SGD).
     :param num_labels: An integer representing the output space (number of labels) for the probing classification
         problem.
     :param loss_function: A 'torch.nn' loss instance such as 'torch.nn.BCELoss'.
     :param num_epochs: The number of epochs used to train the probing model on the probing dataset.
+    :param max_num_rounds_no_improvement: The maximum number of iterations over the validation set in which accuracy
+        does not increase. If validation accuracy does not increase within this number of loops, we stop training
+        early.
+    :param metric_for_early_stopping: The metric used to determine whether or not to stop early. If the metric of
+        interest does not improve within `max_num_rounds_no_improvement`, then we stop early.
     :param scheduler: A `torch.optim.lr_scheduler` instance used to adjust the learning rate of the optimizer.
     """
     probing_model.train()
+    max_accuracy = 0
+    min_loss = math.inf
+
+    num_rounds_no_improvement = 0
+
     for epoch in range(num_epochs):
         epoch_loss = 0.0
         epoch_acc = 0.0
@@ -91,9 +107,42 @@ def train_probe(probing_model: torch.nn.Module,
             epoch_acc += accuracy
             num_batches += 1
         scheduler.step()
-        wandb.log({constants.ACCURACY: epoch_acc / num_batches,
-                   constants.EPOCH: epoch,
-                   constants.LOSS: epoch_loss / num_batches})
+        wandb.log({f'training_{constants.ACCURACY}': epoch_acc / num_batches,
+                   f'training_{constants.EPOCH}': epoch,
+                   f'training_{constants.LOSS}': epoch_loss / num_batches})
+        
+        # Perform evaluation.
+        if epoch % 5 == 0:
+            epoch_loss = 0.0
+            epoch_acc = 0.0
+            num_batches = 0
+            probing_model.eval()
+            for i, data in enumerate(validation_loader):
+                targets = data[constants.LABEL]
+                outputs = probing_model(data[constants.HIDDEN_STATE])
+                preds = torch.argmax(outputs, dim=1)
+                loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
+                num_correct_preds = (preds == targets).sum().float()
+                accuracy = num_correct_preds / targets.shape[0] * 100
+                num_batches += 1
+                epoch_loss += loss.item()
+                epoch_acc += accuracy
+
+                # Stop early if accuracy does not increase within `max_num_rounds_no_improvement`evaluation runs.
+                if metric_for_early_stopping == constants.ACCURACY and accuracy > max_accuracy:
+                    max_accuracy = accuracy
+                    num_rounds_no_improvement = 0
+                elif metric_for_early_stopping == constants.LOSS and loss < min_loss:
+                    min_loss = loss
+                    num_rounds_no_improvement = 0
+                else:
+                    num_rounds_no_improvement += 1
+                if num_rounds_no_improvement == max_num_rounds_no_improvement:
+                    break
+
+            wandb.log({f'validation_{constants.ACCURACY}': epoch_acc / num_batches,
+                       f'validation_{constants.EPOCH}': epoch,
+                       f'validation_{constants.LOSS}': epoch_loss / num_batches})
     return probing_model
 
 
@@ -135,7 +184,7 @@ class BaselineLogisticRegression(torch.nn.Module):
         """
 
         :param num_features:
-        :param num_labels:
+        :param num_labels: The number of labels for the probing classification problem.
         """
         super(BaselineLogisticRegression, self).__init__()
         self.linear = torch.nn.Linear(num_features, num_labels)
@@ -150,27 +199,38 @@ class BaselineLogisticRegression(torch.nn.Module):
         return outputs
 
     def fit(self,
-            train_loader,
+            train_loader: torch.utils.data.DataLoader,
+            validation_loader: torch.utils.data.DataLoader,
             num_labels: int,
             loss_function: typing.Union[torch.nn.BCELoss, torch.nn.CrossEntropyLoss],
-            num_epochs: int = 100,
-            optimizer: torch.optim.Optimizer = torch.optim.SGD,
+            num_epochs: int,
+            optimizer: torch.optim.Optimizer,
             scheduler: typing.Union[torch.optim.lr_scheduler.ExponentialLR,
                                     torch.optim.lr_scheduler.ConstantLR] = None,
-            validation_loader=None
+            max_num_rounds_no_improvement: int = 5,
+            metric_for_early_stopping: str = constants.ACCURACY,
             ):
         """
 
-        :param train_loader:
-        :param num_labels:
-        :param loss_function:
-        :param num_epochs:
-        :param optimizer:
-        :param scheduler:
-        :param validation_loader:
-        :return:
+        :param train_loader: A 'torch.utils.data.DataLoader' wrapping a 'preprocessing.CMVDataset' instance. This loader
+            contains the training set.
+        :param validation_loader: A 'torch.utils.data.DataLoader` wrapping a `preprocessing.CMVDataset` instance. This
+            loader contains the validation set.
+        :param num_labels: The number of labels for the probing classification problem.
+        :param loss_function: A 'torch.nn' loss instance such as 'torch.nn.BCELoss'.
+        :param num_epochs: The number of epochs used to train the probing model on the probing dataset.
+        :param optimizer: A 'torch.optim' optimizer instance (e.g., SGD).
+        :param scheduler: A `torch.optim.lr_scheduler` instance used to adjust the learning rate of the optimizer.
+        :param max_num_rounds_no_improvement: The maximum number of iterations over the validation set in which accuracy
+            does not increase. If validation accuracy does not increase within this number of loops, we stop training
+            early.
+        :param metric_for_early_stopping: The metric used to determine whether or not to stop early. If the metric of
+            interest does not improve within `max_num_rounds_no_improvement`, then we stop early.
         """
         self.train()
+        max_accuracy = 0
+        min_loss = math.inf
+        num_rounds_no_improvement = 0
         for epoch in range(num_epochs):
             epoch_loss = 0.0
             epoch_acc = 0.0
@@ -209,17 +269,33 @@ class BaselineLogisticRegression(torch.nn.Module):
                     num_batches += 1
                     epoch_loss += loss.item()
                     epoch_acc += accuracy
+
+                    # Stop early if accuracy does not increase within `max_num_rounds_no_improvement`evaluation runs.
+                    if metric_for_early_stopping == constants.ACCURACY and accuracy > max_accuracy:
+                        max_accuracy = accuracy
+                        num_rounds_no_improvement = 0
+                    elif metric_for_early_stopping == constants.LOSS and loss < min_loss:
+                        min_loss = loss
+                        num_rounds_no_improvement = 0
+                    else:
+                        num_rounds_no_improvement += 1
+                    if num_rounds_no_improvement == max_num_rounds_no_improvement:
+                        break
                 wandb.log({f'validation_{constants.ACCURACY}': epoch_acc / num_batches,
                            f'validation_{constants.EPOCH}': epoch,
                            f'validation_{constants.LOSS}': epoch_loss / num_batches})
 
-    def evaluate(self, test_loader, num_labels):
+    def evaluate(self, 
+                 test_loader: torch.utils.data.DataLoader,
+                 num_labels: int) -> typing.Mapping[str, float]:
         """
 
-        :param test_loader:
-        :param num_labels:
-        :return:
-        """
+        :param test_loader: A 'torch.utils.data.DataLoader` wrapping a `preprocessing.CMVDataset` instance. This
+            loader contains the test set.
+        :param num_labels: An integer representing the output space (number of labels) for the probing classification
+            problem.
+        :return: A mapping from metric names (keys) to metric values (floats) obtained while evaluating the probing
+            model."""
         preds_list = []
         targets_list = []
         self.eval()

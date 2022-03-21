@@ -15,6 +15,21 @@ import argparse
 from tqdm import tqdm
 
 
+"""
+Example command:
+srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
+    --num_epochs 30 \
+    --batch_size 4 \
+    --learning_rate 1e-3 \
+    --weight_decay 5e-4 \
+    --gcn_hidden_layer_dim 128 \
+    --test_percent 0.1 \
+    --val_percent 0.1 \
+    --rounds_between_evals 5
+    
+"""
+
+
 parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--num_epochs',

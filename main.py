@@ -35,7 +35,8 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --probe_model_on_binary_premise_modes True \
     --generate_new_premise_mode_probing_dataset True \
     --fine_tune_model_on_binary_premise_modes True \
-    --num_cross_validation_splits 5
+    --num_cross_validation_splits 5 \
+    --max_num_rounds_no_improvement 5
     
     
 How to run intra-argument relations experiments:
@@ -54,7 +55,8 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --generate_new_relations_probing_dataset True \
     --downsample_binary_intra_argument_relation_prediction True \
     --fine_tune_model_on_argument_relations True \
-    --num_cross_validation_splits 5
+    --num_cross_validation_splits 5 \
+    --max_num_rounds_no_improvement 5
     
 How to run multi-class premise mode experiments:
 srun --gres=gpu:1 -p nlp python3 main.py \
@@ -72,7 +74,8 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --multi_class_premise_mode_probing True \
     --generate_new_premise_mode_probing_dataset True \
     --fine_tune_model_on_multi_class_premise_modes True \
-    --num_cross_validation_splits 5
+    --num_cross_validation_splits 5 \
+    --max_num_rounds_no_improvement 5
     
 
 * Note that an empty string on boolean flags is interpreted as `False`.
@@ -125,6 +128,20 @@ parser.add_argument('--run_baseline_experiment',
                     default=True,
                     help="True if we wish to run a baseline experiment using logistic regression over bigram features."
                          "False otherwise.")
+
+# Early Stopping
+parser.add_argument('--max_num_rounds_no_improvement',
+                    type=int,
+                    default=5,
+                    help="The maximum number of iterations over the validation set in which accuracy does not increase."
+                         "If validation accuracy does not increase within this number of loops, we stop training early."
+                    )
+# TODO: Enforce that 'metric_for_early_stopping' is always either `loss` or `accuracy`.
+parser.add_argument('--metric_for_early_stopping',
+                    type=str,
+                    default=constants.LOSS,
+                    help="The metric used to determine whether or not to stop early. If the metric of interest does "
+                         "not improve within `max_num_rounds_no_improvement`, then we stop early.")
 
 # Data Imbalance Flags
 parser.add_argument('--downsample_binary_premise_mode_prediction',
@@ -362,7 +379,9 @@ if __name__ == "__main__":
                 probe_training_batch_size=args.probing_per_device_train_batch_size,
                 probe_eval_batch_size=args.probing_per_device_eval_batch_size,
                 probe_num_epochs=args.probing_num_training_epochs,
-                probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+                probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
+                max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
+                metric_for_early_stopping=args.metric_for_early_stopping)
             run.finish()
             print('\n*** Intra-Argument Relation Training Metrics: ***')
             utils.print_metrics(train_metrics)
@@ -407,7 +426,9 @@ if __name__ == "__main__":
             probe_training_batch_size=args.probing_per_device_train_batch_size,
             probe_eval_batch_size=args.probing_per_device_eval_batch_size,
             probe_num_epochs=args.probing_num_training_epochs,
-            probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+            probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
+            max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
+            metric_for_early_stopping=args.metric_for_early_stopping)
         run.finish()
         print('\n*** Multi-Class Training Metrics: ***')
         utils.print_metrics(train_metrics)
@@ -469,7 +490,9 @@ if __name__ == "__main__":
                     probe_eval_batch_size=args.probing_per_device_eval_batch_size,
                     probe_num_epochs=args.probing_num_training_epochs,
                     probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
-                    premise_mode=premise_mode))
+                    premise_mode=premise_mode,
+                    max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
+                    metric_for_early_stopping=args.metric_for_early_stopping))
             print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Train Metrics: ***')
             utils.print_metrics(train_metrics)
             print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Evaluation Metrics: ***')

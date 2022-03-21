@@ -221,7 +221,9 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
                         pretrained_checkpoint_name: str = None,
                         fine_tuned_model_path: str = None,
                         probe_optimizer_scheduler_gamma: float = None,
-                        premise_mode: str = None) -> (
+                        premise_mode: str = None,
+                        max_num_rounds_no_improvement: int = None,
+                        metric_for_early_stopping: str = None) -> (
         typing.Tuple[
             typing.Mapping[str, typing.Sequence[torch.Module]],
             typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]],
@@ -252,6 +254,11 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
     :param probe_optimizer_scheduler_gamma: Decays the learning rate of each parameter group by gamma every epoch.
     :param premise_mode: A string representing the premise mode towards which the dataset is oriented. For example,
         if the mode were 'ethos', then positive labels would be premises who's label contains 'ethos'.
+    :param max_num_rounds_no_improvement: The maximum number of iterations over the validation set in which accuracy
+        does not increase. If validation accuracy does not increase within this number of loops, we stop training
+        early.
+    :param metric_for_early_stopping: The metric used to determine whether or not to stop early. If the metric of
+        interest does not improve within `max_num_rounds_no_improvement`, then we stop early.
     :return: A tuple consisting of three entries:
         pretrained_probing_model: A probing model trained on embeddings produced by a pre-trained transformer model.
         fine_tuned_probing_model: A probing model trained on embeddings produced by a pre-trained and fine-tuned
@@ -347,10 +354,13 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
 
             trained_model = models.train_probe(probing_model=probing_model,
                                                train_loader=train_loader,
+                                               validation_loader=test_loader,
                                                optimizer=optimizer,
                                                num_labels=num_labels,
                                                loss_function=loss_function,
                                                num_epochs=probe_num_epochs,
+                                               max_num_rounds_no_improvement=max_num_rounds_no_improvement,
+                                               metric_for_early_stopping=metric_for_early_stopping,
                                                scheduler=scheduler)
             train_metrics = models.eval_probe(probing_model=trained_model,
                                               num_labels=num_labels,

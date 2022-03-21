@@ -345,9 +345,6 @@ def create_bert_inputs(
     :return: A modified dataset which includes entries for language model inputs.
     """
 
-    # TODO: Include node features within the returned example dictionaries. For example, we'd like to encode whether
-    #  a node is a claim or a premise. Furthermore, we'd like to distinguish between different kinds of claims and
-    #  premises.
     for graph_id, graph in enumerate(graph_dataset):
         graph_texts = []
         graph_indices = []
