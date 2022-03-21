@@ -9,7 +9,7 @@ Dependencies:
 * torch-geometric
 * torch-scatter
 * torch-sparse
-* datasets
+* datasets - might also neet cython
 * lxml
 * convokit
 * numpy
@@ -18,3 +18,4 @@ Dependencies:
 * bs4
 
 **Note:**  torch-geometric is incompatible with conda.
+**Note:** need to use python version 3.8 or higher
