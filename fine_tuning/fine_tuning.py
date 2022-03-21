@@ -109,8 +109,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
                 project="persuasive_arguments",
                 entity=probing_wandb_entity,
                 reinit=True,
-                name=run_name,
-                user='persuasive_arguments')
+                name=run_name)
         metrics_function = (
             metrics.compute_metrics_for_multi_class_classification if task_name == constants.MULTICLASS else
             metrics.compute_metrics_for_binary_classification)
