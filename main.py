@@ -113,7 +113,7 @@ parser.add_argument('--model_checkpoint_name',
                     help="The name of the checkpoint from which we load our model and tokenizer.")
 parser.add_argument('--probing_model_learning_rate',
                     type=float,
-                    default=5e-3,
+                    default=5e-2,
                     help="The learning rate used by the probing model for the probing task.")
 parser.add_argument('--fine_tuning_on_probing_task_learning_rate',
                     type=float,
@@ -125,28 +125,31 @@ parser.add_argument('--probing_model_scheduler_gamma',
                     help="Decays the learning rate of each parameter group by gamma every epoch.")
 parser.add_argument('--run_baseline_experiment',
                     type=bool,
-                    default=True,
+                    default=True, # Experiment with this
                     help="True if we wish to run a baseline experiment using logistic regression over bigram features."
                          "False otherwise.")
 
 # Early Stopping
 parser.add_argument('--max_num_rounds_no_improvement',
                     type=int,
-                    default=5,
+                    default=10,
                     help="The maximum number of iterations over the validation set in which accuracy does not increase."
-                         "If validation accuracy does not increase within this number of loops, we stop training early."
-                    )
+                         "If validation accuracy does not increase within this number of loops, we stop training early.")
 # TODO: Enforce that 'metric_for_early_stopping' is always either `loss` or `accuracy`.
 parser.add_argument('--metric_for_early_stopping',
                     type=str,
                     default=constants.LOSS,
                     help="The metric used to determine whether or not to stop early. If the metric of interest does "
                          "not improve within `max_num_rounds_no_improvement`, then we stop early.")
+parser.add_argument('--perform_early_stopping',
+                    type=bool,
+                    default=True,
+                    help="True if we intend to perform early stopping during training")
 
 # Data Imbalance Flags
 parser.add_argument('--downsample_binary_premise_mode_prediction',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="True if we intend to downsample probing datasets for binary premise mode prediction.")
 parser.add_argument('--downsample_multi_class_premise_mode_prediction',
                     type=bool,
@@ -186,7 +189,7 @@ parser.add_argument('--fine_tune_model_on_argument_relations',
 # Binary Premise Mode Probing:
 parser.add_argument('--probe_model_on_binary_premise_modes',
                     type=bool,
-                    default=False,
+                    default=True,
                     help=('Whether or not a pre-trained transformer language model should be trained and evaluated'
                           'on a probing task. In this case, the probing task involves classifying the argumentation '
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
@@ -229,7 +232,7 @@ parser.add_argument('--fine_tuning_on_probing_task_num_training_epochs',
                     help="The number of training rounds for fine-tuning on the probing dataset.")
 parser.add_argument('--probing_num_training_epochs',
                     type=int,
-                    default=40,
+                    default=100,
                     help="The number of training rounds over the probing dataset.")
 parser.add_argument('--probing_per_device_train_batch_size',
                     type=int,
@@ -345,7 +348,10 @@ if __name__ == "__main__":
         intra_argument_relations_probing_dataset = preprocessing.get_dataset(
             task_name=constants.INTRA_ARGUMENT_RELATIONS,
             tokenizer=tokenizer,
-            run_baseline_experiment=args.run_baseline_experiment)
+            run_baseline_experiment=args.run_baseline_experiment,
+            max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
+            metric_for_early_stopping=args.metric_for_early_stopping
+        )
         if args.downsample_binary_intra_argument_relation_prediction:
             intra_argument_relations_probing_dataset = preprocessing.downsample_dataset(
                 dataset=intra_argument_relations_probing_dataset,
@@ -380,6 +386,7 @@ if __name__ == "__main__":
                 probe_eval_batch_size=args.probing_per_device_eval_batch_size,
                 probe_num_epochs=args.probing_num_training_epochs,
                 probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
+                perform_early_stopping=args.perform_early_stopping,
                 max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
                 metric_for_early_stopping=args.metric_for_early_stopping)
             run.finish()
@@ -392,9 +399,13 @@ if __name__ == "__main__":
         pretrained_multiclass_model = transformers.BertForSequenceClassification.from_pretrained(
             args.model_checkpoint_name,
             num_labels=len(constants.PREMISE_MODE_TO_INT))
-        multi_class_premise_mode_dataset = preprocessing.get_dataset(task_name=constants.MULTICLASS,
-                                                                     tokenizer=tokenizer,
-                                                                     run_baseline_experiment=args.run_baseline_experiment)
+        multi_class_premise_mode_dataset = (
+            preprocessing.get_dataset(task_name=constants.MULTICLASS,
+                                      tokenizer=tokenizer,
+                                      run_baseline_experiment=args.run_baseline_experiment,
+                                      max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
+                                      metric_for_early_stopping=args.metric_for_early_stopping)
+        )
         if args.downsample_multi_class_premise_mode_prediction:
             multi_class_premise_mode_dataset = preprocessing.downsample_dataset(
                 dataset=multi_class_premise_mode_dataset,
@@ -438,11 +449,15 @@ if __name__ == "__main__":
     logos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                               tokenizer=tokenizer,
                                               premise_mode=constants.LOGOS,
-                                              run_baseline_experiment=args.run_baseline_experiment)
+                                              run_baseline_experiment=args.run_baseline_experiment,
+                                              max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
+                                              metric_for_early_stopping=args.metric_for_early_stopping)
     pathos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                                tokenizer=tokenizer,
                                                premise_mode=constants.PATHOS,
-                                               run_baseline_experiment=args.run_baseline_experiment)
+                                               run_baseline_experiment=args.run_baseline_experiment,
+                                               max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
+                                               metric_for_early_stopping=args.metric_for_early_stopping)
     premise_modes_dataset_dict = {constants.LOGOS: logos_dataset,
                                   constants.PATHOS: pathos_dataset}
 

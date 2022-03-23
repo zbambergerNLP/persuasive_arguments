@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import typing
 
 import torch
@@ -10,6 +11,8 @@ import transformers
 from torch_geometric.nn import GCNConv, global_mean_pool
 import torch.nn as nn
 import numpy as np
+
+import utils
 import wandb
 
 import constants
@@ -86,13 +89,14 @@ def train_probe(probing_model: torch.nn.Module,
     probing_model.train()
     max_accuracy = 0
     min_loss = math.inf
-
     num_rounds_no_improvement = 0
+    epoch_with_optimal_performance = 0
+    best_model_dir_path = os.path.join(os.getcwd(), 'tmp')
+    utils.ensure_dir_exists(best_model_dir_path)
+    best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_probe.pt')
 
     for epoch in range(num_epochs):
-        epoch_loss = 0.0
-        epoch_acc = 0.0
-        num_batches = 0
+        epoch_training_metrics = {}
         for i, data in enumerate(train_loader, 0):
             optimizer.zero_grad()
             targets = data[constants.LABEL]
@@ -101,54 +105,87 @@ def train_probe(probing_model: torch.nn.Module,
             loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
             loss.backward()
             optimizer.step()
-            epoch_loss += loss.item()
-            num_correct_preds = (preds == targets).sum().float()
-            accuracy = num_correct_preds / targets.shape[0] * 100
-            epoch_acc += accuracy
-            num_batches += 1
-        scheduler.step()
-        wandb.log({f'training_{constants.ACCURACY}': epoch_acc / num_batches,
-                   f'training_{constants.EPOCH}': epoch,
-                   f'training_{constants.LOSS}': epoch_loss / num_batches})
+            scheduler.step()
+            training_metrics = metrics.compute_metrics(
+                num_labels=num_labels,
+                preds=preds,
+                targets=targets,
+                split_name=constants.TRAIN)
+            # include training loss in batch metrics.
+            training_metrics[f'{constants.TRAIN}_{constants.LOSS}'] = loss.detach().numpy()
+            for metric_name, metric_value in training_metrics.items():
+                if metric_name not in epoch_training_metrics:
+                    epoch_training_metrics[metric_name] = []
+                epoch_training_metrics[metric_name].append(metric_value)
+
+        aggregated_metrics = {}
+        for metric_name, metric_values in epoch_training_metrics.items():
+            aggregated_metrics[metric_name] = np.mean(metric_values)
+        aggregated_metrics[f'{constants.TRAIN}_{constants.EPOCH}'] = epoch
+        wandb.log(aggregated_metrics)
         
         # Perform evaluation.
         if epoch % 5 == 0:
-            epoch_loss = 0.0
-            epoch_acc = 0.0
-            num_batches = 0
+            epoch_validation_metrics = {}
             probing_model.eval()
             for i, data in enumerate(validation_loader):
                 targets = data[constants.LABEL]
                 outputs = probing_model(data[constants.HIDDEN_STATE])
                 preds = torch.argmax(outputs, dim=1)
-                loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
-                num_correct_preds = (preds == targets).sum().float()
-                accuracy = num_correct_preds / targets.shape[0] * 100
-                num_batches += 1
-                epoch_loss += loss.item()
-                epoch_acc += accuracy
+                validation_metrics = metrics.compute_metrics(
+                    num_labels=num_labels,
+                    preds=preds,
+                    targets=targets,
+                    split_name=constants.VALIDATION)
 
-                # Stop early if accuracy does not increase within `max_num_rounds_no_improvement`evaluation runs.
-                if metric_for_early_stopping == constants.ACCURACY and accuracy > max_accuracy:
-                    max_accuracy = accuracy
-                    num_rounds_no_improvement = 0
-                elif metric_for_early_stopping == constants.LOSS and loss < min_loss:
-                    min_loss = loss
-                    num_rounds_no_improvement = 0
-                else:
-                    num_rounds_no_improvement += 1
-                if num_rounds_no_improvement == max_num_rounds_no_improvement:
-                    break
+                # include validation loss in batch metrics.
+                validation_metrics[f'{constants.VALIDATION}_{constants.LOSS}'] = (
+                    loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float()).detach().numpy()
+                )
 
-            wandb.log({f'validation_{constants.ACCURACY}': epoch_acc / num_batches,
-                       f'validation_{constants.EPOCH}': epoch,
-                       f'validation_{constants.LOSS}': epoch_loss / num_batches})
+                for metric_name, metric_value in validation_metrics.items():
+                    if metric_name not in epoch_validation_metrics:
+                        epoch_validation_metrics[metric_name] = []
+                    epoch_validation_metrics[metric_name].append(metric_value)
+
+            # Perform metric aggregation over batches
+            aggregated_metrics = {}
+            for metric_name, metric_values in epoch_validation_metrics.items():
+                aggregated_metrics[metric_name] = np.mean(metric_values)
+            aggregated_metrics[f'{constants.VALIDATION}_{constants.EPOCH}'] = epoch
+
+            # Stop early if accuracy does not increase within `max_num_rounds_no_improvement`evaluation runs.
+            epoch_accuracy = aggregated_metrics[f'{constants.VALIDATION}_{constants.ACCURACY}']
+            epoch_loss = aggregated_metrics[f'{constants.VALIDATION}_{constants.LOSS}']
+            if metric_for_early_stopping == constants.ACCURACY and epoch_accuracy > max_accuracy:
+                max_accuracy = epoch_accuracy
+                num_rounds_no_improvement = 0
+                epoch_with_optimal_performance = epoch
+                torch.save(probing_model.state_dict(), best_model_path)
+            elif metric_for_early_stopping == constants.LOSS and epoch_loss < min_loss:
+                min_loss = epoch_loss
+                num_rounds_no_improvement = 0
+                epoch_with_optimal_performance = epoch
+                torch.save(probing_model.state_dict(), best_model_path)
+            else:
+                num_rounds_no_improvement += 1
+
+            wandb.log(aggregated_metrics)
+
+            if num_rounds_no_improvement == max_num_rounds_no_improvement:
+                print(f'Performing early stopping after {epoch} epochs.\n'
+                      f'Optimal model obtained from epoch #{epoch_with_optimal_performance}')
+                probing_model.load_state_dict(torch.load(best_model_path))
+                return probing_model
+
     return probing_model
 
 
 def eval_probe(probing_model: torch.nn.Module,
                test_loader: torch.utils.data.DataLoader,
-               num_labels: int) -> typing.Mapping[str, float]:
+               num_labels: int,
+               split_name: str = constants.TEST,
+               log_results: bool = True) -> typing.Mapping[str, float]:
     """Evaluate the trained classification probe on a held out test set.
 
     :param probing_model: A torch.nn.Module on which we are performing evaluation.
@@ -171,7 +208,10 @@ def eval_probe(probing_model: torch.nn.Module,
     targets_list = np.concatenate(targets_list)
     eval_metrics = metrics.compute_metrics(num_labels=num_labels,
                                            preds=preds_list,
-                                           targets=targets_list)
+                                           targets=targets_list,
+                                           split_name=split_name)
+    if log_results:
+        wandb.log(eval_metrics)
     return eval_metrics
 
 
@@ -205,10 +245,10 @@ class BaselineLogisticRegression(torch.nn.Module):
             loss_function: typing.Union[torch.nn.BCELoss, torch.nn.CrossEntropyLoss],
             num_epochs: int,
             optimizer: torch.optim.Optimizer,
+            max_num_rounds_no_improvement: int,
+            metric_for_early_stopping: str,
             scheduler: typing.Union[torch.optim.lr_scheduler.ExponentialLR,
                                     torch.optim.lr_scheduler.ConstantLR] = None,
-            max_num_rounds_no_improvement: int = 5,
-            metric_for_early_stopping: str = constants.ACCURACY,
             ):
         """
 
@@ -231,10 +271,10 @@ class BaselineLogisticRegression(torch.nn.Module):
         max_accuracy = 0
         min_loss = math.inf
         num_rounds_no_improvement = 0
+        epoch_with_optimal_performance = 0
+        best_model_path = os.path.join(os.getcwd(), 'tmp', f'optimal_{metric_for_early_stopping}_probe.pt')
         for epoch in range(num_epochs):
-            epoch_loss = 0.0
-            epoch_acc = 0.0
-            num_batches = 0
+            epoch_training_metrics = {}
             for i, data in enumerate(train_loader, 0):
                 optimizer.zero_grad()
                 targets = data[constants.LABEL]
@@ -243,47 +283,81 @@ class BaselineLogisticRegression(torch.nn.Module):
                 loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
                 loss.backward()
                 optimizer.step()
-                num_correct_preds = (preds == targets).sum().float()
-                accuracy = num_correct_preds / targets.shape[0] * 100
-                num_batches += 1
-                epoch_loss += loss.item()
-                epoch_acc += accuracy
-            wandb.log({f'training_{constants.ACCURACY}': epoch_acc / num_batches,
-                       f'training_{constants.EPOCH}': epoch,
-                       f'training_{constants.LOSS}': epoch_loss / num_batches})
-            scheduler.step()
+                scheduler.step()
+                training_metrics = metrics.compute_metrics(
+                    num_labels=num_labels,
+                    preds=preds,
+                    targets=targets,
+                    split_name=constants.TRAIN)
+                
+                # include training loss in batch metrics.
+                training_metrics[f'{constants.TRAIN}_{constants.LOSS}'] = loss.detach().numpy()
+
+                for metric_name, metric_value in training_metrics.items():
+                    if metric_name not in epoch_training_metrics:
+                        epoch_training_metrics[metric_name] = []
+                    epoch_training_metrics[metric_name].append(metric_value)
+
+            aggregated_metrics = {}
+            for metric_name, metric_values in epoch_training_metrics.items():
+                aggregated_metrics[metric_name] = np.mean(metric_values)
+            aggregated_metrics[f'{constants.TRAIN}_{constants.EPOCH}'] = epoch
+            wandb.log(aggregated_metrics)
 
             # Perform evaluation.
             if epoch % 5 == 0:
-                epoch_loss = 0.0
-                epoch_acc = 0.0
-                num_batches = 0
+                epoch_validation_metrics = {}
                 self.eval()
                 for i, data in enumerate(validation_loader):
                     targets = data[constants.LABEL]
                     outputs = self(data['features'])
                     preds = torch.argmax(outputs, dim=1)
-                    loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
-                    num_correct_preds = (preds == targets).sum().float()
-                    accuracy = num_correct_preds / targets.shape[0] * 100
-                    num_batches += 1
-                    epoch_loss += loss.item()
-                    epoch_acc += accuracy
+                    validation_metrics = metrics.compute_metrics(
+                        num_labels=num_labels,
+                        preds=preds,
+                        targets=targets,
+                        split_name=constants.VALIDATION)
 
-                    # Stop early if accuracy does not increase within `max_num_rounds_no_improvement`evaluation runs.
-                    if metric_for_early_stopping == constants.ACCURACY and accuracy > max_accuracy:
-                        max_accuracy = accuracy
-                        num_rounds_no_improvement = 0
-                    elif metric_for_early_stopping == constants.LOSS and loss < min_loss:
-                        min_loss = loss
-                        num_rounds_no_improvement = 0
-                    else:
-                        num_rounds_no_improvement += 1
-                    if num_rounds_no_improvement == max_num_rounds_no_improvement:
-                        break
-                wandb.log({f'validation_{constants.ACCURACY}': epoch_acc / num_batches,
-                           f'validation_{constants.EPOCH}': epoch,
-                           f'validation_{constants.LOSS}': epoch_loss / num_batches})
+                    # include validation loss in batch metrics.
+                    validation_metrics[f'{constants.VALIDATION}_{constants.LOSS}'] = (
+                        loss_function(outputs,
+                                      torch.nn.functional.one_hot(targets, num_labels).float()).detach().numpy()
+                    )
+
+                    for metric_name, metric_value in validation_metrics.items():
+                        if metric_name not in epoch_validation_metrics:
+                            epoch_validation_metrics[metric_name] = []
+                        epoch_validation_metrics[metric_name].append(metric_value)
+
+                # Perform metric aggregation over batches
+                aggregated_metrics = {}
+                for metric_name, metric_values in epoch_validation_metrics.items():
+                    aggregated_metrics[metric_name] = np.mean(metric_values)
+                aggregated_metrics[f'{constants.VALIDATION}_{constants.EPOCH}'] = epoch
+
+                # Stop early if accuracy does not increase within `max_num_rounds_no_improvement`evaluation runs.
+                epoch_accuracy = aggregated_metrics[f'{constants.VALIDATION}_{constants.ACCURACY}']
+                epoch_loss = aggregated_metrics[f'{constants.VALIDATION}_{constants.LOSS}']
+                if metric_for_early_stopping == constants.ACCURACY and epoch_accuracy > max_accuracy:
+                    max_accuracy = epoch_accuracy
+                    num_rounds_no_improvement = 0
+                    epoch_with_optimal_performance = epoch
+                    torch.save(self.state_dict(), best_model_path)
+                elif metric_for_early_stopping == constants.LOSS and epoch_loss < min_loss:
+                    min_loss = epoch_loss
+                    num_rounds_no_improvement = 0
+                    epoch_with_optimal_performance = epoch
+                    torch.save(self.state_dict(), best_model_path)
+                else:
+                    num_rounds_no_improvement += 1
+
+                wandb.log(aggregated_metrics)
+
+                if num_rounds_no_improvement == max_num_rounds_no_improvement:
+                    print(f'Performing early stopping after {epoch} epochs.\n'
+                          f'Optimal model obtained from epoch #{epoch_with_optimal_performance}')
+                    self.load_state_dict(torch.load(best_model_path))
+                    break
 
     def evaluate(self, 
                  test_loader: torch.utils.data.DataLoader,
@@ -310,7 +384,8 @@ class BaselineLogisticRegression(torch.nn.Module):
         targets_list = np.concatenate(targets_list)
         eval_metrics = compute_metrics(num_labels=num_labels,
                                        preds=preds_list,
-                                       targets=targets_list)
+                                       targets=targets_list,
+                                       split_name=constants.TEST)
         return eval_metrics
 
 

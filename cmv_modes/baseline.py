@@ -51,6 +51,8 @@ def extract_bigram_features(corpus_df: pd.DataFrame,
 
 def get_baseline_scores(task_name: str,
                         corpus_df: pd.DataFrame,
+                        metric_for_early_stopping: str,
+                        max_num_rounds_no_improvement: int,
                         num_cross_validation_splits: int = 5,
                         premise_mode: str = None,
                         num_epochs: int = 100,
@@ -109,7 +111,8 @@ def get_baseline_scores(task_name: str,
             num_epochs=num_epochs,
             optimizer=optimizer,
             scheduler=scheduler,
-        )
+            max_num_rounds_no_improvement=max_num_rounds_no_improvement,
+            metric_for_early_stopping=metric_for_early_stopping)
 
         train_metrics = logistic_regression.evaluate(
             test_loader=torch.utils.data.DataLoader(

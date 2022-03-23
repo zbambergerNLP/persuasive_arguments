@@ -259,6 +259,7 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
         early.
     :param metric_for_early_stopping: The metric used to determine whether or not to stop early. If the metric of
         interest does not improve within `max_num_rounds_no_improvement`, then we stop early.
+    :param perform_early_stopping: True if we want to perform early stopping during training. False otherwise.
     :return: A tuple consisting of three entries:
         pretrained_probing_model: A probing model trained on embeddings produced by a pre-trained transformer model.
         fine_tuned_probing_model: A probing model trained on embeddings produced by a pre-trained and fine-tuned
@@ -315,7 +316,9 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
         for validation_set_index in range(num_cross_validation_splits):
             num_labels = (
                 len(constants.PREMISE_MODE_TO_INT) if base_model_type == constants.MULTICLASS else constants.NUM_LABELS)
-            validation_set = shards[validation_set_index].shuffle()
+            validation_and_test_sets = shards[validation_set_index].train_test_split(test_size=0.5)
+            validation_set = validation_and_test_sets[constants.TRAIN].shuffle()
+            test_set = validation_and_test_sets[constants.TEST].shuffle()
             training_set = datasets.concatenate_datasets(
                 shards[0:validation_set_index] + shards[validation_set_index+1:]).shuffle()
             run_name = f'Probe {probing_model_name} on {task_name}, ' \
@@ -347,14 +350,19 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
                 data_loaders.CMVProbingDataset(training_set),
                 batch_size=probe_training_batch_size,
                 shuffle=True)
-            test_loader = torch.utils.data.DataLoader(
+            validation_loader = torch.utils.data.DataLoader(
                 data_loaders.CMVProbingDataset(validation_set),
                 batch_size=probe_eval_batch_size,
                 shuffle=True)
+            test_loader = torch.utils.data.DataLoader(
+                data_loaders.CMVProbingDataset(test_set),
+                batch_size=probe_eval_batch_size,
+                shuffle=True,
+            )
 
             trained_model = models.train_probe(probing_model=probing_model,
                                                train_loader=train_loader,
-                                               validation_loader=test_loader,
+                                               validation_loader=validation_loader,
                                                optimizer=optimizer,
                                                num_labels=num_labels,
                                                loss_function=loss_function,
@@ -364,10 +372,13 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
                                                scheduler=scheduler)
             train_metrics = models.eval_probe(probing_model=trained_model,
                                               num_labels=num_labels,
-                                              test_loader=train_loader)
+                                              test_loader=train_loader,
+                                              split_name=constants.TRAIN,
+                                              log_results=False)
             eval_metrics = models.eval_probe(probing_model=trained_model,
                                              num_labels=num_labels,
-                                             test_loader=test_loader)
+                                             test_loader=test_loader,
+                                             split_name=constants.TEST)
             all_models[base_model_type].append(trained_model)
             all_train_metrics[base_model_type].append(train_metrics)
             all_eval_metrics[base_model_type].append(eval_metrics)

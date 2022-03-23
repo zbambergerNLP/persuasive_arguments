@@ -208,6 +208,8 @@ def transform_df_to_dataset(task_name: str,
                             corpus_df: pd.DataFrame,
                             tokenizer: transformers.PreTrainedTokenizer,
                             save_text_datasets: bool,
+                            max_num_rounds_no_improvement: int,
+                            metric_for_early_stopping: str,
                             premise_mode: str = None,
                             run_baseline_experiment: bool = False) -> datasets.Dataset:
     """
@@ -248,7 +250,10 @@ def transform_df_to_dataset(task_name: str,
         baseline.get_baseline_scores(
             task_name=task_name,
             corpus_df=corpus_df,
-            premise_mode=premise_mode)
+            premise_mode=premise_mode,
+            max_num_rounds_no_improvement=max_num_rounds_no_improvement,
+            metric_for_early_stopping=metric_for_early_stopping,
+        )
 
     dataset = datasets.Dataset.from_dict(
         tokenize_for_task(
@@ -267,6 +272,8 @@ def transform_df_to_dataset(task_name: str,
 
 def get_dataset(task_name: str,
                 tokenizer: transformers.PreTrainedTokenizer,
+                max_num_rounds_no_improvement: int,
+                metric_for_early_stopping: str,
                 save_text_datasets: bool = False,
                 dataset_name: str = None,
                 premise_mode: str = None,
@@ -304,7 +311,9 @@ def get_dataset(task_name: str,
                                    tokenizer=tokenizer,
                                    save_text_datasets=save_text_datasets,
                                    premise_mode=premise_mode,
-                                   run_baseline_experiment=run_baseline_experiment)
+                                   run_baseline_experiment=run_baseline_experiment,
+                                   max_num_rounds_no_improvement=max_num_rounds_no_improvement,
+                                   metric_for_early_stopping=metric_for_early_stopping)
 
 
 def downsample_dataset(dataset: datasets.Dataset,

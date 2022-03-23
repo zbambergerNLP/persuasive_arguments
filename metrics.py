@@ -15,7 +15,7 @@ accuracy = load_metric(constants.ACCURACY)
 def compute_metrics(num_labels: int,
                     preds: typing.Union[torch.Tensor | typing.Sequence[int]],
                     targets: typing.Union[torch.Tensor | typing.Sequence[int]],
-                    is_train: bool = False) -> typing.Mapping[str, float]:
+                    split_name: str = constants.TRAIN) -> typing.Mapping[str, float]:
     """
 
     :param num_labels: The number of labels for the probing classification problem.
@@ -26,10 +26,10 @@ def compute_metrics(num_labels: int,
     """
     average = 'binary' if num_labels == 2 else 'micro'
     precision, recall, f1, _ = precision_recall_fscore_support(y_true=targets, y_pred=preds, average=average)
-    precision_key = f'{constants.TRAIN}_{constants.PRECISION}' if is_train else constants.PRECISION
-    recall_key = f'{constants.TRAIN}_{constants.RECALL}' if is_train else constants.RECALL
-    f1_key = f'{constants.TRAIN}_{constants.F1}' if is_train else constants.F1
-    accuracy_key = f'{constants.TRAIN}_{constants.ACCURACY}' if is_train else constants.ACCURACY
+    precision_key = f'{split_name}_{constants.PRECISION}'
+    recall_key = f'{split_name}_{constants.RECALL}'
+    f1_key = f'{split_name}_{constants.F1}'
+    accuracy_key = f'{split_name}_{constants.ACCURACY}'
     metrics = {
         precision_key: precision,
         recall_key: recall,
