@@ -21,8 +21,8 @@ def compute_metrics(num_labels: int,
     :param num_labels: The number of labels for the probing classification problem.
     :param preds: Model predictions that are compared to ground truth labels to compute metrics.
     :param targets: The ground truth labels supplied by the dataset.
-    :param is_train: True if we are computing metrics in train mode. False otherwise.
-    :return:
+    :param split_name: The string name of the dataset split. Typically one of {train, validation, test}.
+    :return: A dictionary mapping metric names to their corresponding values (as evaluated on the provided split).
     """
     average = 'binary' if num_labels == 2 else 'micro'
     precision, recall, f1, _ = precision_recall_fscore_support(y_true=targets, y_pred=preds, average=average)

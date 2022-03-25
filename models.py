@@ -192,6 +192,8 @@ def eval_probe(probing_model: torch.nn.Module,
     :param test_loader: A 'torch.utils.data.DataLoader' wrapping a 'preprocessing.CMVDataset' instance for some
         premise mode.
     :param num_labels: The number of labels for the probing classification problem.
+    :param split_name: The string name of the dataset split. Typically one of {train, validation, test}.
+    :param log_results: True if we wish to log evaluation results on the provided dataset to wandb. False otherwise.
     :return: A mapping from metric names (keys) to metric values (floats) obtained while evaluating the probing model.
     """
     preds_list = []
@@ -223,17 +225,17 @@ class BaselineLogisticRegression(torch.nn.Module):
     def __init__(self, num_features, num_labels):
         """
 
-        :param num_features:
+        :param num_features: An integer representing the number of dimensions that exist in the input tensor.
         :param num_labels: The number of labels for the probing classification problem.
         """
         super(BaselineLogisticRegression, self).__init__()
         self.linear = torch.nn.Linear(num_features, num_labels)
 
     def forward(self, x):
-        """
+        """Pass input x through the model as part of the forward pass.
 
-        :param x:
-        :return:
+        :param x: A tensor with shape [batch_size, num_labels].
+        :return: A tensor with shape [batch_size, num_labels].
         """
         outputs = torch.sigmoid(self.linear(x.float()))
         return outputs
@@ -272,7 +274,9 @@ class BaselineLogisticRegression(torch.nn.Module):
         min_loss = math.inf
         num_rounds_no_improvement = 0
         epoch_with_optimal_performance = 0
-        best_model_path = os.path.join(os.getcwd(), 'tmp', f'optimal_{metric_for_early_stopping}_probe.pt')
+        best_model_dir_path = os.path.join(os.getcwd(), 'tmp')
+        utils.ensure_dir_exists(best_model_dir_path)
+        best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_probe.pt')
         for epoch in range(num_epochs):
             epoch_training_metrics = {}
             for i, data in enumerate(train_loader, 0):
@@ -289,7 +293,7 @@ class BaselineLogisticRegression(torch.nn.Module):
                     preds=preds,
                     targets=targets,
                     split_name=constants.TRAIN)
-                
+
                 # include training loss in batch metrics.
                 training_metrics[f'{constants.TRAIN}_{constants.LOSS}'] = loss.detach().numpy()
 
@@ -318,7 +322,7 @@ class BaselineLogisticRegression(torch.nn.Module):
                         targets=targets,
                         split_name=constants.VALIDATION)
 
-                    # include validation loss in batch metrics.
+                    # Include validation loss in batch metrics.
                     validation_metrics[f'{constants.VALIDATION}_{constants.LOSS}'] = (
                         loss_function(outputs,
                                       torch.nn.functional.one_hot(targets, num_labels).float()).detach().numpy()
@@ -361,13 +365,17 @@ class BaselineLogisticRegression(torch.nn.Module):
 
     def evaluate(self, 
                  test_loader: torch.utils.data.DataLoader,
-                 num_labels: int) -> typing.Mapping[str, float]:
+                 num_labels: int,
+                 split_name: str = constants.TEST,
+                 log_results: bool = True) -> typing.Mapping[str, float]:
         """
 
         :param test_loader: A 'torch.utils.data.DataLoader` wrapping a `preprocessing.CMVDataset` instance. This
             loader contains the test set.
         :param num_labels: An integer representing the output space (number of labels) for the probing classification
             problem.
+        :param split_name: The string name of the dataset split. Typically one of {train, validation, test}.
+        :param log_results: True if we wish to log evaluation results on the provided dataset to wandb. False otherwise.
         :return: A mapping from metric names (keys) to metric values (floats) obtained while evaluating the probing
             model."""
         preds_list = []
@@ -385,7 +393,9 @@ class BaselineLogisticRegression(torch.nn.Module):
         eval_metrics = compute_metrics(num_labels=num_labels,
                                        preds=preds_list,
                                        targets=targets_list,
-                                       split_name=constants.TEST)
+                                       split_name=split_name)
+        if log_results:
+            wandb.log(eval_metrics)
         return eval_metrics
 
 

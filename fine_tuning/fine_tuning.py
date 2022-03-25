@@ -58,6 +58,7 @@ def fine_tune_on_task(dataset: datasets.Dataset,
                       model: transformers.PreTrainedModel | torch.torch.nn.Module,
                       configuration: transformers.TrainingArguments,
                       task_name: str,
+                      max_num_rounds_no_improvement: int,
                       is_probing: bool = False,
                       premise_mode: str = None,
                       num_cross_validation_splits: int = 5,
@@ -70,11 +71,18 @@ def fine_tune_on_task(dataset: datasets.Dataset,
     :param configuration: A 'transformers.TrainingArguments' instance.
     :param task_name: A string. One of {'multiclass', 'binary_premise_mode_prediction', 'intra_argument_relations',
         'binary_cmv_delta_prediction'}.
+    :param max_num_rounds_no_improvement: The maximum number of iterations over the validation set in which accuracy
+        does not increase. If validation accuracy does not increase within this number of loops, we stop training
+        early.
     :param is_probing: True if the task on which we fine tune the model is a probing task. False if the task is a
         downstream task.
     :param premise_mode: If the task_name is 'binary_premise_mode_prediction', then this string parameter specifies
         which argument mode dataset we are fine-tuning the model on.
+    :param num_cross_validation_splits: An integer that represents the number of partitions formed during k-fold cross
+        validation. The validation set size consists of `1 / num_cross_validation_splits` examples from the original
+        dataset.
     :param logger: A logging.Logger instance used for logging.
+    :param probing_wandb_entity: The wandb entity used to track metrics across training, validation, and test splits.
     :return: A 2-tuple of the form (trainer, eval_metrics). The trainer is a 'transformers.Trainer' instance used to
         fine-tune the model, and the metrics are a dictionary derived from evaluating the model on the verification set.
     """
@@ -100,16 +108,15 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         validation_set = shards[validation_set_index].shuffle()
         training_set = datasets.concatenate_datasets(
             shards[0:validation_set_index] + shards[validation_set_index + 1:]).shuffle()
-        if probing_wandb_entity:
-            run_name = f'Fine-tune BERT on {task_name}, ' \
-                       f'Split #{validation_set_index + 1}'
-            if premise_mode:
-                run_name += f' ({premise_mode})'
-            run = wandb.init(
-                project="persuasive_arguments",
-                entity=probing_wandb_entity,
-                reinit=True,
-                name=run_name)
+        run_name = f'Fine-tune BERT on {task_name}, ' \
+                   f'Split #{validation_set_index + 1}'
+        if premise_mode:
+            run_name += f' ({premise_mode})'
+        run = wandb.init(
+            project="persuasive_arguments",
+            entity=probing_wandb_entity,
+            reinit=True,
+            name=run_name)
         metrics_function = (
             metrics.compute_metrics_for_multi_class_classification if task_name == constants.MULTICLASS else
             metrics.compute_metrics_for_binary_classification)
@@ -118,9 +125,11 @@ def fine_tune_on_task(dataset: datasets.Dataset,
             args=configuration,
             train_dataset=training_set,
             eval_dataset=validation_set,
-            compute_metrics=metrics_function)
+            compute_metrics=metrics_function,
+        )
         trainer.add_callback(TrainingMetricsCallback(trainer))
         trainer.add_callback(ValidationMetricsCallback(trainer))
+        trainer.add_callback(transformers.EarlyStoppingCallback(early_stopping_patience=max_num_rounds_no_improvement))
 
         # Training
         logger.info("*** Train ***")
@@ -135,10 +144,8 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         logger.info("*** Evaluate ***")
         eval_metrics = trainer.evaluate(validation_set)
         shard_eval_metrics.append(eval_metrics)
-        if probing_wandb_entity:
-            run.finish()
+        run.finish()
 
-    # TODO(zbamberger): Ensure that training metrics include the ones tracked during training.
     eval_metric_aggregates = utils.aggregate_metrics_across_splits(shard_eval_metrics)
     train_metric_aggregates = utils.aggregate_metrics_across_splits(shard_train_metrics)
     eval_metric_averages, eval_metric_stds = utils.get_metrics_avg_and_std_across_splits(
@@ -150,5 +157,4 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         is_train=True,
         print_results=True)
 
-    # TODO: Return the best performing trainer as opposed to the most recent one.
     return trainer, eval_metric_averages

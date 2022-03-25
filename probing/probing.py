@@ -242,7 +242,7 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
     :param num_cross_validation_splits: An integer that represents the number of partitions formed during k-fold cross
         validation. The validation set size consists of `1 / num_cross_validation_splits` examples from the original
         dataset.
-    :param probing_wandb_entity: The wandb entity used to track training.
+    :param probing_wandb_entity: The wandb entity used to track metrics across training, validation, and test splits.
     :param pretrained_checkpoint_name: The string name of the pretrained model checkpoint to load.
     :param fine_tuned_model_path: The path to the file containing a saved language model that was fine-tuned on the
         downstream task.
@@ -250,7 +250,7 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
     :param probe_learning_rate: A float representing the learning rate used by the optimizer while training the probe.
     :param probe_training_batch_size: The batch size used while training the probe. An integer.
     :param probe_eval_batch_size: The batch size used for probe evaluation. An integer.
-    :param probe_num_epochs: The number of training epochs used to train the probe if using a MLP.
+    :param probe_num_epochs: The number of training epochs used to train the probe.
     :param probe_optimizer_scheduler_gamma: Decays the learning rate of each parameter group by gamma every epoch.
     :param premise_mode: A string representing the premise mode towards which the dataset is oriented. For example,
         if the mode were 'ethos', then positive labels would be premises who's label contains 'ethos'.
@@ -326,12 +326,11 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
                        f'Split #{validation_set_index + 1}'
             if premise_mode:
                 run_name += f' ({premise_mode})'
-            if probing_wandb_entity:
-                run = wandb.init(
-                    project="persuasive_arguments",
-                    entity=probing_wandb_entity,
-                    reinit=True,
-                    name=run_name)
+            run = wandb.init(
+                project="persuasive_arguments",
+                entity=probing_wandb_entity,
+                reinit=True,
+                name=run_name)
 
             if probing_model_name == constants.MLP:
                 probing_model = models.MLPProbe(num_labels=num_labels)
@@ -382,7 +381,6 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
             all_models[base_model_type].append(trained_model)
             all_train_metrics[base_model_type].append(train_metrics)
             all_eval_metrics[base_model_type].append(eval_metrics)
-            if probing_wandb_entity:
-                run.finish()
+            run.finish()
 
     return all_models, all_train_metrics, all_eval_metrics

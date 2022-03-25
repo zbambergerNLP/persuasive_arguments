@@ -18,6 +18,25 @@ import transformers
 
 """
 Below are instructions on how to run this script.
+
+srun --gres=gpu:1 -p nlp python3 main.py \
+    --probing_model "mlp" \
+    --fine_tuned_model_path "/home/zachary/persuasive_argumentation/fine_tuning/results/checkpoint-3500" \
+    --fine_tuning_on_probing_task_learning_rate 1e-4  \
+    --probing_optimizer "adam" \
+    --probing_model_scheduler_gamma 0.9 \
+    --probing_model_learning_rate 5e-4 \
+    --probing_num_training_epochs 70 \
+    --downsampling_min_examples 300 \
+    --fine_tuning_on_probing_task_num_training_epochs 12 \
+    --downsample_binary_premise_mode_prediction True \
+    --probe_model_on_binary_premise_modes True \
+    --generate_new_premise_mode_probing_dataset "" \
+    --fine_tune_model_on_binary_premise_modes "" \
+    --num_cross_validation_splits 5 \
+    --max_num_rounds_no_improvement 5 \
+    --run_baseline_experiment True \
+    --metric_for_early_stopping loss
     
 How to run binary premise mode experiments:
 srun --gres=gpu:1 -p nlp python3 main.py \
@@ -125,7 +144,7 @@ parser.add_argument('--probing_model_scheduler_gamma',
                     help="Decays the learning rate of each parameter group by gamma every epoch.")
 parser.add_argument('--run_baseline_experiment',
                     type=bool,
-                    default=True, # Experiment with this
+                    default=True,
                     help="True if we wish to run a baseline experiment using logistic regression over bigram features."
                          "False otherwise.")
 
@@ -205,7 +224,7 @@ parser.add_argument('--generate_new_premise_mode_probing_dataset',
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
 parser.add_argument('--fine_tune_model_on_binary_premise_modes',
                     type=bool,
-                    default=False,
+                    default=True,
                     help='Fine tune the model specified in `model_checkpoint_name` on the probing datasets.')
 
 # Multi-Class Premise Mode Probing:
@@ -280,6 +299,7 @@ def run_fine_tuning(probing_wandb_entity: str,
                     model: transformers.PreTrainedModel | torch.torch.nn.Module,
                     configuration: transformers.TrainingArguments,
                     is_probing: bool,
+                    max_num_rounds_no_improvement: int,
                     premise_mode: str = None,
                     logger: logging.Logger = None):
     """
@@ -306,7 +326,8 @@ def run_fine_tuning(probing_wandb_entity: str,
                                       is_probing=is_probing,
                                       premise_mode=premise_mode,
                                       logger=logger,
-                                      probing_wandb_entity=probing_wandb_entity))
+                                      probing_wandb_entity=probing_wandb_entity,
+                                      max_num_rounds_no_improvement=max_num_rounds_no_improvement))
     return trainer, eval_metrics
 
 
@@ -334,6 +355,8 @@ if __name__ == "__main__":
         logging_dir=args.probing_logging_dir,
         logging_steps=args.probing_logging_steps,
         report_to=["wandb"],
+        load_best_model_at_end=True,
+        metric_for_best_model=args.metric_for_early_stopping
     )
     model = transformers.BertForSequenceClassification.from_pretrained(
         args.model_checkpoint_name,
@@ -365,7 +388,8 @@ if __name__ == "__main__":
                                 model=model,
                                 configuration=configuration,
                                 is_probing=True,
-                                logger=logger))
+                                logger=logger,
+                                max_num_rounds_no_improvement=args.max_num_rounds_no_improvement))
         if args.probe_model_on_intra_argument_relations:
             run = wandb.init(project="persuasive_arguments",
                              entity=args.probing_wandb_entity,
@@ -419,7 +443,8 @@ if __name__ == "__main__":
                                 model=pretrained_multiclass_model,
                                 configuration=configuration,
                                 is_probing=True,
-                                logger=logger))
+                                logger=logger,
+                                max_num_rounds_no_improvement=args.max_num_rounds_no_improvement))
         run = wandb.init(project="persuasive_arguments",
                          entity=args.probing_wandb_entity,
                          reinit=True,
@@ -477,7 +502,8 @@ if __name__ == "__main__":
                             model=model,
                             configuration=configuration,
                             is_probing=True,
-                            logger=logger)
+                            logger=logger,
+                            max_num_rounds_no_improvement=args.max_num_rounds_no_improvement)
 
     # Perform probing on each of the premise mode binary classification tasks.
     if args.probe_model_on_binary_premise_modes:
