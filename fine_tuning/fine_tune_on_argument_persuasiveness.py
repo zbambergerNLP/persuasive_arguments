@@ -106,7 +106,7 @@ parser.add_argument('--grad_accum',
 # Early Stopping
 parser.add_argument('--max_num_rounds_no_improvement',
                     type=int,
-                    default=10,
+                    default=3,
                     help="The maximum number of iterations over the validation set in which accuracy does not increase."
                          "If validation accuracy does not increase within this number of loops, we stop training early.")
 # TODO: Enforce that 'metric_for_early_stopping' is always either `loss` or `accuracy`.

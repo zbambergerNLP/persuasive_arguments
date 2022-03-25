@@ -26,31 +26,8 @@ class TrainingMetricsCallback(transformers.TrainerCallback):
         training_metrics = self._trainer.evaluate(
             eval_dataset=self._trainer.train_dataset,
             metric_key_prefix=constants.TRAIN)
-        training_metrics['train_accuracy'] = training_metrics['train_accuracy']
         self._trainer.log_metrics(constants.TRAIN, training_metrics)
         self._trainer.save_metrics(constants.TRAIN, training_metrics)
-        return control_copy
-
-
-class ValidationMetricsCallback(transformers.TrainerCallback):
-    
-    def __init__(self, trainer) -> None:
-        super().__init__()
-        self._trainer = trainer
-    
-    def on_epoch_begin(
-            self, 
-            args: transformers.TrainingArguments, 
-            state: transformers.TrainerState, 
-            control: transformers.TrainerControl,
-            **kwargs) -> transformers.TrainerControl:
-        control_copy = copy.deepcopy(control)
-        validation_metrics = self._trainer.evaluate(
-            eval_dataset=self._trainer.eval_dataset,
-            metric_key_prefix=constants.VALIDATION)
-        validation_metrics['validation_accuracy'] = validation_metrics['validation_accuracy']
-        self._trainer.log_metrics(constants.VALIDATION, validation_metrics)
-        self._trainer.save_metrics(constants.VALIDATION, validation_metrics)
         return control_copy
 
 
@@ -105,7 +82,9 @@ def fine_tune_on_task(dataset: datasets.Dataset,
               for i in range(num_cross_validation_splits)]
     for validation_set_index in range(num_cross_validation_splits):
         split_model = copy.deepcopy(model)
-        validation_set = shards[validation_set_index].shuffle()
+        validation_and_test_sets = shards[validation_set_index].train_test_split(test_size=0.5)
+        validation_set = validation_and_test_sets[constants.TRAIN].shuffle()
+        test_set = validation_and_test_sets[constants.TEST].shuffle()
         training_set = datasets.concatenate_datasets(
             shards[0:validation_set_index] + shards[validation_set_index + 1:]).shuffle()
         run_name = f'Fine-tune BERT on {task_name}, ' \
@@ -128,7 +107,6 @@ def fine_tune_on_task(dataset: datasets.Dataset,
             compute_metrics=metrics_function,
         )
         trainer.add_callback(TrainingMetricsCallback(trainer))
-        trainer.add_callback(ValidationMetricsCallback(trainer))
         trainer.add_callback(transformers.EarlyStoppingCallback(early_stopping_patience=max_num_rounds_no_improvement))
 
         # Training
@@ -142,7 +120,9 @@ def fine_tune_on_task(dataset: datasets.Dataset,
 
         # Evaluation
         logger.info("*** Evaluate ***")
-        eval_metrics = trainer.evaluate(validation_set)
+        eval_metrics = trainer.evaluate(test_set)
+        trainer.log_metrics(constants.TEST, training_metrics)
+        trainer.save_metrics(constants.TEST, training_metrics)
         shard_eval_metrics.append(eval_metrics)
         run.finish()
 

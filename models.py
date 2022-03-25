@@ -452,6 +452,24 @@ class GCNWithBertEmbeddings(torch.nn.Module):
         return F.log_softmax(x, dim=1)
 
 
+class BertParagraphWithMLP(torch.nn.Module):
+    def __init__(self, bert_model, layers, pooling=None):
+        super(BertParagraphWithMLP, self).__init__()
+        self.bert_model = bert_model
+        self.layers = layers
+        self.pooling = pooling
+
+    def forward(self, X):
+        bert_outputs = self.bert_model(X)
+        mlp_outputs = self.layers(bert_outputs)
+        pooling_outputs = self.pooling(mlp_outputs)
+        return F.log_softmax(pooling_outputs, dim=1)
+
+
+class BertUtteranceWithPoolingAndMLP(torch.nn.Module):
+    pass
+
+
 if __name__ == '__main__':
     model = GCNWithBertEmbeddings(256, 2, 16)
     print(model)
