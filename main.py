@@ -55,8 +55,8 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --generate_new_premise_mode_probing_dataset True \
     --fine_tune_model_on_binary_premise_modes True \
     --num_cross_validation_splits 5 \
-    --max_num_rounds_no_improvement 5
-    
+    --max_num_rounds_no_improvement 20 \
+    --metric_for_early_stopping accuracy    
     
 How to run intra-argument relations experiments:
 srun --gres=gpu:1 -p nlp python3 main.py \
@@ -75,7 +75,8 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --downsample_binary_intra_argument_relation_prediction True \
     --fine_tune_model_on_argument_relations True \
     --num_cross_validation_splits 5 \
-    --max_num_rounds_no_improvement 5
+    --max_num_rounds_no_improvement 20 \
+    --metric_for_early_stopping accuracy
     
 How to run multi-class premise mode experiments:
 srun --gres=gpu:1 -p nlp python3 main.py \
@@ -92,9 +93,9 @@ srun --gres=gpu:1 -p nlp python3 main.py \
     --downsample_multi_class_premise_mode_prediction True \
     --multi_class_premise_mode_probing True \
     --generate_new_premise_mode_probing_dataset True \
-    --fine_tune_model_on_multi_class_premise_modes True \
     --num_cross_validation_splits 5 \
-    --max_num_rounds_no_improvement 5
+    --max_num_rounds_no_improvement 20 \
+    --metric_for_early_stopping accuracy
     
 
 * Note that an empty string on boolean flags is interpreted as `False`.
@@ -261,6 +262,10 @@ parser.add_argument('--probing_per_device_eval_batch_size',
                     type=int,
                     default=64,
                     help="The number of examples per batch per device during probe evaluation.")
+parser.add_argument('--grad_accum',
+                    type=int,
+                    default=4,
+                    help="The number of batches to accumulate before doing back propagation")
 parser.add_argument('--eval_steps',
                     type=int,
                     default=50,
@@ -299,6 +304,7 @@ def run_fine_tuning(probing_wandb_entity: str,
                     model: transformers.PreTrainedModel | torch.torch.nn.Module,
                     configuration: transformers.TrainingArguments,
                     is_probing: bool,
+                    num_cross_validation_splits: int,
                     max_num_rounds_no_improvement: int,
                     premise_mode: str = None,
                     logger: logging.Logger = None):
@@ -312,6 +318,8 @@ def run_fine_tuning(probing_wandb_entity: str,
     :param configuration: A 'transformers.TrainingArguments' instance.
     :param is_probing: True if the task on which we fine tune the model is a probing task. False if the task is a
         downstream task.
+    :param num_cross_validation_splits:
+    :param max_num_rounds_no_improvement:
     :param premise_mode: A string representing the premise mode towards which the dataset is oriented. For example,
         if the mode were 'ethos', then positive labels would be premises who's label contains 'ethos'.
     :param logger: A logging.Logger instance used for logging.
@@ -327,6 +335,7 @@ def run_fine_tuning(probing_wandb_entity: str,
                                       premise_mode=premise_mode,
                                       logger=logger,
                                       probing_wandb_entity=probing_wandb_entity,
+                                      num_cross_validation_splits=num_cross_validation_splits,
                                       max_num_rounds_no_improvement=max_num_rounds_no_improvement))
     return trainer, eval_metrics
 
@@ -345,18 +354,19 @@ if __name__ == "__main__":
     configuration = transformers.TrainingArguments(
         output_dir=args.probing_output_dir,
         num_train_epochs=args.fine_tuning_on_probing_task_num_training_epochs,
-        eval_steps=args.eval_steps,
-        evaluation_strategy=transformers.training_args.IntervalStrategy('steps'),
+        evaluation_strategy=transformers.training_args.IntervalStrategy('epoch'),
+        save_strategy=transformers.training_args.IntervalStrategy('epoch'),
         learning_rate=args.fine_tuning_on_probing_task_learning_rate,
         per_device_train_batch_size=args.probing_per_device_train_batch_size,
         per_device_eval_batch_size=args.probing_per_device_eval_batch_size,
+        gradient_accumulation_steps=args.grad_accum,
         warmup_steps=args.probing_warmup_steps,
         weight_decay=args.probing_weight_decay,
         logging_dir=args.probing_logging_dir,
-        logging_steps=args.probing_logging_steps,
         report_to=["wandb"],
         load_best_model_at_end=True,
-        metric_for_best_model=args.metric_for_early_stopping
+        metric_for_best_model=args.metric_for_early_stopping,
+        greater_is_better=(args.metric_for_early_stopping == constants.ACCURACY)
     )
     model = transformers.BertForSequenceClassification.from_pretrained(
         args.model_checkpoint_name,
@@ -373,7 +383,7 @@ if __name__ == "__main__":
             tokenizer=tokenizer,
             run_baseline_experiment=args.run_baseline_experiment,
             max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
-            metric_for_early_stopping=args.metric_for_early_stopping
+            metric_for_early_stopping=args.metric_for_early_stopping,
         )
         if args.downsample_binary_intra_argument_relation_prediction:
             intra_argument_relations_probing_dataset = preprocessing.downsample_dataset(
@@ -389,13 +399,14 @@ if __name__ == "__main__":
                                 configuration=configuration,
                                 is_probing=True,
                                 logger=logger,
+                                num_cross_validation_splits=args.num_cross_validation_splits,
                                 max_num_rounds_no_improvement=args.max_num_rounds_no_improvement))
         if args.probe_model_on_intra_argument_relations:
             run = wandb.init(project="persuasive_arguments",
                              entity=args.probing_wandb_entity,
                              reinit=True,
                              name='Intra argument relations probing')
-            probing_model, train_metrics, eval_metrics = probing.probe_model_on_task(
+            probing_models, train_metrics, validation_metrics, test_metrics = probing.probe_model_on_task(
                 probing_dataset=data_loaders.CMVDataset(intra_argument_relations_probing_dataset),
                 probing_model_name=args.probing_model,
                 generate_new_hidden_state_dataset=args.generate_new_relations_probing_dataset,
@@ -416,8 +427,10 @@ if __name__ == "__main__":
             run.finish()
             print('\n*** Intra-Argument Relation Training Metrics: ***')
             utils.print_metrics(train_metrics)
-            print('\n*** Intra-Argument Relation Evaluation Metrics: ***')
-            utils.print_metrics(eval_metrics)
+            print('\n*** Intra-Argument Relation Validation Metrics: ***')
+            utils.print_metrics(validation_metrics)
+            print('\n*** Intra-Argument Relation Test Metrics: ***')
+            utils.print_metrics(validation_metrics)
 
     if args.multi_class_premise_mode_probing:
         pretrained_multiclass_model = transformers.BertForSequenceClassification.from_pretrained(
@@ -428,8 +441,7 @@ if __name__ == "__main__":
                                       tokenizer=tokenizer,
                                       run_baseline_experiment=args.run_baseline_experiment,
                                       max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
-                                      metric_for_early_stopping=args.metric_for_early_stopping)
-        )
+                                      metric_for_early_stopping=args.metric_for_early_stopping))
         if args.downsample_multi_class_premise_mode_prediction:
             multi_class_premise_mode_dataset = preprocessing.downsample_dataset(
                 dataset=multi_class_premise_mode_dataset,
@@ -444,12 +456,9 @@ if __name__ == "__main__":
                                 configuration=configuration,
                                 is_probing=True,
                                 logger=logger,
+                                num_cross_validation_splits=args.num_cross_validation_splits,
                                 max_num_rounds_no_improvement=args.max_num_rounds_no_improvement))
-        run = wandb.init(project="persuasive_arguments",
-                         entity=args.probing_wandb_entity,
-                         reinit=True,
-                         name='Multiclass premise model probing')
-        probing_mode, train_metrics, eval_metrics = probing.probe_model_on_task(
+        probing_models, train_metrics, validation_metrics, test_metrics = probing.probe_model_on_task(
             probing_dataset=data_loaders.CMVDataset(multi_class_premise_mode_dataset),
             probing_model_name=args.probing_model,
             generate_new_hidden_state_dataset=args.generate_new_premise_mode_probing_dataset,
@@ -462,14 +471,13 @@ if __name__ == "__main__":
             probe_training_batch_size=args.probing_per_device_train_batch_size,
             probe_eval_batch_size=args.probing_per_device_eval_batch_size,
             probe_num_epochs=args.probing_num_training_epochs,
-            probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma,
-            max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
-            metric_for_early_stopping=args.metric_for_early_stopping)
-        run.finish()
-        print('\n*** Multi-Class Training Metrics: ***')
+            probe_optimizer_scheduler_gamma=args.probing_model_scheduler_gamma)
+        print('\n*** Multi-Class Relation Training Metrics: ***')
         utils.print_metrics(train_metrics)
-        print('\n*** Multi-Class Relation Evaluation Metrics: ***')
-        utils.print_metrics(eval_metrics)
+        print('\n*** Multi-Class Relation Validation Metrics: ***')
+        utils.print_metrics(validation_metrics)
+        print('\n*** Multi-Class Relation Test Metrics: ***')
+        utils.print_metrics(test_metrics)
 
     logos_dataset = preprocessing.get_dataset(task_name=constants.BINARY_PREMISE_MODE_PREDICTION,
                                               tokenizer=tokenizer,
@@ -503,6 +511,7 @@ if __name__ == "__main__":
                             configuration=configuration,
                             is_probing=True,
                             logger=logger,
+                            num_cross_validation_splits=args.num_cross_validation_splits,
                             max_num_rounds_no_improvement=args.max_num_rounds_no_improvement)
 
     # Perform probing on each of the premise mode binary classification tasks.
@@ -515,7 +524,7 @@ if __name__ == "__main__":
                     dataset=dataset,
                     num_labels=constants.NUM_LABELS,
                     min_examples=args.downsampling_min_examples)
-            models, train_metrics, eval_metrics = (
+            probing_models, train_metrics, validation_metrics, test_metrics = (
                 probing.probe_model_on_task(
                     probing_dataset=data_loaders.CMVDataset(dataset),
                     probing_model_name=args.probing_model,
@@ -536,5 +545,7 @@ if __name__ == "__main__":
                     metric_for_early_stopping=args.metric_for_early_stopping))
             print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Train Metrics: ***')
             utils.print_metrics(train_metrics)
-            print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Evaluation Metrics: ***')
-            utils.print_metrics(eval_metrics)
+            print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Validation Metrics: ***')
+            utils.print_metrics(validation_metrics)
+            print(f'\n*** Binary Premise Mode Prediction ({premise_mode}) Test Metrics: ***')
+            utils.print_metrics(test_metrics)

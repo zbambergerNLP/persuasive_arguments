@@ -9,7 +9,6 @@ import typing
 
 import cmv_modes.preprocessing_cmv_ampersand as cmv_probing
 import constants
-import models
 from cmv_modes import baseline
 
 
@@ -236,6 +235,9 @@ def transform_df_to_dataset(task_name: str,
     :param save_text_datasets: True if we want to store the probing dataset in textual form in the appropriate
         directory (i.e., './probing/{mode}'}.
     :param premise_mode: A string in the set {'ethos', 'logos', 'pathos'}.
+    :param run_baseline_experiment:
+    :param max_num_rounds_no_improvement:
+    :param metric_for_early_stopping:
     :return: A datasets.Dataset instance for the inputted task.
     """
     if save_text_datasets:
@@ -254,7 +256,6 @@ def transform_df_to_dataset(task_name: str,
             max_num_rounds_no_improvement=max_num_rounds_no_improvement,
             metric_for_early_stopping=metric_for_early_stopping,
         )
-
     dataset = datasets.Dataset.from_dict(
         tokenize_for_task(
             task_name=task_name,
@@ -288,6 +289,9 @@ def get_dataset(task_name: str,
         directory (i.e., './probing/{mode}'}.
     :param dataset_name: The name with which the CMV dataset json object is saved (in the local directory).
     :param premise_mode: A string in the set {'ethos', 'logos', 'pathos'}.
+    :param run_baseline_experiment:
+    :param max_num_rounds_no_improvement:
+    :param metric_for_early_stopping:
     :return: A datasets.Dataset instance for the inputted task.
     """
     if task_name == constants.INTRA_ARGUMENT_RELATIONS:

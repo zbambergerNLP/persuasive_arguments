@@ -22,14 +22,18 @@ def compute_metrics(num_labels: int,
     :param preds: Model predictions that are compared to ground truth labels to compute metrics.
     :param targets: The ground truth labels supplied by the dataset.
     :param split_name: The string name of the dataset split. Typically one of {train, validation, test}.
+    :param use_huggingface_prefix:
     :return: A dictionary mapping metric names to their corresponding values (as evaluated on the provided split).
     """
     average = 'binary' if num_labels == 2 else 'micro'
-    precision, recall, f1, _ = precision_recall_fscore_support(y_true=targets, y_pred=preds, average=average)
-    precision_key = f'{split_name}_{constants.PRECISION}' if split_name else constants.PRECISION
-    recall_key = f'{split_name}_{constants.RECALL}' if split_name else constants.RECALL
-    f1_key = f'{split_name}_{constants.F1}' if split_name else constants.F1
-    accuracy_key = f'{split_name}_{constants.ACCURACY}' if split_name else constants.ACCURACY
+    precision, recall, f1, _ = precision_recall_fscore_support(y_true=targets, y_pred=preds, average=average,
+                                                               zero_division=1)
+
+    metrics_name_fn = lambda split_name, metric_name: f"{split_name}_{metric_name}" if split_name else metric_name
+    precision_key = metrics_name_fn(split_name=split_name, metric_name=constants.PRECISION)
+    recall_key = metrics_name_fn(split_name=split_name, metric_name=constants.RECALL)
+    f1_key = metrics_name_fn(split_name=split_name, metric_name=constants.F1)
+    accuracy_key = metrics_name_fn(split_name=split_name, metric_name=constants.ACCURACY)
     metrics = {
         precision_key: precision,
         recall_key: recall,

@@ -227,7 +227,9 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
         typing.Tuple[
             typing.Mapping[str, typing.Sequence[torch.Module]],
             typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]],
-            typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]]]):
+            typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]],
+            typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]],
+        ]):
     """
 
     :param probing_dataset: A 'data_loaders.CMVProbingDataset' instance. This dataset maps either premises or
@@ -304,12 +306,15 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
     all_models = {constants.PRETRAINED: [],
               constants.FINE_TUNED: [],
               constants.MULTICLASS: []}
-    all_eval_metrics = {constants.PRETRAINED: [],
+    all_train_metrics = {constants.PRETRAINED: [],
+                         constants.FINE_TUNED: [],
+                         constants.MULTICLASS: []}
+    all_validation_metrics = {constants.PRETRAINED: [],
                     constants.FINE_TUNED: [],
                     constants.MULTICLASS: []}
-    all_train_metrics = {constants.PRETRAINED: [],
-                     constants.FINE_TUNED: [],
-                     constants.MULTICLASS: []}
+    all_test_metrics = {constants.PRETRAINED: [],
+                              constants.FINE_TUNED: [],
+                              constants.MULTICLASS: []}
     for base_model_type, dataset in hidden_state_datasets.items():
         shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
                   for i in range(num_cross_validation_splits)]
@@ -319,6 +324,7 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
             validation_and_test_sets = shards[validation_set_index].train_test_split(test_size=0.5)
             validation_set = validation_and_test_sets[constants.TRAIN].shuffle()
             test_set = validation_and_test_sets[constants.TEST].shuffle()
+            # validation_set = shards[validation_set_index].shuffle()
             training_set = datasets.concatenate_datasets(
                 shards[0:validation_set_index] + shards[validation_set_index+1:]).shuffle()
             run_name = f'Probe {probing_model_name} on {task_name}, ' \
@@ -356,7 +362,7 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
             test_loader = torch.utils.data.DataLoader(
                 data_loaders.CMVProbingDataset(test_set),
                 batch_size=probe_eval_batch_size,
-                shuffle=True,
+                shuffle=True
             )
 
             trained_model = models.train_probe(probing_model=probing_model,
@@ -366,21 +372,25 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
                                                num_labels=num_labels,
                                                loss_function=loss_function,
                                                num_epochs=probe_num_epochs,
-                                               max_num_rounds_no_improvement=max_num_rounds_no_improvement,
-                                               metric_for_early_stopping=metric_for_early_stopping,
+                                               max_num_rounds_no_improvement=20,
+                                               metric_for_early_stopping=constants.ACCURACY,
                                                scheduler=scheduler)
             train_metrics = models.eval_probe(probing_model=trained_model,
                                               num_labels=num_labels,
                                               test_loader=train_loader,
-                                              split_name=constants.TRAIN,
-                                              log_results=False)
-            eval_metrics = models.eval_probe(probing_model=trained_model,
+                                              split_name=constants.TRAIN)
+            validation_metrics = models.eval_probe(probing_model=probing_model,
+                                                   num_labels=num_labels,
+                                                   test_loader=validation_loader,
+                                                   split_name=constants.VALIDATION)
+            test_metrics = models.eval_probe(probing_model=trained_model,
                                              num_labels=num_labels,
                                              test_loader=test_loader,
                                              split_name=constants.TEST)
             all_models[base_model_type].append(trained_model)
             all_train_metrics[base_model_type].append(train_metrics)
-            all_eval_metrics[base_model_type].append(eval_metrics)
+            all_validation_metrics[base_model_type].append(validation_metrics)
+            all_test_metrics[base_model_type].append(test_metrics)
             run.finish()
 
-    return all_models, all_train_metrics, all_eval_metrics
+    return all_models, all_train_metrics, all_validation_metrics, all_test_metrics

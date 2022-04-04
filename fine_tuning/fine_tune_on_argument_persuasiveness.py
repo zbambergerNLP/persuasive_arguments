@@ -26,7 +26,9 @@ srun --gres=gpu:1 -p nlp python3 fine_tune_on_argument_persuasiveness.py \
     --fine_tuning_num_training_epochs 10 \
     --fine_tuning_learning_rate 1e-5 \
     --fine_tuning_per_device_train_batch_size 8 \
-    --fine_tuning_per_device_eval_batch_size 16
+    --fine_tuning_per_device_eval_batch_size 16 \
+    --metric_for_early_stopping accuracy \
+    --max_num_rounds_no_improvement 20
 """
 
 
@@ -96,12 +98,10 @@ parser.add_argument('--fine_tuning_wandb_entity',
                     type=str,
                     default='zbamberger',
                     help="The wandb entity used to track training.")
-
 parser.add_argument('--grad_accum',
                     type=int,
                     default=4,
                     help="The number of batches to accumulate before doing back propagation")
-
 
 # Early Stopping
 parser.add_argument('--max_num_rounds_no_improvement',
@@ -134,16 +134,16 @@ if __name__ == "__main__":
         per_device_train_batch_size=args.fine_tuning_per_device_train_batch_size,
         per_device_eval_batch_size=args.fine_tuning_per_device_eval_batch_size,
         gradient_accumulation_steps=args.grad_accum,
-        eval_steps=args.eval_steps,
-        evaluation_strategy=transformers.training_args.IntervalStrategy('steps'),
+        evaluation_strategy=transformers.training_args.IntervalStrategy('epoch'),
+        save_strategy=transformers.training_args.IntervalStrategy('epoch'),
         learning_rate=args.fine_tuning_learning_rate,
         warmup_steps=args.fine_tuning_warmup_steps,
         weight_decay=args.fine_tuning_weight_decay,
         logging_dir=args.fine_tuning_logging_dir,
-        logging_steps=args.fine_tuning_logging_steps,
         report_to=["wandb"],
         load_best_model_at_end=True,
-        metric_for_best_model=args.metric_for_early_stopping
+        metric_for_best_model=args.metric_for_early_stopping,
+        greater_is_better=(args.metric_for_early_stopping == constants.ACCURACY)
     )
     model = transformers.BertForSequenceClassification.from_pretrained(
         args.fine_tuning_model_checkpoint_name,

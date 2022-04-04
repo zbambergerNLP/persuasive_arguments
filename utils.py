@@ -45,8 +45,8 @@ def aggregate_metrics_across_splits(
 
 def get_metrics_avg_and_std_across_splits(
         metric_aggregates: typing.Mapping[str, typing.Sequence[float]],
-        print_results: bool = False,
-        is_train: bool = False) -> typing.Tuple[typing.Mapping[str, float], typing.Mapping[str, float]]:
+        split_name: str,
+        print_results: bool = False,) -> typing.Tuple[typing.Mapping[str, float], typing.Mapping[str, float]]:
     """
 
     :param metric_aggregates:
@@ -61,9 +61,9 @@ def get_metrics_avg_and_std_across_splits(
         metric_stds[metric_name] = np.std(metric_values, axis=-1)
     if print_results:
         for metric_name in metric_averages.keys():
-            print(f'\t\tmetric name ({"train" if is_train else "eval"}): {metric_name}\n'
-                  f'\t\t\tmean metric value ({"train" if is_train else "eval"}): {metric_averages[metric_name]}\n'
-                  f'\t\t\tstandard deviation ({"train" if is_train else "eval"}): {metric_stds[metric_name]}')
+            print(f'\t\tmetric name ({split_name}): {metric_name}\n'
+                  f'\t\t\tmean metric value ({split_name}): {metric_averages[metric_name]}\n'
+                  f'\t\t\tstandard deviation ({split_name}): {metric_stds[metric_name]}')
     return metric_averages, metric_stds
 
 

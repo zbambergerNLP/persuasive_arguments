@@ -31,6 +31,27 @@ class TrainingMetricsCallback(transformers.TrainerCallback):
         return control_copy
 
 
+class ValidationMetricsCallback(transformers.TrainerCallback):
+    
+    def __init__(self, trainer) -> None:
+        super().__init__()
+        self._trainer = trainer
+    
+    def on_epoch_begin(
+            self, 
+            args: transformers.TrainingArguments, 
+            state: transformers.TrainerState, 
+            control: transformers.TrainerControl,
+            **kwargs) -> transformers.TrainerControl:
+        control_copy = copy.deepcopy(control)
+        validation_metrics = self._trainer.evaluate(
+            eval_dataset=self._trainer.eval_dataset,
+            metric_key_prefix=constants.EVAL)
+        self._trainer.log_metrics(constants.EVAL, validation_metrics)
+        self._trainer.save_metrics(constants.EVAL, validation_metrics)
+        return control_copy
+
+
 def fine_tune_on_task(dataset: datasets.Dataset,
                       model: transformers.PreTrainedModel | torch.torch.nn.Module,
                       configuration: transformers.TrainingArguments,
@@ -77,9 +98,13 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         configuration.logging_dir = os.path.join(target_dir_path, constants.LOG)
 
     shard_train_metrics = []
-    shard_eval_metrics = []
+    shard_validation_metrics = []
+    shard_test_metrics = []
     shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
               for i in range(num_cross_validation_splits)]
+
+    # TODO: Ensure that the model and inputs are loaded to GPU when available.
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     for validation_set_index in range(num_cross_validation_splits):
         split_model = copy.deepcopy(model)
         validation_and_test_sets = shards[validation_set_index].train_test_split(test_size=0.5)
@@ -107,34 +132,61 @@ def fine_tune_on_task(dataset: datasets.Dataset,
             compute_metrics=metrics_function,
         )
         trainer.add_callback(TrainingMetricsCallback(trainer))
+        trainer.add_callback(ValidationMetricsCallback(trainer))
         trainer.add_callback(transformers.EarlyStoppingCallback(early_stopping_patience=max_num_rounds_no_improvement))
 
         # Training
         logger.info("*** Train ***")
         trainer.train()
-        training_metrics = trainer.evaluate(training_set)
-        shard_train_metrics.append(training_metrics)
-
         trainer.save_model()
-        trainer.save_metrics(split=constants.TRAIN, metrics=training_metrics)
 
         # Evaluation
         logger.info("*** Evaluate ***")
-        eval_metrics = trainer.evaluate(test_set)
-        trainer.log_metrics(constants.TEST, training_metrics)
-        trainer.save_metrics(constants.TEST, training_metrics)
-        shard_eval_metrics.append(eval_metrics)
+        training_metrics = trainer.evaluate(training_set)
+        shard_train_metrics.append(training_metrics)
+        trainer.log_metrics(split=constants.TRAIN, metrics=training_metrics)
+
+        validation_metrics = trainer.evaluate(validation_set)
+        shard_validation_metrics.append(validation_metrics)
+        trainer.log_metrics(split=constants.VALIDATION, metrics=validation_metrics)
+
+        test_metrics = trainer.evaluate(test_set)
+        shard_test_metrics.append(test_metrics)
+        trainer.log_metrics(split=constants.TEST, metrics=test_metrics)
+
         run.finish()
 
-    eval_metric_aggregates = utils.aggregate_metrics_across_splits(shard_eval_metrics)
+    validation_metric_aggregates = utils.aggregate_metrics_across_splits(shard_validation_metrics)
     train_metric_aggregates = utils.aggregate_metrics_across_splits(shard_train_metrics)
-    eval_metric_averages, eval_metric_stds = utils.get_metrics_avg_and_std_across_splits(
-        metric_aggregates=eval_metric_aggregates,
-        is_train=False,
-        print_results=True)
-    utils.get_metrics_avg_and_std_across_splits(
+    test_metric_aggregates = utils.aggregate_metrics_across_splits(shard_test_metrics)
+    print(f'\n*** {task_name} {premise_mode if premise_mode else ""} Train Metrics: ***')
+    train_metric_averages, train_metric_stds = utils.get_metrics_avg_and_std_across_splits(
         metric_aggregates=train_metric_aggregates,
-        is_train=True,
+        split_name=constants.TRAIN,
         print_results=True)
+    print(f'\n*** {task_name} {premise_mode if premise_mode else ""} Validation Metrics: ***')
+    validation_metric_averages, validation_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+        metric_aggregates=validation_metric_aggregates,
+        split_name=constants.VALIDATION,
+        print_results=True)
+    print(f'\n*** {task_name} {premise_mode if premise_mode else ""} Test Metrics: ***')
+    test_metric_averages, test_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+        metric_aggregates=test_metric_aggregates,
+        split_name=constants.TEST,
+        print_results=True)
+    split_metrics = {
+        constants.TRAIN: {
+            "averages": train_metric_averages,
+            "stds": train_metric_stds
+        },
+        constants.VALIDATION: {
+            "averages": validation_metric_averages,
+            "stds": validation_metric_stds,
+        },
+        constants.TEST: {
+            "averages": test_metric_averages,
+            "stds": test_metric_stds,
+        }
+    }
 
-    return trainer, eval_metric_averages
+    return trainer, split_metrics
