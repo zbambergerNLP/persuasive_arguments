@@ -4,7 +4,6 @@ import os
 
 import datasets
 
-import wandb
 import sys
 import transformers
 
@@ -27,7 +26,9 @@ srun --gres=gpu:1 -p nlp python3 fine_tune_on_argument_persuasiveness.py \
     --fine_tuning_num_training_epochs 10 \
     --fine_tuning_learning_rate 1e-5 \
     --fine_tuning_per_device_train_batch_size 8 \
-    --fine_tuning_per_device_eval_batch_size 16
+    --fine_tuning_per_device_eval_batch_size 16 \
+    --metric_for_early_stopping accuracy \
+    --max_num_rounds_no_improvement 20
 """
 
 
@@ -97,11 +98,25 @@ parser.add_argument('--fine_tuning_wandb_entity',
                     type=str,
                     default='zbamberger',
                     help="The wandb entity used to track training.")
-
 parser.add_argument('--grad_accum',
                     type=int,
                     default=4,
                     help="The number of batches to accumulate before doing back propagation")
+parser.add_argument('--max_num_rounds_no_improvement',
+                    type=int,
+                    default=10,
+                    help="The maximum number of iterations over the validation set in which accuracy does not increase."
+                         "If validation accuracy does not increase within this number of loops, we stop training early.")
+# TODO: Enforce that 'metric_for_early_stopping' is always either `loss` or `accuracy`.
+parser.add_argument('--metric_for_early_stopping',
+                    type=str,
+                    default=constants.LOSS,
+                    help="The metric used to determine whether or not to stop early. If the metric of interest does "
+                         "not improve within `max_num_rounds_no_improvement`, then we stop early.")
+parser.add_argument('--perform_early_stopping',
+                    type=bool,
+                    default=True,
+                    help="True if we intend to perform early stopping during training")
 
 if __name__ == "__main__":
     logger = logging.getLogger(__name__)
@@ -117,14 +132,16 @@ if __name__ == "__main__":
         per_device_train_batch_size=args.fine_tuning_per_device_train_batch_size,
         per_device_eval_batch_size=args.fine_tuning_per_device_eval_batch_size,
         gradient_accumulation_steps=args.grad_accum,
-        eval_steps=args.eval_steps,
-        evaluation_strategy=transformers.training_args.IntervalStrategy('steps'),
+        evaluation_strategy=transformers.training_args.IntervalStrategy('epoch'),
+        save_strategy=transformers.training_args.IntervalStrategy('epoch'),
         learning_rate=args.fine_tuning_learning_rate,
         warmup_steps=args.fine_tuning_warmup_steps,
         weight_decay=args.fine_tuning_weight_decay,
         logging_dir=args.fine_tuning_logging_dir,
-        logging_steps=args.fine_tuning_logging_steps,
         report_to=["wandb"],
+        load_best_model_at_end=True,
+        metric_for_best_model=args.metric_for_early_stopping,
+        greater_is_better=(args.metric_for_early_stopping == constants.ACCURACY)
     )
     model = transformers.BertForSequenceClassification.from_pretrained(
         args.fine_tuning_model_checkpoint_name,
@@ -157,7 +174,9 @@ if __name__ == "__main__":
             preprocessing.get_dataset(task_name=constants.BINARY_CMV_DELTA_PREDICTION,
                                       tokenizer=tokenizer,
                                       save_text_datasets=True,
-                                      dataset_name=args.fine_tuning_dataset_name))
+                                      dataset_name=args.fine_tuning_dataset_name,
+                                      max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
+                                      metric_for_early_stopping=args.metric_for_early_stopping))
 
     _, eval_metrics = (
         fine_tuning.fine_tune_on_task(dataset=dataset,

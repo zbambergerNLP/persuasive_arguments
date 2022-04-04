@@ -9,7 +9,6 @@ import typing
 
 import cmv_modes.preprocessing_cmv_ampersand as cmv_probing
 import constants
-import models
 from cmv_modes import baseline
 
 
@@ -209,7 +208,9 @@ def transform_df_to_dataset(task_name: str,
                             tokenizer: transformers.PreTrainedTokenizer,
                             save_text_datasets: bool,
                             premise_mode: str = None,
-                            run_baseline_experiment: bool = False) -> datasets.Dataset:
+                            run_baseline_experiment: bool = False,
+                            max_num_rounds_no_improvement: int = 20,
+                            metric_for_early_stopping: str = constants.ACCURACY) -> datasets.Dataset:
     """
 
     :param task_name: A string. One of {'multiclass', 'binary_premise_mode_prediction', 'intra_argument_relations',
@@ -234,6 +235,9 @@ def transform_df_to_dataset(task_name: str,
     :param save_text_datasets: True if we want to store the probing dataset in textual form in the appropriate
         directory (i.e., './probing/{mode}'}.
     :param premise_mode: A string in the set {'ethos', 'logos', 'pathos'}.
+    :param run_baseline_experiment:
+    :param max_num_rounds_no_improvement:
+    :param metric_for_early_stopping:
     :return: A datasets.Dataset instance for the inputted task.
     """
     if save_text_datasets:
@@ -248,8 +252,10 @@ def transform_df_to_dataset(task_name: str,
         baseline.get_baseline_scores(
             task_name=task_name,
             corpus_df=corpus_df,
-            premise_mode=premise_mode)
-
+            premise_mode=premise_mode,
+            max_num_rounds_no_improvement=max_num_rounds_no_improvement,
+            metric_for_early_stopping=metric_for_early_stopping,
+        )
     dataset = datasets.Dataset.from_dict(
         tokenize_for_task(
             task_name=task_name,
@@ -270,7 +276,9 @@ def get_dataset(task_name: str,
                 save_text_datasets: bool = False,
                 dataset_name: str = None,
                 premise_mode: str = None,
-                run_baseline_experiment: bool = False) -> datasets.Dataset:
+                run_baseline_experiment: bool = False,
+                max_num_rounds_no_improvement: int = 20,
+                metric_for_early_stopping: str = constants.ACCURACY) -> datasets.Dataset:
     """
 
     :param task_name: A string. One of {'multiclass', 'binary_premise_mode_prediction', 'intra_argument_relations',
@@ -281,6 +289,9 @@ def get_dataset(task_name: str,
         directory (i.e., './probing/{mode}'}.
     :param dataset_name: The name with which the CMV dataset json object is saved (in the local directory).
     :param premise_mode: A string in the set {'ethos', 'logos', 'pathos'}.
+    :param run_baseline_experiment:
+    :param max_num_rounds_no_improvement:
+    :param metric_for_early_stopping:
     :return: A datasets.Dataset instance for the inputted task.
     """
     if task_name == constants.INTRA_ARGUMENT_RELATIONS:
@@ -304,7 +315,9 @@ def get_dataset(task_name: str,
                                    tokenizer=tokenizer,
                                    save_text_datasets=save_text_datasets,
                                    premise_mode=premise_mode,
-                                   run_baseline_experiment=run_baseline_experiment)
+                                   run_baseline_experiment=run_baseline_experiment,
+                                   max_num_rounds_no_improvement=max_num_rounds_no_improvement,
+                                   metric_for_early_stopping=metric_for_early_stopping)
 
 
 def downsample_dataset(dataset: datasets.Dataset,

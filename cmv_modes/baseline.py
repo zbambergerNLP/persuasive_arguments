@@ -1,4 +1,6 @@
 import typing
+
+import sklearn
 import torch
 import pandas as pd
 import numpy as np
@@ -30,7 +32,6 @@ def create_combined_column(task_name: str, corpus_df: pd.DataFrame) -> pd.DataFr
     return corpus_df
 
 
-# TODO(zbamberger): Enable wandb logging on baseline experiments.
 def extract_bigram_features(corpus_df: pd.DataFrame,
                             premise_mode: str = None) -> typing.Tuple[np.ndarray, np.ndarray]:
     """
@@ -56,10 +57,11 @@ def get_baseline_scores(task_name: str,
                         num_epochs: int = 100,
                         batch_size: int = 16,
                         learning_rate: float = 1e-3,
+                        max_num_rounds_no_improvement: int = 20,
+                        metric_for_early_stopping: str = constants.ACCURACY,
                         optimizer_gamma: float = 0.9,
                         probing_wandb_entity: str = 'zbamberger') -> (
-        typing.Tuple[typing.Mapping[str, float],
-                     typing.Mapping[str, float]]):
+        typing.Mapping[str, typing.Mapping[str, typing.Mapping[str, float]]]):
     """
 
     :param task_name:
@@ -69,7 +71,10 @@ def get_baseline_scores(task_name: str,
     :param num_epochs:
     :param batch_size:
     :param learning_rate:
+    :param max_num_rounds_no_improvement:
+    :param metric_for_early_stopping:
     :param optimizer_gamma:
+    :param probing_wandb_entity:
     :return:
     """
     corpus_df = create_combined_column(task_name=task_name, corpus_df=corpus_df)
@@ -77,21 +82,23 @@ def get_baseline_scores(task_name: str,
     kf = KFold(n_splits=num_cross_validation_splits)
     num_labels = utils.get_num_labels(task_name=task_name)
     split_train_metrics = []
-    split_eval_metrics = []
+    split_validation_metrics = []
+    split_test_metrics = []
     for validation_set_index, (train_index, test_index) in enumerate(kf.split(X, y)):
-        X_train, X_test = np.array(X)[train_index.astype(int)], np.array(X)[test_index.astype(int)]
-        y_train, y_test = np.array(y)[train_index.astype(int)], np.array(y)[test_index.astype(int)]
-        if probing_wandb_entity:
-            run_name = f'Baseline experiment: {task_name}, ' \
-                       f'Logistic regression over bigram features, ' \
-                       f'Split #{validation_set_index + 1}'
-            if premise_mode:
-                run_name += f' ({premise_mode})'
-            run = wandb.init(
-                project="persuasive_arguments",
-                entity=probing_wandb_entity,
-                reinit=True,
-                name=run_name)
+        X_train, X_validation_and_test = np.array(X)[train_index.astype(int)], np.array(X)[test_index.astype(int)]
+        y_train, y_validation_and_test = np.array(y)[train_index.astype(int)], np.array(y)[test_index.astype(int)]
+        X_val, X_test, y_val, y_test = (
+            sklearn.model_selection.train_test_split(X_validation_and_test, y_validation_and_test, test_size=0.5))
+        run_name = f'Baseline experiment: {task_name}, ' \
+                   f'Logistic regression over bigram features, ' \
+                   f'Split #{validation_set_index + 1}'
+        if premise_mode:
+            run_name += f' ({premise_mode})'
+        run = wandb.init(
+            project="persuasive_arguments",
+            entity=probing_wandb_entity,
+            reinit=True,
+            name=run_name)
         logistic_regression = models.BaselineLogisticRegression(num_features=X_train.shape[1], num_labels=num_labels)
         optimizer = torch.optim.Adam(logistic_regression.parameters(), lr=learning_rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=optimizer_gamma)
@@ -107,6 +114,8 @@ def get_baseline_scores(task_name: str,
             num_labels=num_labels,
             loss_function=torch.nn.BCELoss() if num_labels == 2 else torch.nn.CrossEntropyLoss(),
             num_epochs=num_epochs,
+            max_num_rounds_no_improvement=max_num_rounds_no_improvement,
+            metric_for_early_stopping=metric_for_early_stopping,
             optimizer=optimizer,
             scheduler=scheduler,
         )
@@ -117,29 +126,69 @@ def get_baseline_scores(task_name: str,
                 batch_size=batch_size,
                 shuffle=True,
             ),
-            num_labels=num_labels)
-        if probing_wandb_entity:
-            run.finish()
+            num_labels=num_labels,
+            split_name=constants.TRAIN,
+        )
         split_train_metrics.append(train_metrics)
 
-        eval_metrics = logistic_regression.evaluate(
+        validation_metrics = logistic_regression.evaluate(
+            test_loader=torch.utils.data.DataLoader(
+                data_loaders.BaselineLoader(X_val, y_val),
+                batch_size=batch_size,
+                shuffle=True,
+            ),
+            num_labels=num_labels,
+            split_name=constants.VALIDATION,
+        )
+        split_validation_metrics.append(validation_metrics)
+
+        test_metrics = logistic_regression.evaluate(
             test_loader=torch.utils.data.DataLoader(
                 data_loaders.BaselineLoader(X_test, y_test),
                 batch_size=batch_size,
                 shuffle=True,
             ),
-            num_labels=num_labels)
-        split_eval_metrics.append(eval_metrics)
+            num_labels=num_labels,
+            split_name=constants.TEST,
+        )
+        split_test_metrics.append(test_metrics)
+        run.finish()
 
-    eval_metric_aggregates = utils.aggregate_metrics_across_splits(split_eval_metrics)
     train_metric_aggregates = utils.aggregate_metrics_across_splits(split_train_metrics)
+    validation_metric_aggregates = utils.aggregate_metrics_across_splits(split_validation_metrics)
+    test_metric_aggregates = utils.aggregate_metrics_across_splits(split_test_metrics)
 
-    eval_metric_averages, eval_metric_stds = utils.get_metrics_avg_and_std_across_splits(
-        metric_aggregates=eval_metric_aggregates,
-        is_train=False,
-        print_results=True)
-    utils.get_metrics_avg_and_std_across_splits(
+    print(f'\n*** {task_name} {f"({premise_mode})" if premise_mode else ""} baseline training metrics: ***')
+    train_metric_averages, train_metric_stds = utils.get_metrics_avg_and_std_across_splits(
         metric_aggregates=train_metric_aggregates,
-        is_train=True,
+        split_name=constants.TRAIN,
         print_results=True)
-    return eval_metric_averages, eval_metric_stds
+
+    print(f'\n*** {task_name} {f"({premise_mode})" if premise_mode else ""} baseline validation metrics: ***')
+    validation_metric_averages, validation_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+        metric_aggregates=validation_metric_aggregates,
+        split_name=constants.VALIDATION,
+        print_results=True)
+
+    print(f'\n*** {task_name} {f"({premise_mode})" if premise_mode else ""} baseline test metrics: ***')
+    test_metric_averages, test_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+        metric_aggregates=test_metric_aggregates,
+        split_name=constants.TEST,
+        print_results=True)
+
+    split_metrics = {
+        constants.TRAIN: {
+            "averages": train_metric_averages,
+            "stds": train_metric_stds
+        },
+        constants.VALIDATION: {
+            "averages": validation_metric_averages,
+            "stds": validation_metric_stds,
+        },
+        constants.TEST: {
+            "averages": test_metric_averages,
+            "stds": test_metric_stds,
+        }
+    }
+
+    return split_metrics

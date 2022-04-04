@@ -26,7 +26,6 @@ class TrainingMetricsCallback(transformers.TrainerCallback):
         training_metrics = self._trainer.evaluate(
             eval_dataset=self._trainer.train_dataset,
             metric_key_prefix=constants.TRAIN)
-        training_metrics['train_accuracy'] = training_metrics['train_accuracy']
         self._trainer.log_metrics(constants.TRAIN, training_metrics)
         self._trainer.save_metrics(constants.TRAIN, training_metrics)
         return control_copy
@@ -47,10 +46,9 @@ class ValidationMetricsCallback(transformers.TrainerCallback):
         control_copy = copy.deepcopy(control)
         validation_metrics = self._trainer.evaluate(
             eval_dataset=self._trainer.eval_dataset,
-            metric_key_prefix=constants.VALIDATION)
-        validation_metrics['validation_accuracy'] = validation_metrics['validation_accuracy']
-        self._trainer.log_metrics(constants.VALIDATION, validation_metrics)
-        self._trainer.save_metrics(constants.VALIDATION, validation_metrics)
+            metric_key_prefix=constants.EVAL)
+        self._trainer.log_metrics(constants.EVAL, validation_metrics)
+        self._trainer.save_metrics(constants.EVAL, validation_metrics)
         return control_copy
 
 
@@ -62,7 +60,8 @@ def fine_tune_on_task(dataset: datasets.Dataset,
                       premise_mode: str = None,
                       num_cross_validation_splits: int = 5,
                       logger: logging.Logger = None,
-                      probing_wandb_entity: str = None) -> typing.Tuple[transformers.Trainer, dict]:
+                      probing_wandb_entity: str = None,
+                      max_num_rounds_no_improvement: int = 20) -> typing.Tuple[transformers.Trainer, dict]:
     """Fine tune a transformer language model on the provided dataset.
 
     :param dataset: The dataset on which we fine-tune the given model.
@@ -74,7 +73,10 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         downstream task.
     :param premise_mode: If the task_name is 'binary_premise_mode_prediction', then this string parameter specifies
         which argument mode dataset we are fine-tuning the model on.
+    :param num_cross_validation_splits:
     :param logger: A logging.Logger instance used for logging.
+    :param probing_wandb_entity:
+    :param max_num_rounds_no_improvement:
     :return: A 2-tuple of the form (trainer, eval_metrics). The trainer is a 'transformers.Trainer' instance used to
         fine-tune the model, and the metrics are a dictionary derived from evaluating the model on the verification set.
     """
@@ -92,24 +94,29 @@ def fine_tune_on_task(dataset: datasets.Dataset,
         configuration.logging_dir = os.path.join(target_dir_path, constants.LOG)
 
     shard_train_metrics = []
-    shard_eval_metrics = []
+    shard_validation_metrics = []
+    shard_test_metrics = []
     shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
               for i in range(num_cross_validation_splits)]
+
+    # TODO: Ensure that the model and inputs are loaded to GPU when available.
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     for validation_set_index in range(num_cross_validation_splits):
         split_model = copy.deepcopy(model)
-        validation_set = shards[validation_set_index].shuffle()
+        validation_and_test_sets = shards[validation_set_index].train_test_split(test_size=0.5)
+        validation_set = validation_and_test_sets[constants.TRAIN].shuffle()
+        test_set = validation_and_test_sets[constants.TEST].shuffle()
         training_set = datasets.concatenate_datasets(
             shards[0:validation_set_index] + shards[validation_set_index + 1:]).shuffle()
-        if probing_wandb_entity:
-            run_name = f'Fine-tune BERT on {task_name}, ' \
-                       f'Split #{validation_set_index + 1}'
-            if premise_mode:
-                run_name += f' ({premise_mode})'
-            run = wandb.init(
-                project="persuasive_arguments",
-                entity=probing_wandb_entity,
-                reinit=True,
-                name=run_name)
+        run_name = f'Fine-tune BERT on {task_name}, ' \
+                   f'Split #{validation_set_index + 1}'
+        if premise_mode:
+            run_name += f' ({premise_mode})'
+        run = wandb.init(
+            project="persuasive_arguments",
+            entity=probing_wandb_entity,
+            reinit=True,
+            name=run_name)
         metrics_function = (
             metrics.compute_metrics_for_multi_class_classification if task_name == constants.MULTICLASS else
             metrics.compute_metrics_for_binary_classification)
@@ -121,34 +128,61 @@ def fine_tune_on_task(dataset: datasets.Dataset,
             compute_metrics=metrics_function)
         trainer.add_callback(TrainingMetricsCallback(trainer))
         trainer.add_callback(ValidationMetricsCallback(trainer))
+        trainer.add_callback(transformers.EarlyStoppingCallback(early_stopping_patience=max_num_rounds_no_improvement))
 
         # Training
         logger.info("*** Train ***")
         trainer.train()
-        training_metrics = trainer.evaluate(training_set)
-        shard_train_metrics.append(training_metrics)
-
         trainer.save_model()
-        trainer.save_metrics(split=constants.TRAIN, metrics=training_metrics)
 
         # Evaluation
         logger.info("*** Evaluate ***")
-        eval_metrics = trainer.evaluate(validation_set)
-        shard_eval_metrics.append(eval_metrics)
-        if probing_wandb_entity:
-            run.finish()
 
-    # TODO(zbamberger): Ensure that training metrics include the ones tracked during training.
-    eval_metric_aggregates = utils.aggregate_metrics_across_splits(shard_eval_metrics)
+        training_metrics = trainer.evaluate(training_set)
+        shard_train_metrics.append(training_metrics)
+        trainer.log_metrics(split=constants.TRAIN, metrics=training_metrics)
+
+        validation_metrics = trainer.evaluate(validation_set)
+        shard_validation_metrics.append(validation_metrics)
+        trainer.log_metrics(split=constants.VALIDATION, metrics=validation_metrics)
+
+        test_metrics = trainer.evaluate(test_set)
+        shard_test_metrics.append(test_metrics)
+        trainer.log_metrics(split=constants.TEST, metrics=test_metrics)
+
+        run.finish()
+
+    validation_metric_aggregates = utils.aggregate_metrics_across_splits(shard_validation_metrics)
     train_metric_aggregates = utils.aggregate_metrics_across_splits(shard_train_metrics)
-    eval_metric_averages, eval_metric_stds = utils.get_metrics_avg_and_std_across_splits(
-        metric_aggregates=eval_metric_aggregates,
-        is_train=False,
-        print_results=True)
-    utils.get_metrics_avg_and_std_across_splits(
+    test_metric_aggregates = utils.aggregate_metrics_across_splits(shard_test_metrics)
+    print(f'\n*** {task_name} {premise_mode if premise_mode else ""} Train Metrics: ***')
+    train_metric_averages, train_metric_stds = utils.get_metrics_avg_and_std_across_splits(
         metric_aggregates=train_metric_aggregates,
-        is_train=True,
+        split_name=constants.TRAIN,
         print_results=True)
+    print(f'\n*** {task_name} {premise_mode if premise_mode else ""} Validation Metrics: ***')
+    validation_metric_averages, validation_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+        metric_aggregates=validation_metric_aggregates,
+        split_name=constants.VALIDATION,
+        print_results=True)
+    print(f'\n*** {task_name} {premise_mode if premise_mode else ""} Test Metrics: ***')
+    test_metric_averages, test_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+        metric_aggregates=test_metric_aggregates,
+        split_name=constants.TEST,
+        print_results=True)
+    split_metrics = {
+        constants.TRAIN: {
+            "averages": train_metric_averages,
+            "stds": train_metric_stds
+        },
+        constants.VALIDATION: {
+            "averages": validation_metric_averages,
+            "stds": validation_metric_stds,
+        },
+        constants.TEST: {
+            "averages": test_metric_averages,
+            "stds": test_metric_stds,
+        }
+    }
 
-    # TODO: Return the best performing trainer as opposed to the most recent one.
-    return trainer, eval_metric_averages
+    return trainer, split_metrics

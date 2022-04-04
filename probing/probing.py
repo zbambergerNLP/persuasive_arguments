@@ -225,7 +225,9 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
         typing.Tuple[
             typing.Mapping[str, typing.Sequence[torch.Module]],
             typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]],
-            typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]]]):
+            typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]],
+            typing.Mapping[str, typing.Sequence[typing.Mapping[str, float]]],
+        ]):
     """
 
     :param probing_dataset: A 'data_loaders.CMVProbingDataset' instance. This dataset maps either premises or
@@ -296,19 +298,26 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
     all_models = {constants.PRETRAINED: [],
               constants.FINE_TUNED: [],
               constants.MULTICLASS: []}
-    all_eval_metrics = {constants.PRETRAINED: [],
+    all_train_metrics = {constants.PRETRAINED: [],
+                         constants.FINE_TUNED: [],
+                         constants.MULTICLASS: []}
+    all_validation_metrics = {constants.PRETRAINED: [],
                     constants.FINE_TUNED: [],
                     constants.MULTICLASS: []}
-    all_train_metrics = {constants.PRETRAINED: [],
-                     constants.FINE_TUNED: [],
-                     constants.MULTICLASS: []}
+    all_test_metrics = {constants.PRETRAINED: [],
+                              constants.FINE_TUNED: [],
+                              constants.MULTICLASS: []}
     for base_model_type, dataset in hidden_state_datasets.items():
         shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
                   for i in range(num_cross_validation_splits)]
         for validation_set_index in range(num_cross_validation_splits):
             num_labels = (
                 len(constants.PREMISE_MODE_TO_INT) if base_model_type == constants.MULTICLASS else constants.NUM_LABELS)
-            validation_set = shards[validation_set_index].shuffle()
+            validation_and_test_sets = shards[validation_set_index].train_test_split(test_size=0.5)
+            validation_set = validation_and_test_sets[constants.TRAIN].shuffle()
+            test_set = validation_and_test_sets[constants.TEST].shuffle()
+
+            # validation_set = shards[validation_set_index].shuffle()
             training_set = datasets.concatenate_datasets(
                 shards[0:validation_set_index] + shards[validation_set_index+1:]).shuffle()
             run_name = f'Probe {probing_model_name} on {task_name}, ' \
@@ -316,12 +325,11 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
                        f'Split #{validation_set_index + 1}'
             if premise_mode:
                 run_name += f' ({premise_mode})'
-            if probing_wandb_entity:
-                run = wandb.init(
-                    project="persuasive_arguments",
-                    entity=probing_wandb_entity,
-                    reinit=True,
-                    name=run_name)
+            run = wandb.init(
+                project="persuasive_arguments",
+                entity=probing_wandb_entity,
+                reinit=True,
+                name=run_name)
 
             if probing_model_name == constants.MLP:
                 probing_model = models.MLPProbe(num_labels=num_labels)
@@ -340,28 +348,42 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
                 data_loaders.CMVProbingDataset(training_set),
                 batch_size=probe_training_batch_size,
                 shuffle=True)
-            test_loader = torch.utils.data.DataLoader(
+            validation_loader = torch.utils.data.DataLoader(
                 data_loaders.CMVProbingDataset(validation_set),
                 batch_size=probe_eval_batch_size,
                 shuffle=True)
+            test_loader = torch.utils.data.DataLoader(
+                data_loaders.CMVProbingDataset(test_set),
+                batch_size=probe_eval_batch_size,
+                shuffle=True
+            )
 
             trained_model = models.train_probe(probing_model=probing_model,
                                                train_loader=train_loader,
+                                               validation_loader=validation_loader,
                                                optimizer=optimizer,
                                                num_labels=num_labels,
                                                loss_function=loss_function,
                                                num_epochs=probe_num_epochs,
+                                               max_num_rounds_no_improvement=20,
+                                               metric_for_early_stopping=constants.ACCURACY,
                                                scheduler=scheduler)
             train_metrics = models.eval_probe(probing_model=trained_model,
                                               num_labels=num_labels,
-                                              test_loader=train_loader)
-            eval_metrics = models.eval_probe(probing_model=trained_model,
+                                              test_loader=train_loader,
+                                              split_name=constants.TRAIN)
+            validation_metrics = models.eval_probe(probing_model=probing_model,
+                                                   num_labels=num_labels,
+                                                   test_loader=validation_loader,
+                                                   split_name=constants.VALIDATION)
+            test_metrics = models.eval_probe(probing_model=trained_model,
                                              num_labels=num_labels,
-                                             test_loader=test_loader)
+                                             test_loader=test_loader,
+                                             split_name=constants.TEST)
             all_models[base_model_type].append(trained_model)
             all_train_metrics[base_model_type].append(train_metrics)
-            all_eval_metrics[base_model_type].append(eval_metrics)
-            if probing_wandb_entity:
-                run.finish()
+            all_validation_metrics[base_model_type].append(validation_metrics)
+            all_test_metrics[base_model_type].append(test_metrics)
+            run.finish()
 
-    return all_models, all_train_metrics, all_eval_metrics
+    return all_models, all_train_metrics, all_validation_metrics, all_test_metrics

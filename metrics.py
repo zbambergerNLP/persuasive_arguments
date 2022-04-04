@@ -15,21 +15,35 @@ accuracy = load_metric(constants.ACCURACY)
 def compute_metrics(num_labels: int,
                     preds: typing.Union[torch.Tensor | typing.Sequence[int]],
                     targets: typing.Union[torch.Tensor | typing.Sequence[int]],
-                    is_train: bool = False) -> typing.Mapping[str, float]:
+                    split_name: str = None,
+                    use_huggingface_prefix: bool = False) -> typing.Mapping[str, float]:
     """
 
     :param num_labels: The number of labels for the probing classification problem.
     :param preds: Model predictions that are compared to ground truth labels to compute metrics.
     :param targets: The ground truth labels supplied by the dataset.
-    :param is_train: True if we are computing metrics in train mode. False otherwise.
-    :return:
+    :param split_name: The string name of the dataset split. Typically one of {train, validation, test}.
+    :param use_huggingface_prefix:
+    :return: A dictionary mapping metric names to their corresponding values (as evaluated on the provided split).
     """
     average = 'binary' if num_labels == 2 else 'micro'
-    precision, recall, f1, _ = precision_recall_fscore_support(y_true=targets, y_pred=preds, average=average)
-    precision_key = f'{constants.TRAIN}_{constants.PRECISION}' if is_train else constants.PRECISION
-    recall_key = f'{constants.TRAIN}_{constants.RECALL}' if is_train else constants.RECALL
-    f1_key = f'{constants.TRAIN}_{constants.F1}' if is_train else constants.F1
-    accuracy_key = f'{constants.TRAIN}_{constants.ACCURACY}' if is_train else constants.ACCURACY
+    precision, recall, f1, _ = precision_recall_fscore_support(y_true=targets, y_pred=preds, average=average,
+                                                               zero_division=1)
+
+    metrics_name_fn = lambda split_name, metric_name: f"{split_name}_{metric_name}" if split_name else metric_name
+    # def metrics_name_fn(split_name, metric_name, use_huggingface_prefix):
+    #     metric_key = ""
+    #     if use_huggingface_prefix:
+    #         metric_key += "eval_"
+    #     if split_name:
+    #         metric_key += f"{split_name}_"
+    #     metric_key += metric_name
+    #     return metric_key
+
+    precision_key = metrics_name_fn(split_name=split_name, metric_name=constants.PRECISION)
+    recall_key = metrics_name_fn(split_name=split_name, metric_name=constants.RECALL)
+    f1_key = metrics_name_fn(split_name=split_name, metric_name=constants.F1)
+    accuracy_key = metrics_name_fn(split_name=split_name, metric_name=constants.ACCURACY)
     metrics = {
         precision_key: precision,
         recall_key: recall,
