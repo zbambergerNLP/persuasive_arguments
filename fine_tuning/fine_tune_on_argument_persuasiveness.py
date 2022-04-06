@@ -94,7 +94,7 @@ parser.add_argument('--fine_tune_on_discourse_annotated_cmv',
                          "them). False otherwise.")
 parser.add_argument('--fine_tuning_wandb_entity',
                     type=str,
-                    default='zbamberger',
+                    default='persuasive_arguments',
                     help="The wandb entity used to track training.")
 
 parser.add_argument('--grad_accum',

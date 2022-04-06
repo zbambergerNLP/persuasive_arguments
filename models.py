@@ -8,7 +8,8 @@ import torch
 import torch.nn.functional as F
 import torch_geometric.data
 import transformers
-from torch_geometric.nn import GCNConv, global_mean_pool
+from torch_geometric.nn import GCNConv, global_mean_pool,  GATConv, Linear, to_hetero, SAGEConv, global_max_pool
+from torch_geometric.data import HeteroData
 import torch.nn as nn
 import numpy as np
 
@@ -448,9 +449,53 @@ class GCNWithBertEmbeddings(torch.nn.Module):
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
         x = self.conv2(x, edge_index)
-        x = global_mean_pool(x, data.batch)
+        x = global_max_pool(x, data.batch) #global_mean_pool(x, data.batch)
         return F.log_softmax(x, dim=1)
 
+# class GAT(torch.nn.Module): #Todo after one HetroModel works go back to trying this model
+#     def __init__(self, hidden_channels, out_channels):
+#         super().__init__()
+#         self.conv1 = GATConv((-1, -1), hidden_channels, add_self_loops=False)
+#         self.lin1 = Linear(-1, hidden_channels)
+#         self.conv2 = GATConv((-1, -1), out_channels, add_self_loops=False)
+#         self.lin2 = Linear(-1, out_channels)
+#
+#     def forward(self, data: HeteroData):
+#         x, edge_index = data.x, data.edge_index
+#         x = self.conv1(x, edge_index) + self.lin1(x)
+#         x = x.relu()
+#         x = self.conv2(x, edge_index) + self.lin2(x)
+#         return x
+
+class GAT(torch.nn.Module):
+    def __init__(self, hidden_channels, out_channels, use_frozen_bert: bool = True):
+        super().__init__()
+        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
+        if use_frozen_bert:
+            for param in self.bert_model.parameters():
+                param.requires_grad = False
+        self.conv1 = SAGEConv((-1, -1), hidden_channels)
+        self.conv2 = SAGEConv((-1, -1), out_channels)
+
+
+
+    def forward(self, x, edge_index):
+        input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
+        bert_outputs = self.bert_model(
+            input_ids=torch.squeeze(input_ids, dim=1).long(),
+            token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
+            attention_mask=torch.squeeze(attention_mask, dim=1).long(),
+        )
+        node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
+        # import pdb
+        # pdb.set_trace()
+        node_embeddings = self.conv1(node_embeddings, edge_index).relu()
+        node_embeddings = self.conv2(node_embeddings, edge_index)
+        return node_embeddings
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 class BertParagraphWithMLP(torch.nn.Module):
     def __init__(self, bert_model, layers, pooling=None):
@@ -471,7 +516,17 @@ class BertUtteranceWithPoolingAndMLP(torch.nn.Module):
 
 
 if __name__ == '__main__':
-    model = GCNWithBertEmbeddings(256, 2, 16)
+    # model = GCNWithBertEmbeddings(constants.BERT_HIDDEN_DIM, 2, 64)
+    # print(model)
+    # n_of_p =  count_parameters(model)
+    # print(f" num of  parameters {n_of_p}")
+
+    num_classes = 2
+    model = GAT(hidden_channels=64, out_channels=num_classes)
+    node_types = ['claim', 'premis']
+    edge_types = ['non']
+    metadata = (node_types, edge_types)
+    model = to_hetero(model, metadata, aggr='sum')
     print(model)
-    pass
+
 

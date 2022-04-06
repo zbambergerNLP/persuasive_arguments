@@ -5,6 +5,7 @@ import transformers
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 from torch_geometric.data import Data
+from torch_geometric.data import HeteroData
 
 import constants
 from cmv_modes.preprocessing_knowledge_graph import make_op_reply_graphs, create_bert_inputs
@@ -96,7 +97,7 @@ class CMVKGDataset(torch.utils.data.Dataset):
                         example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
                         self.labels.extend(example_labels)
                         if debug:
-                            if len(self.labels) >= 5:
+                            if len(self.labels) >= 20:
                                 break
 
     def __len__(self):
@@ -116,3 +117,99 @@ class CMVKGDataset(torch.utils.data.Dataset):
         return Data(x=stacked_bert_inputs.T,
                     edge_index=torch.tensor(self.dataset[index]['edges']).T,
                     y=torch.tensor(self.labels[index]))
+
+
+class CMVKGHetroDataset(CMVKGDataset):
+    def __init__(self, directory_path: str,
+                 version: str,
+                 debug: bool = False):
+        super(CMVKGHetroDataset, self).__init__(directory_path=directory_path, version=version, debug=debug)
+
+    def calc_bert_inputs(self, dataset_values, relevant_ids):
+        bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
+                                f'id_to_{constants.TOKEN_TYPE_IDS}',
+                                f'id_to_{constants.ATTENTION_MASK}']
+        formatted_bert_inputs = {}
+        for input_name in bert_input_key_names:
+            for key in dataset_values[input_name]:
+                if key in relevant_ids:
+                    if input_name not in formatted_bert_inputs.keys():
+                        formatted_bert_inputs[input_name] = dataset_values[input_name][key].unsqueeze(dim=1)
+                    else:
+                        formatted_bert_inputs[input_name] = torch.cat(
+                            (formatted_bert_inputs[input_name], dataset_values[input_name][key].unsqueeze(dim=1)),
+                            dim=1)
+
+        stacked_bert_inputs = torch.stack([t for t in formatted_bert_inputs.values()], dim=1)
+        return stacked_bert_inputs
+
+    def rearrange_edge_index(self, out_list: list, in_list: list, out_idx: int, in_idx: int):
+        new_idx_out_node = out_list.index(out_idx)
+        new_idx_in_node = in_list.index(in_idx)
+        return [new_idx_out_node, new_idx_in_node]
+
+    def convert_edge_indexes(self, edge_list):
+        #update edges after a claim node and a premise node were added
+        #add an edge from every added node to the other so each graph will have all kinds of edges
+        edge_list= torch.tensor(edge_list, dtype=torch.long).T + 2
+        edge_to_add = torch.tensor([0,1]).unsqueeze(dim =1)
+        edge_list = torch.concat((edge_to_add,edge_list), dim=1)
+        return  edge_list
+
+    def __getitem__(self, index: int):
+        claim_list = []
+        premise_list = []
+        for key in self.dataset[index][constants.ID_TO_NODE_TYPE]:
+            if self.dataset[index][constants.ID_TO_NODE_TYPE][key] == constants.CLAIM:
+                claim_list.append(self.dataset[index][constants.ID_TO_INDEX][key])
+            elif self.dataset[index][constants.ID_TO_NODE_TYPE][key] == constants.PREMISE:
+                premise_list.append(self.dataset[index][constants.ID_TO_INDEX][key])
+            else:
+                raise Exception("unknown value = " + key)
+
+        stacked_bert_inputs_claim = self.calc_bert_inputs(self.dataset[index], claim_list)
+        stacked_bert_inputs_premise = self.calc_bert_inputs(self.dataset[index], premise_list)
+
+        claim_claim_e = []
+        claim_premise_e = []
+        premise_premise_e = []
+        premise_claim_e = []
+        for e in self.dataset[index][constants.EDGES]:
+            idx_out = e[0]
+            idx_in = e[1]
+            id_out = self.dataset[index][constants.INDEX_TO_ID][idx_out]
+            id_in = self.dataset[index][constants.INDEX_TO_ID][idx_in]
+
+            if self.dataset[index][constants.ID_TO_NODE_TYPE][id_out] == constants.CLAIM:
+                if self.dataset[index][constants.ID_TO_NODE_TYPE][id_in] == constants.CLAIM:
+                    claim_claim_e.append(self.rearrange_edge_index(claim_list, claim_list, idx_out, idx_in))
+                elif self.dataset[index][constants.ID_TO_NODE_TYPE][id_in] == constants.PREMISE:
+                    claim_premise_e.append(self.rearrange_edge_index(claim_list, premise_list, idx_out, idx_in))
+                else:
+                    raise Exception(f'not implemented')
+            elif self.dataset[index][constants.ID_TO_NODE_TYPE][id_out] == constants.PREMISE:
+                if self.dataset[index][constants.ID_TO_NODE_TYPE][id_in] == constants.CLAIM:
+                    premise_claim_e.append(self.rearrange_edge_index(premise_list, claim_list, idx_out, idx_in))
+                elif self.dataset[index][constants.ID_TO_NODE_TYPE][id_in] == constants.PREMISE:
+                    premise_premise_e.append(self.rearrange_edge_index(premise_list, premise_list, idx_out, idx_in))
+                else:
+                    raise Exception(f'not implemented')
+
+        #add 2 claim node and 2 premise node
+        two_empty_nodes = torch.concat((torch.zeros_like(stacked_bert_inputs_claim[:,:,0]).unsqueeze(dim=2), torch.zeros_like(stacked_bert_inputs_claim[:,:,0]).unsqueeze(dim=2)), dim =2)
+        stacked_bert_inputs_claim = torch.concat((two_empty_nodes ,stacked_bert_inputs_claim), dim= 2 )
+        stacked_bert_inputs_premise = torch.concat((two_empty_nodes ,stacked_bert_inputs_premise), dim= 2 )
+
+        data = HeteroData()
+        # data.has_self_loops()
+        data[constants.CLAIM].x = stacked_bert_inputs_claim.T.long()
+        data[constants.CLAIM].y = [self.labels[index]] * data[constants.CLAIM].x.shape[0]
+        data[constants.PREMISE].x = stacked_bert_inputs_premise.T.long()
+        data[constants.PREMISE].y = [self.labels[index]] * data[constants.PREMISE].x.shape[0]
+
+        data[constants.CLAIM, 'relation', constants.CLAIM].edge_index = self.convert_edge_indexes(claim_claim_e)
+        data[constants.CLAIM, 'relation', constants.PREMISE].edge_index = self.convert_edge_indexes(claim_premise_e)
+        data[constants.PREMISE, 'relation', constants.CLAIM].edge_index = self.convert_edge_indexes(premise_claim_e)
+        data[constants.PREMISE, 'relation', constants.PREMISE].edge_index = self.convert_edge_indexes(premise_premise_e)
+
+        return data

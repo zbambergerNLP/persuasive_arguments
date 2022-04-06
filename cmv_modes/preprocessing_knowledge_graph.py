@@ -154,9 +154,10 @@ def create_simple_bert_inputs(directory_path: str,
 
 IDToTextMapping = typing.Mapping[str, str]
 IDToIndexMapping = typing.Mapping[str, int]
+IDToNodeTypeMapping = typing.Mapping[str, str]
 IndexToIDMapping = typing.Mapping[int, str]
 Edges = typing.Sequence[typing.Tuple[int, int]]
-
+EdgesTypes = typing.Sequence[str]
 
 NodeIndexToBERTInputIDs = typing.Mapping[int, torch.Tensor]
 NodeIndexToBERTTokenTypeIDs = typing.Mapping[int, torch.Tensor]
@@ -166,6 +167,8 @@ NodeIndexToBERTAttentionMask = typing.Mapping[int, torch.Tensor]
 class GraphExample(typing.TypedDict):
     id_to_text: IDToTextMapping
     id_to_index: IDToIndexMapping
+    id_to_node_type:IDToNodeTypeMapping
+    id_to_node_sub_type:IDToNodeTypeMapping
     idx_to_id: IndexToIDMapping
     edges: Edges
     id_to_input_ids: NodeIndexToBERTInputIDs
@@ -177,7 +180,7 @@ GraphDataset = typing.Sequence[GraphExample]
 def make_op_subgraph(
         bs_data: BeautifulSoup,
         file_name: str = None,
-        is_positive: bool = None) -> typing.Tuple[IDToTextMapping, IDToIndexMapping, IndexToIDMapping, Edges]:
+        is_positive: bool = None) -> typing.Tuple[IDToTextMapping, IDToIndexMapping,IDToNodeTypeMapping,IDToNodeTypeMapping, IndexToIDMapping, Edges, EdgesTypes]:
     """Create a collection of mappings that are used to construct `torch_geometric.data.Data` instances for GCN models.
 
     Given a parsed xml file, generate the following data related to the title and original post:
@@ -210,14 +213,19 @@ def make_op_subgraph(
     prepositions = op_data.find_all([constants.PREMISE, constants.CLAIM])
     id_to_idx = {constants.TITLE: 0}
     id_to_text = {constants.TITLE: title.text}
+    id_to_node_type ={constants.TITLE: title_node.name}
+    id_to_node_sub_type= {constants.TITLE: title_node[constants.TYPE]}
+
     for i, item in enumerate(prepositions):
         node_idx = i + 1
         id_to_idx[item[constants.NODE_ID]] = node_idx
         id_to_text[item[constants.NODE_ID]] = item.text
-
+        id_to_node_type[item[constants.NODE_ID]] = item.name
+        id_to_node_sub_type[item[constants.NODE_ID]] = item[constants.TYPE]
     idx_to_id = {value: key for key, value in id_to_idx.items()}
 
     edges = []
+    edges_types = []
     for node_id, node_idx in id_to_idx.items():
         if node_id == constants.TITLE:
             node = title_node
@@ -225,18 +233,23 @@ def make_op_subgraph(
             node = op_data.find(id=node_id)
         if constants.REFERENCE in node.attrs:
             references = node[constants.REFERENCE].split('_')
+            rels = node[constants.RELATION]
             for edge_destination_id in references:
                 edge_destination_id = id_to_idx[edge_destination_id]
                 edges.append(tuple([node_idx, edge_destination_id]))
+                edges_types.append(rels)
 
-    return id_to_text, id_to_idx, idx_to_id, edges
+    return id_to_text, id_to_idx, id_to_node_type, id_to_node_sub_type, idx_to_id, edges, edges_types
 
 
 def make_op_reply_graph(reply_data: BeautifulSoup,
                         id_to_idx: IDToIndexMapping,
                         id_to_text: IDToTextMapping,
+                        id_to_node_type: IDToNodeTypeMapping,
+                        id_to_node_sub_type: IDToNodeTypeMapping,
                         idx_to_id: IndexToIDMapping,
-                        edges: Edges) -> GraphExample:
+                        edges: Edges,
+                        edges_types: EdgesTypes) -> GraphExample:
     """Given a graph subset (containing the title and the original post), create an expanded graph that includes a
     reply's nodes and edges as well.
 
@@ -265,7 +278,8 @@ def make_op_reply_graph(reply_data: BeautifulSoup,
         node_idx = i + op_num_of_nodes
         id_to_idx[item[constants.NODE_ID]] = node_idx
         id_to_text[item[constants.NODE_ID]] = item.text
-
+        id_to_node_type[item[constants.NODE_ID]] = item.name
+        id_to_node_sub_type[item[constants.NODE_ID]] = item[constants.TYPE]
     idx_to_id = {value: key for key, value in id_to_idx.items()}
 
     # Construct edges.
@@ -276,15 +290,20 @@ def make_op_reply_graph(reply_data: BeautifulSoup,
             node = reply_data.find(id=node_id)
             if constants.REFERENCE in node.attrs:
                 refs = node[constants.REFERENCE].split('_')
-                for ref in refs:
+                rels = node[constants.RELATION]
+                for i, ref in enumerate(refs):
                     if ref in id_to_idx.keys():  # Ignore edges from a different reply.
                         ref_idx = id_to_idx[ref]
                         edges.append([node_idx, ref_idx])
+                        edges_types.append(rels)
     result: GraphExample = {
         constants.ID_TO_INDEX: id_to_idx,
         constants.ID_TO_TEXT: id_to_text,
+        constants.ID_TO_NODE_TYPE: id_to_node_type,
+        constants.ID_TO_NODE_SUB_TYPE: id_to_node_sub_type,
         constants.INDEX_TO_ID: idx_to_id,
         constants.EDGES: edges,
+        constants.EDGES_TYPES: edges_types
     }
     return result
 
@@ -311,7 +330,7 @@ def make_op_reply_graphs(bs_data: BeautifulSoup,
         edges: A 2-d List where each entry corresponds to an individual "edge" (a list with 2 entries). The first
             entry within an edge list is the origin, and the second is the target.
     """
-    orig_id_to_text, orig_id_to_idx, orig_idx_to_id, orig_edges = make_op_subgraph(
+    orig_id_to_text, orig_id_to_idx, orig_id_to_node_type, orig_id_to_node_sub_type, orig_idx_to_id, orig_edges, orig_edges_types = make_op_subgraph(
         bs_data=bs_data,
         file_name=file_name,
         is_positive=is_positive)
@@ -323,14 +342,20 @@ def make_op_reply_graphs(bs_data: BeautifulSoup,
     for reply_index, reply in enumerate(replies_data):
         id_to_idx = copy.deepcopy(orig_id_to_idx)
         id_to_text = copy.deepcopy(orig_id_to_text)
+        id_to_node_type = copy.deepcopy(orig_id_to_node_type)
+        id_to_node_sub_type = copy.deepcopy(orig_id_to_node_sub_type)
         idx_to_id = copy.deepcopy(orig_idx_to_id)
         edges = copy.deepcopy(orig_edges)
+        edges_types = copy.deepcopy(orig_edges_types)
         reply_examples = make_op_reply_graph(
             reply_data=reply,
             idx_to_id=idx_to_id,
             id_to_idx=id_to_idx,
             id_to_text=id_to_text,
-            edges=edges)
+            id_to_node_type=id_to_node_type,
+            id_to_node_sub_type=id_to_node_sub_type,
+            edges=edges,
+            edges_types=edges_types)
         examples.append(reply_examples)
     return examples
 
@@ -360,7 +385,7 @@ def create_bert_inputs(
 
         # Add BERT inputs to the dataset (corresponding to each node).
         for bert_input_type, bert_input_value in graph_lm_inputs.items():
-            graph_dataset[graph_id][f'id_to_{bert_input_type}'] = {
+            graph_dataset[graph_id][f'id_to_{bert_input_type}'] = { #TODO make sure node id is what we need, it should not be range but the ids on the idx of the nodes
                 node_id: bert_input_value[node_id].float() for node_id in range(bert_input_value.shape[0])
             }
     return graph_dataset

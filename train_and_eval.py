@@ -2,14 +2,16 @@ import torch
 import torch.nn.functional as F
 import os
 import random
+import numpy as np
 from torch.utils.data import Dataset
 from torch.utils.data import SubsetRandomSampler
+from torch_geometric.nn import to_hetero, global_mean_pool
 import torch_geometric.loader as geom_data
 
 import utils
 import wandb
-from data_loaders import CMVKGDataset
-from models import GCNWithBertEmbeddings
+from data_loaders import CMVKGDataset, CMVKGHetroDataset
+from models import GCNWithBertEmbeddings, GAT
 import constants
 import argparse
 from tqdm import tqdm
@@ -38,7 +40,7 @@ parser.add_argument('--num_epochs',
                     help="The number of training rounds over the knowledge graph dataset.")
 parser.add_argument('--batch_size',
                     type=int,
-                    default=16,
+                    default=4,
                     help="The number of examples per batch per device during both training and evaluation.")
 parser.add_argument('--learning_rate',
                     type=float,
@@ -65,13 +67,21 @@ parser.add_argument('--rounds_between_evals',
                     default=5,
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 
+def find_labels_for_batch(batch_data):
+    batch_labels = []
+    key = batch_data.node_types[0]
+    for b in range(len(batch_data[key].y)):
+        batch_labels.append(batch_data[key].y[b][0])
+    return torch.tensor(batch_labels)
 
-def train(model: GCNWithBertEmbeddings,
+def train(model: torch.nn.Module,
           training_loader: geom_data.DataLoader,
           validation_loader: geom_data.DataLoader,
           epochs: int,
           optimizer: torch.optim.Optimizer,
-          rounds_between_evals: int) -> GCNWithBertEmbeddings:
+          batch_size: int,
+          rounds_between_evals: int,
+          hetro: bool = False) -> torch.nn.Module:
     """Train a GCNWithBERTEmbeddings model on examples consisting of persuasive argument knowledge graphs.
 
     :param model: A torch module consisting of a BERT model (used to produce node embeddings), followed by a GCN.
@@ -90,15 +100,27 @@ def train(model: GCNWithBertEmbeddings,
         num_batches = 0
         for sampled_data in tqdm(training_loader):
             optimizer.zero_grad()
-            out = model(sampled_data)
+            if hetro:
+                y = find_labels_for_batch(batch_data=sampled_data)
+                gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
+                out = 0
+                for key in gnn_out.keys():
+                    gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
+                    out+=gnn_out[key]
+            else:
+                y = sampled_data.y
+                out = model(sampled_data)
             preds = torch.argmax(out, dim=1)
-            y_one_hot = F.one_hot(sampled_data.y, 2)
-            loss = model.loss(out.float(), y_one_hot.float())
+            y_one_hot = F.one_hot(y, 2)
+            if hetro:
+                loss = F.cross_entropy(out.float(), y_one_hot.float())
+            else:
+                loss = model.loss(out.float(), y_one_hot.float())
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
-            num_correct_preds = (preds == sampled_data.y).sum().float()
-            accuracy = num_correct_preds / sampled_data.y.shape[0] * 100
+            num_correct_preds = (preds == y).sum().float()
+            accuracy = num_correct_preds / y.shape[0] * 100
             epoch_acc += accuracy
             num_batches += 1
         wandb.log({f'training_{constants.ACCURACY}': epoch_acc / num_batches,
@@ -112,12 +134,24 @@ def train(model: GCNWithBertEmbeddings,
             num_batches = 0
             model.eval()
             for sampled_data in tqdm(validation_loader):
-                outputs = model(sampled_data)
-                preds = torch.argmax(outputs, dim=1)
-                y_one_hot = F.one_hot(sampled_data.y, 2)
-                loss = model.loss(outputs.float(), y_one_hot.float())
-                num_correct_preds = (preds == sampled_data.y).sum().float()
-                accuracy = num_correct_preds / sampled_data.y.shape[0] * 100
+                if hetro:
+                    y = find_labels_for_batch(batch_data=sampled_data)
+                    gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
+                    out = 0
+                    for key in gnn_out.keys():
+                        gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
+                        out += gnn_out[key]
+                else:
+                    y = sampled_data.y
+                    out = model(sampled_data)
+                preds = torch.argmax(out, dim=1)
+                y_one_hot = F.one_hot(y, 2)
+                if hetro:
+                    loss = F.cross_entropy(out.float(), y_one_hot.float())
+                else:
+                    loss = model.loss(out.float(), y_one_hot.float())
+                num_correct_preds = (preds == y).sum().float()
+                accuracy = num_correct_preds / y.shape[0] * 100
                 num_batches += 1
                 epoch_loss += loss.item()
                 epoch_acc += accuracy
@@ -127,8 +161,9 @@ def train(model: GCNWithBertEmbeddings,
     return model
 
 
-def eval(model: GCNWithBertEmbeddings,
-         dataset: CMVKGDataset):
+def eval(model: torch.nn.Module,
+         dataset: geom_data.DataLoader,
+         hetro: bool):
     """
     Evaluate the performance of a GCNWithBertEmbeddings model.
 
@@ -142,10 +177,19 @@ def eval(model: GCNWithBertEmbeddings,
     num_batches = 0
     with torch.no_grad():
         for sampled_data in tqdm(dataset):
-            out = model(sampled_data)
+            if hetro:
+                y = find_labels_for_batch(batch_data=sampled_data)
+                gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
+                out = 0
+                for key in gnn_out.keys():
+                    gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
+                    out += gnn_out[key]
+            else:
+                y = sampled_data.y
+                out = model(sampled_data)
             preds = torch.argmax(out, dim=1)
-            num_correct_preds = (preds == sampled_data.y).sum().float()
-            accuracy = num_correct_preds / sampled_data.y.shape[0] * 100
+            num_correct_preds = (preds == y).sum().float()
+            accuracy = num_correct_preds / y.shape[0] * 100
             acc += accuracy
             num_batches += 1
         acc = acc /num_batches
@@ -193,7 +237,9 @@ def create_dataloaders(graph_dataset: Dataset,
 
 
 if __name__ == '__main__':
-
+    hetro = True
+    debug = True
+    num_classes = 2
     args = parser.parse_args()
     args_dict = vars(args)
     for parameter, value in args_dict.items():
@@ -202,24 +248,36 @@ if __name__ == '__main__':
     num_node_features = constants.BERT_HIDDEN_DIM
     current_path = os.getcwd()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    with wandb.init(project="persuasive_arguments", config=args, name="GCN with BERT Embeddings"):
-        kg_dataset = CMVKGDataset(
-            current_path + "/cmv_modes/change-my-view-modes-master",
-            version=constants.v2_path,
-            debug=False)
-        # utils.get_dataset_stats(kg_dataset)
+    with wandb.init(project="persuasive_arguments", config=args, name="GCN with BERT Embeddings MAX pooling"):
         config = wandb.config
+        if hetro == False:
+            kg_dataset = CMVKGDataset(
+                current_path + "/cmv_modes/change-my-view-modes-master",
+                version=constants.v2_path,
+                debug=debug)
+            model = GCNWithBertEmbeddings(
+                num_node_features,
+                num_classes=num_classes,
+                hidden_layer_dim=config.gcn_hidden_layer_dim)
+        else:
+           kg_dataset =CMVKGHetroDataset(
+                current_path + "/cmv_modes/change-my-view-modes-master",
+                version=constants.v2_path,
+                debug=debug)
+            # utils.get_dataset_stats(kg_dataset)
+           model = GAT(hidden_channels=config.gcn_hidden_layer_dim, out_channels=num_classes)
+           data = kg_dataset[2]
+           model = to_hetero(model, data.metadata(), aggr='sum')
+
         dl_train,dl_val, dl_test = create_dataloaders(kg_dataset,
                                                batch_size=config.batch_size,
                                                val_percent=config.val_percent,
                                                test_percent=config.test_percent)
-        model = GCNWithBertEmbeddings(
-            num_node_features,
-            num_classes=2,
-            hidden_layer_dim=config.gcn_hidden_layer_dim)
+
 
         # TODO: Make log_freq a flag.
-        wandb.watch(model, log='all', log_freq=5)
+        if hetro == False:
+            wandb.watch(model, log='all', log_freq=5)
 
         optimizer = torch.optim.Adam(
             model.parameters(),
@@ -230,5 +288,7 @@ if __name__ == '__main__':
                       validation_loader=dl_val,
                       epochs=config.num_epochs,
                       optimizer=optimizer,
-                      rounds_between_evals=config.rounds_between_evals)
-        eval(model, dl_test)
+                      batch_size=config.batch_size,
+                      rounds_between_evals=config.rounds_between_evals,
+                      hetro=hetro)
+        eval(model, dl_test, hetro=hetro)
