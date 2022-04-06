@@ -34,6 +34,10 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
 
 parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
+parser.add_argument('--hetro',
+                    type=bool,
+                    default=False,
+                    help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--num_epochs',
                     type=int,
                     default=30,
@@ -66,6 +70,14 @@ parser.add_argument('--rounds_between_evals',
                     type=int,
                     default=5,
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
+parser.add_argument('--debug',
+                    type=bool,
+                    default=False,
+                    help="Work in debug mode")
+parser.add_argument('--use_max_pooling',
+                    type=bool,
+                    default=True,
+                    help="if True use max pooling in GNN else use average pooling")
 
 def find_labels_for_batch(batch_data):
     batch_labels = []
@@ -237,10 +249,9 @@ def create_dataloaders(graph_dataset: Dataset,
 
 
 if __name__ == '__main__':
-    hetro = True
-    debug = True
     num_classes = 2
     args = parser.parse_args()
+    hetro = args.hetro
     args_dict = vars(args)
     for parameter, value in args_dict.items():
         print(f'{parameter}: {value}')
@@ -254,16 +265,17 @@ if __name__ == '__main__':
             kg_dataset = CMVKGDataset(
                 current_path + "/cmv_modes/change-my-view-modes-master",
                 version=constants.v2_path,
-                debug=debug)
+                debug=args.debug)
             model = GCNWithBertEmbeddings(
                 num_node_features,
                 num_classes=num_classes,
-                hidden_layer_dim=config.gcn_hidden_layer_dim)
+                hidden_layer_dim=config.gcn_hidden_layer_dim,
+                use_max_pooling=args.use_max_pooling)
         else:
            kg_dataset =CMVKGHetroDataset(
                 current_path + "/cmv_modes/change-my-view-modes-master",
                 version=constants.v2_path,
-                debug=debug)
+                debug=args.debug)
             # utils.get_dataset_stats(kg_dataset)
            model = GAT(hidden_channels=config.gcn_hidden_layer_dim, out_channels=num_classes)
            data = kg_dataset[2]

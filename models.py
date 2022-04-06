@@ -376,7 +376,8 @@ class GCNWithBertEmbeddings(torch.nn.Module):
                  num_node_features: int,
                  num_classes: int,
                  hidden_layer_dim: int,
-                 use_frozen_bert: bool = True):
+                 use_frozen_bert: bool = True,
+                 use_max_pooling = True):
         """
 
         :param num_node_features: The dimensionality of each node within the batch of graph inputs.
@@ -398,6 +399,7 @@ class GCNWithBertEmbeddings(torch.nn.Module):
         self.conv1 = GCNConv(self.num_node_features, self.hidden_layer_dim)
         self.conv2 = GCNConv(self.hidden_layer_dim, self.num_classes)
         self.loss = nn.BCEWithLogitsLoss()
+        self.max_pooling = use_max_pooling
 
     def forward(self,
                 data: torch_geometric.data.Data):
@@ -419,8 +421,56 @@ class GCNWithBertEmbeddings(torch.nn.Module):
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
         x = self.conv2(x, edge_index)
-        x = global_max_pool(x, data.batch) #global_mean_pool(x, data.batch)
+        if self.max_pooling:
+            x = global_max_pool(x, data.batch)
+        else:
+            x = global_mean_pool(x, data.batch)
         return F.log_softmax(x, dim=1)
+
+# class GAT(torch.nn.Module): #Todo after one HetroModel works go back to trying this model
+#     def __init__(self, hidden_channels, out_channels):
+#         super().__init__()
+#         self.conv1 = GATConv((-1, -1), hidden_channels, add_self_loops=False)
+#         self.lin1 = Linear(-1, hidden_channels)
+#         self.conv2 = GATConv((-1, -1), out_channels, add_self_loops=False)
+#         self.lin2 = Linear(-1, out_channels)
+#
+#     def forward(self, data: HeteroData):
+#         x, edge_index = data.x, data.edge_index
+#         x = self.conv1(x, edge_index) + self.lin1(x)
+#         x = x.relu()
+#         x = self.conv2(x, edge_index) + self.lin2(x)
+#         return x
+
+class GAT(torch.nn.Module):
+    def __init__(self, hidden_channels, out_channels, use_frozen_bert: bool = True):
+        super().__init__()
+        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
+        if use_frozen_bert:
+            for param in self.bert_model.parameters():
+                param.requires_grad = False
+        self.conv1 = SAGEConv((-1, -1), hidden_channels)
+        self.conv2 = SAGEConv((-1, -1), out_channels)
+
+
+
+    def forward(self, x, edge_index):
+        input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
+        bert_outputs = self.bert_model(
+            input_ids=torch.squeeze(input_ids, dim=1).long(),
+            token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
+            attention_mask=torch.squeeze(attention_mask, dim=1).long(),
+        )
+        node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
+        # import pdb
+        # pdb.set_trace()
+        node_embeddings = self.conv1(node_embeddings, edge_index).relu()
+        node_embeddings = self.conv2(node_embeddings, edge_index)
+        return node_embeddings
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 class BertParagraphWithMLP(torch.nn.Module):
