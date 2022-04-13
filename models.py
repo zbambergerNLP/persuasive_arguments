@@ -377,7 +377,7 @@ class GCNWithBertEmbeddings(torch.nn.Module):
                  num_classes: int,
                  hidden_layer_dim: int,
                  use_frozen_bert: bool = True,
-                 use_max_pooling = True):
+                 use_max_pooling: bool = True):
         """
 
         :param num_node_features: The dimensionality of each node within the batch of graph inputs.
@@ -451,7 +451,6 @@ class GAT(torch.nn.Module):
                 param.requires_grad = False
         self.conv1 = SAGEConv((-1, -1), hidden_channels)
         self.conv2 = SAGEConv((-1, -1), out_channels)
-
 
 
     def forward(self, x, edge_index):

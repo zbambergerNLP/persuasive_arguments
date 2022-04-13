@@ -5,7 +5,7 @@ import random
 import numpy as np
 from torch.utils.data import Dataset
 from torch.utils.data import SubsetRandomSampler
-from torch_geometric.nn import to_hetero, global_mean_pool
+from torch_geometric.nn import to_hetero, global_mean_pool, global_max_pool
 import torch_geometric.loader as geom_data
 
 import utils
@@ -40,7 +40,7 @@ parser.add_argument('--hetro',
                     help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--num_epochs',
                     type=int,
-                    default=30,
+                    default=5,
                     help="The number of training rounds over the knowledge graph dataset.")
 parser.add_argument('--batch_size',
                     type=int,
@@ -93,7 +93,8 @@ def train(model: torch.nn.Module,
           optimizer: torch.optim.Optimizer,
           batch_size: int,
           rounds_between_evals: int,
-          hetro: bool = False) -> torch.nn.Module:
+          hetro: bool = False,
+          use_max_pooling: bool = False) -> torch.nn.Module:
     """Train a GCNWithBERTEmbeddings model on examples consisting of persuasive argument knowledge graphs.
 
     :param model: A torch module consisting of a BERT model (used to produce node embeddings), followed by a GCN.
@@ -117,7 +118,10 @@ def train(model: torch.nn.Module,
                 gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
                 out = 0
                 for key in gnn_out.keys():
-                    gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
+                    if use_max_pooling:
+                        gnn_out[key] = global_max_pool(gnn_out[key], sampled_data[key].batch)
+                    else:
+                        gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
                     out+=gnn_out[key]
             else:
                 y = sampled_data.y
@@ -151,7 +155,10 @@ def train(model: torch.nn.Module,
                     gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
                     out = 0
                     for key in gnn_out.keys():
-                        gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
+                        if use_max_pooling:
+                            gnn_out[key] = global_max_pool(gnn_out[key], sampled_data[key].batch)
+                        else:
+                            gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
                         out += gnn_out[key]
                 else:
                     y = sampled_data.y
@@ -175,7 +182,8 @@ def train(model: torch.nn.Module,
 
 def eval(model: torch.nn.Module,
          dataset: geom_data.DataLoader,
-         hetro: bool):
+         hetro: bool,
+         use_max_pooling: bool = False):
     """
     Evaluate the performance of a GCNWithBertEmbeddings model.
 
@@ -194,7 +202,10 @@ def eval(model: torch.nn.Module,
                 gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
                 out = 0
                 for key in gnn_out.keys():
-                    gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
+                    if use_max_pooling:
+                        gnn_out[key] = global_max_pool(gnn_out[key], sampled_data[key].batch)
+                    else:
+                        gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
                     out += gnn_out[key]
             else:
                 y = sampled_data.y
@@ -261,6 +272,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     with wandb.init(project="persuasive_arguments", config=args, name="GCN with BERT Embeddings MAX pooling"):
         config = wandb.config
+
         if hetro == False:
             kg_dataset = CMVKGDataset(
                 current_path + "/cmv_modes/change-my-view-modes-master",
@@ -270,12 +282,12 @@ if __name__ == '__main__':
                 num_node_features,
                 num_classes=num_classes,
                 hidden_layer_dim=config.gcn_hidden_layer_dim,
-                use_max_pooling=args.use_max_pooling)
+                use_max_pooling=config.use_max_pooling)
         else:
            kg_dataset =CMVKGHetroDataset(
                 current_path + "/cmv_modes/change-my-view-modes-master",
                 version=constants.v2_path,
-                debug=args.debug)
+                debug=config.debug)
             # utils.get_dataset_stats(kg_dataset)
            model = GAT(hidden_channels=config.gcn_hidden_layer_dim, out_channels=num_classes)
            data = kg_dataset[2]
@@ -302,5 +314,6 @@ if __name__ == '__main__':
                       optimizer=optimizer,
                       batch_size=config.batch_size,
                       rounds_between_evals=config.rounds_between_evals,
-                      hetro=hetro)
-        eval(model, dl_test, hetro=hetro)
+                      hetro=hetro,
+                      use_max_pooling = config.use_max_pooling)
+        eval(model, dl_test, hetro=hetro, use_max_pooling = config.use_max_pooling)
