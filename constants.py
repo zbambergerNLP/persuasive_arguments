@@ -115,6 +115,8 @@ LOG = 'log'
 # GNN
 NODE_DIM = 60
 BERT_HIDDEN_DIM = 768
+GCN = 'GCN'
+SAGE = 'SAGE'
 
 # Pre-processing
 v1_path = 'v1.0'
@@ -133,8 +135,8 @@ REFERENCE = 'ref'
 RELATION = 'rel'
 ID_TO_INDEX = 'id_to_idx'
 ID_TO_TEXT = 'id_to_text'
-ID_TO_NODE_TYPE= 'id_to_node_type'
-ID_TO_NODE_SUB_TYPE ='id_to_node_sub_type'
+ID_TO_NODE_TYPE = 'id_to_node_type'
+ID_TO_NODE_SUB_TYPE = 'id_to_node_sub_type'
 INDEX_TO_ID = 'idx_to_id'
 EDGES = 'edges'
-EDGES_TYPES= 'edges_types'
+EDGES_TYPES = 'edges_types'

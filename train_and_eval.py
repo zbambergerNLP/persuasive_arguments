@@ -1,13 +1,17 @@
+import copy
+import math
+
+import numpy as np
 import torch
 import torch.nn.functional as F
 import os
 import random
-import numpy as np
 from torch.utils.data import Dataset
 from torch.utils.data import SubsetRandomSampler
 from torch_geometric.nn import to_hetero, global_mean_pool, global_max_pool
 import torch_geometric.loader as geom_data
 
+import metrics
 import utils
 import wandb
 from data_loaders import CMVKGDataset, CMVKGHetroDataset
@@ -21,14 +25,18 @@ from tqdm import tqdm
 Example command:
 srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --num_epochs 30 \
-    --batch_size 4 \
-    --learning_rate 1e-3 \
+    --batch_size 16 \
+    --learning_rate 1e-4 \
     --weight_decay 5e-4 \
     --gcn_hidden_layer_dim 128 \
     --test_percent 0.1 \
     --val_percent 0.1 \
-    --rounds_between_evals 5
-    
+    --rounds_between_evals 1 \
+    --model "GAT" \
+    --debug "" \
+    --hetro True \
+    --use_k_fold_cross_validation True \
+    --num_cross_validation_splits 5
 """
 
 
@@ -72,16 +80,26 @@ parser.add_argument('--rounds_between_evals',
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="Work in debug mode")
 parser.add_argument('--use_max_pooling',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="if True use max pooling in GNN else use average pooling")
 parser.add_argument('--model',
                     type=str,
                     default='GCN',
                     help="chose which model to run with the options are: GVN, GAT , SAGE")
+parser.add_argument('--use_k_fold_cross_validation',
+                    type=bool,
+                    default=False,
+                    help="True if we intend to perform cross validation on the dataset. False otherwise. Using this"
+                         "option is advised if the dataset is small.")
+parser.add_argument('--num_cross_validation_splits',
+                    type=int,
+                    default=5,
+                    help="The number of cross validation splits we perform as part of k-fold cross validation.")
+
 
 def find_labels_for_batch(batch_data):
     batch_labels = []
@@ -90,15 +108,18 @@ def find_labels_for_batch(batch_data):
         batch_labels.append(batch_data[key].y[b][0])
     return torch.tensor(batch_labels)
 
+
 def train(model: torch.nn.Module,
           training_loader: geom_data.DataLoader,
           validation_loader: geom_data.DataLoader,
           epochs: int,
           optimizer: torch.optim.Optimizer,
-          batch_size: int,
-          rounds_between_evals: int,
+          device,
+          rounds_between_evals: int = 1,
           hetro: bool = False,
-          use_max_pooling: bool = False) -> torch.nn.Module:
+          use_max_pooling: bool = False,
+          metric_for_early_stopping: str = constants.ACCURACY,
+          max_num_rounds_no_improvement: int = 10) -> torch.nn.Module:
     """Train a GCNWithBERTEmbeddings model on examples consisting of persuasive argument knowledge graphs.
 
     :param model: A torch module consisting of a BERT model (used to produce node embeddings), followed by a GCN.
@@ -110,101 +131,21 @@ def train(model: torch.nn.Module,
     :return: A trained model.
     """
     model.train()
-
+    model.to(device)
+    highest_accuracy = 0
+    lowest_loss = math.inf
+    num_rounds_no_improvement = 0
+    epoch_with_optimal_performance = 0
+    best_model_dir_path = os.path.join(os.getcwd(), 'tmp')
+    utils.ensure_dir_exists(best_model_dir_path)
+    best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_probe.pt')
     for epoch in range(epochs):
         epoch_loss = 0.0
         epoch_acc = 0.0
         num_batches = 0
         for sampled_data in tqdm(training_loader):
+            sampled_data.to(device)
             optimizer.zero_grad()
-            if hetro:
-                y = find_labels_for_batch(batch_data=sampled_data)
-                gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
-                out = 0
-                for key in gnn_out.keys():
-                    if use_max_pooling:
-                        gnn_out[key] = global_max_pool(gnn_out[key], sampled_data[key].batch)
-                    else:
-                        gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
-                    out+=gnn_out[key]
-                out = F.log_softmax(out, dim=1)
-            else:
-                y = sampled_data.y
-                # out = model(sampled_data)
-                out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
-            preds = torch.argmax(out, dim=1)
-            y_one_hot = F.one_hot(y, 2)
-            if hetro:
-                loss = F.cross_entropy(out.float(), y_one_hot.float())
-            else:
-                loss = model.loss(out.float(), y_one_hot.float())
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
-            num_correct_preds = (preds == y).sum().float()
-            accuracy = num_correct_preds / y.shape[0] * 100
-            epoch_acc += accuracy
-            num_batches += 1
-        wandb.log({f'training_{constants.ACCURACY}': epoch_acc / num_batches,
-                   f'training_{constants.EPOCH}': epoch,
-                   f'training_{constants.LOSS}': epoch_loss / num_batches})
-
-        # Perform evaluation on the validation set.
-        if epoch % rounds_between_evals == 0:
-            epoch_loss = 0.0
-            epoch_acc = 0.0
-            num_batches = 0
-            model.eval()
-            for sampled_data in tqdm(validation_loader):
-                if hetro:
-                    y = find_labels_for_batch(batch_data=sampled_data)
-                    gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
-                    out = 0
-                    for key in gnn_out.keys():
-                        if use_max_pooling:
-                            gnn_out[key] = global_max_pool(gnn_out[key], sampled_data[key].batch)
-                        else:
-                            gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
-                        out += gnn_out[key]
-                    out = F.log_softmax(out, dim=1)
-                else:
-                    y = sampled_data.y
-                    # out = model(sampled_data)
-                    out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
-                preds = torch.argmax(out, dim=1)
-                y_one_hot = F.one_hot(y, 2)
-                if hetro:
-                    loss = F.cross_entropy(out.float(), y_one_hot.float())
-                else:
-                    loss = model.loss(out.float(), y_one_hot.float())
-                num_correct_preds = (preds == y).sum().float()
-                accuracy = num_correct_preds / y.shape[0] * 100
-                num_batches += 1
-                epoch_loss += loss.item()
-                epoch_acc += accuracy
-            wandb.log({f'validation_{constants.ACCURACY}': epoch_acc / num_batches,
-                       f'validation_{constants.EPOCH}': epoch,
-                       f'validation_{constants.LOSS}': epoch_loss / num_batches})
-    return model
-
-
-def eval(model: torch.nn.Module,
-         dataset: geom_data.DataLoader,
-         hetro: bool,
-         use_max_pooling: bool = False):
-    """
-    Evaluate the performance of a GCNWithBertEmbeddings model.
-
-    The test set used for this evaluation consists of distinct examples from those used by the model during training.
-
-    :param model: A torch module consisting of a BERT model (used to produce node embeddings), followed by a GCN.
-    :param dataset: A CMVKGDataLoader instance
-    """
-    model.eval()
-    acc = 0.0
-    num_batches = 0
-    with torch.no_grad():
-        for sampled_data in tqdm(dataset):
             if hetro:
                 y = find_labels_for_batch(batch_data=sampled_data)
                 gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
@@ -218,17 +159,137 @@ def eval(model: torch.nn.Module,
                 out = F.log_softmax(out, dim=1)
             else:
                 y = sampled_data.y
-                # out = model(sampled_data)
                 out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
             preds = torch.argmax(out, dim=1)
-            num_correct_preds = (preds == y).sum().float()
+            y_one_hot = F.one_hot(y, 2)
+            if hetro:
+                loss = F.cross_entropy(out.float(), y_one_hot.float().to(device))
+            else:
+                loss = model.loss(out.float(), y_one_hot.float().to(device))
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+            num_correct_preds = (preds == y.to(device)).sum().float()
             accuracy = num_correct_preds / y.shape[0] * 100
-            acc += accuracy
+            epoch_acc += accuracy
             num_batches += 1
-        acc = acc /num_batches
-    print(f'Accuracy: {acc:.4f}')
+        wandb.log({f'training_{constants.ACCURACY}': epoch_acc / num_batches,
+                   f'training_{constants.EPOCH}': epoch,
+                   f'training_{constants.LOSS}': epoch_loss / num_batches})
+
+        # Perform evaluation on the validation set.
+        if epoch % rounds_between_evals == 0:
+            model.eval()
+            epoch_loss = 0.0
+            epoch_acc = 0.0
+            num_batches = 0
+            model.eval()
+            for sampled_data in tqdm(validation_loader):
+                sampled_data.to(device)
+                if hetro:
+                    y = find_labels_for_batch(batch_data=sampled_data)
+                    gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
+                    out = 0
+                    for key in gnn_out.keys():
+                        if use_max_pooling:
+                            gnn_out[key] = global_max_pool(gnn_out[key], sampled_data[key].batch)
+                        else:
+                            gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
+                        out += gnn_out[key]
+                    out = F.log_softmax(out, dim=1)
+                else:
+                    y = sampled_data.y
+                    out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
+                preds = torch.argmax(out, dim=1)
+                y_one_hot = F.one_hot(y, 2)
+                if hetro:
+                    loss = F.cross_entropy(out.float(), y_one_hot.float().to(device))
+                else:
+                    loss = model.loss(out.float(), y_one_hot.float().to(device))
+                num_correct_preds = (preds == y.to(device)).sum().float()
+                accuracy = num_correct_preds / y.shape[0] * 100
+                num_batches += 1
+                epoch_loss += loss.item()
+                epoch_acc += accuracy
+            validation_loss = epoch_loss / num_batches
+            validation_acc = epoch_acc / num_batches
+            wandb.log({f'validation_{constants.ACCURACY}': epoch_acc / num_batches,
+                       f'validation_{constants.EPOCH}': epoch,
+                       f'validation_{constants.LOSS}': epoch_loss / num_batches})
+
+            if metric_for_early_stopping == constants.LOSS and validation_loss < lowest_loss:
+                lowest_loss = validation_loss
+                num_rounds_no_improvement = 0
+                epoch_with_optimal_performance = epoch
+                torch.save(model.state_dict(), best_model_path)
+            elif metric_for_early_stopping == constants.ACCURACY and validation_acc > highest_accuracy:
+                highest_accuracy = validation_acc
+                num_rounds_no_improvement = 0
+                epoch_with_optimal_performance = epoch
+                torch.save(model.state_dict(), best_model_path)
+            else:
+                num_rounds_no_improvement += 1
+
+            if num_rounds_no_improvement == max_num_rounds_no_improvement:
+                print(f'Performing early stopping after {epoch} epochs.\n'
+                      f'Optimal model obtained from epoch #{epoch_with_optimal_performance}')
+                model.load_state_dict(torch.load(best_model_path))
+                break
+            model.train()
+    return model
 
 
+def eval(model: torch.nn.Module,
+         dataset: geom_data.DataLoader,
+         split_name: str,
+         hetro: bool,
+         device,
+         use_max_pooling: bool = False):
+    """
+    Evaluate the performance of a GCNWithBertEmbeddings model.
+
+    The test set used for this evaluation consists of distinct examples from those used by the model during training.
+
+    :param model: A torch module consisting of a BERT model (used to produce node embeddings), followed by a GCN.
+    :param dataset: A CMVKGDataLoader instance
+    """
+    model.eval()
+    model.to(device)
+    with torch.no_grad():
+        preds_list = []
+        targets_list = []
+        for sampled_data in tqdm(dataset):
+            sampled_data.to(device)
+            if hetro:
+                y = find_labels_for_batch(batch_data=sampled_data)
+                gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
+                out = 0
+                for key in gnn_out.keys():
+                    if use_max_pooling:
+                        gnn_out[key] = global_max_pool(gnn_out[key], sampled_data[key].batch)
+                    else:
+                        gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
+                    out += gnn_out[key]
+                out = F.log_softmax(out, dim=1)
+            else:
+                y = sampled_data.y
+                out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
+            preds = torch.argmax(out, dim=1).cpu()
+            preds_list.append(preds)
+            targets_list.append(y)
+        preds_list = np.concatenate(preds_list)
+        targets_list = np.concatenate(targets_list)
+        eval_metrics = metrics.compute_metrics(num_labels=constants.NUM_LABELS,
+                                               preds=preds_list,
+                                               targets=targets_list,
+                                               split_name=split_name)
+        for metric_name, metric_value in eval_metrics.items():
+            wandb.summary[f"eval_{metric_name}"] = metric_value
+        return eval_metrics
+
+
+# TODO: Modify the below function so that the validation and test sets are sampled from a sliding window over the
+#  entire dataset (consistent with k-fold cross validation).
 def create_dataloaders(graph_dataset: Dataset,
                        batch_size: int,
                        val_percent: float,
@@ -247,21 +308,18 @@ def create_dataloaders(graph_dataset: Dataset,
     num_of_examples = len(graph_dataset.dataset)
     test_len = int(test_percent * num_of_examples)
     val_len = int(val_percent * num_of_examples)
-    train_len = num_of_examples - test_len -val_len
-
     indexes = random.sample(range(num_of_examples), num_of_examples)
     test_indexes = indexes[:test_len]
     val_indexes = indexes[test_len:test_len + val_len]
     train_indexes = indexes[test_len + val_len:-1]
-
     dl_train = geom_data.DataLoader(graph_dataset,
                                     batch_size=batch_size,
                                     num_workers=num_workers,
                                     sampler=SubsetRandomSampler(train_indexes))
     dl_val = geom_data.DataLoader(graph_dataset,
-                                    batch_size=batch_size,
-                                    num_workers=num_workers,
-                                    sampler=SubsetRandomSampler(val_indexes))
+                                  batch_size=batch_size,
+                                  num_workers=num_workers,
+                                  sampler=SubsetRandomSampler(val_indexes))
     dl_test = geom_data.DataLoader(graph_dataset,
                                    batch_size=batch_size,
                                    num_workers=num_workers,
@@ -280,63 +338,182 @@ if __name__ == '__main__':
     num_node_features = constants.BERT_HIDDEN_DIM
     current_path = os.getcwd()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    with wandb.init(project="persuasive_arguments", config=args, name="GCN with BERT Embeddings MAX pooling"):
-        config = wandb.config
-        if config.model == 'GCN':
-            if hetro ==True:
-                raise Exception (f'GCN is still not working with hetro graphs')
-            model = GCNWithBertEmbeddings(
-                num_node_features,
-                num_classes=num_classes,
-                hidden_layer_dim=config.gcn_hidden_layer_dim,
-                use_max_pooling=config.use_max_pooling,
-                is_hetro = hetro)
-        elif config.model =='SAGE':
-            model = GraphSage(hidden_channels=config.gcn_hidden_layer_dim, out_channels=num_classes, is_hetro=hetro, use_max_pooling=config.use_max_pooling)
 
-        elif config.model == 'GAT':
-            model = GAT(hidden_channels=config.gcn_hidden_layer_dim, out_channels=num_classes, is_hetro=hetro, use_max_pooling=config.use_max_pooling)
+    print(f'Initializing model: {args.model}')
+    if args.model == constants.GCN:
+        if hetro:
+            raise NotImplementedError('GCN is still not working with hetro graphs')
+        model = GCNWithBertEmbeddings(
+            num_node_features,
+            num_classes=num_classes,
+            hidden_layer_dim=args.gcn_hidden_layer_dim,
+            use_max_pooling=args.use_max_pooling,
+            is_hetro=hetro)
+    elif args.model == constants.SAGE:
+        model = GraphSage(hidden_channels=args.gcn_hidden_layer_dim,
+                          out_channels=num_classes,
+                          is_hetro=hetro,
+                          use_max_pooling=args.use_max_pooling)
+    elif args.model == 'GAT':
+        model = GAT(hidden_channels=args.gcn_hidden_layer_dim,
+                    out_channels=num_classes,
+                    is_hetro=hetro,
+                    use_max_pooling=args.use_max_pooling)
+    else:
+        raise NotImplementedError(f'{args.model} is not implemented')
 
+    # TODO: Creating the knowledge graph datasets takes a lot of time. As of now we make this a one time cost by saving
+    #  and loading these datasets. In the future we should optimize the data creation process from a runtime
+    #  perspective.
+    dir_name = os.path.join(current_path, "cmv_modes", "knowledge_graph_datasets")
+    utils.ensure_dir_exists(dir_name)
+    if hetro:
+        print('Initializing heterophealous dataset')
+        if os.path.exists(os.path.join(dir_name, 'hetro_dataset.pt')):
+            kg_dataset = torch.load(os.path.join(dir_name, 'hetro_dataset.pt'))
         else:
-            raise Exception(f'{config.model} is not implemented')
-
-        if hetro == False:
+            kg_dataset = CMVKGHetroDataset(
+                current_path + "/cmv_modes/change-my-view-modes-master",
+                version=constants.v2_path,
+                debug=args.debug)
+            torch.save(kg_dataset, os.path.join(dir_name, 'hetro_dataset.pt'))
+        data = kg_dataset[2]
+        print('Converting model to hetero')
+        model = to_hetero(model, data.metadata(), aggr='sum')
+    else:
+        print('initializing homophealous dataset')
+        if os.path.exists(os.path.join(dir_name, 'homophelous_dataset.pt')):
+            kg_dataset = torch.load(os.path.join(dir_name, 'homophelous_dataset.pt'))
+        else:
             kg_dataset = CMVKGDataset(
                 current_path + "/cmv_modes/change-my-view-modes-master",
                 version=constants.v2_path,
                 debug=args.debug)
+            torch.save(kg_dataset, os.path.join(dir_name, 'homophelous_dataset.pt'))
 
-        else:
-           kg_dataset =CMVKGHetroDataset(
-                current_path + "/cmv_modes/change-my-view-modes-master",
-                version=constants.v2_path,
-                debug=config.debug)
-            # utils.get_dataset_stats(kg_dataset)
-           data = kg_dataset[2]
-           model = to_hetero(model, data.metadata(), aggr='sum')
+    if args.use_k_fold_cross_validation:
+        train_metrics = []
+        validation_metrics = []
+        test_metrics = []
+        for validation_split_index in range(args.num_cross_validation_splits):
+            dl_train, dl_val, dl_test = create_dataloaders(
+                kg_dataset,
+                batch_size=args.batch_size,
+                val_percent=args.val_percent,
+                test_percent=args.test_percent)
+            split_model = copy.deepcopy(model)
+            optimizer = torch.optim.Adam(
+                model.parameters(),
+                lr=args.learning_rate,
+                weight_decay=args.weight_decay)
+            run = wandb.init(project="persuasive_arguments",
+                             config=args,
+                             name=f"{'heterophelous' if args.hetro else 'homophealous'} "
+                                  f"{args.model} with BERT Embeddings and "
+                                  f"{'max' if args.use_max_pooling else 'average'} pooling "
+                                  f"(split #{validation_split_index})",
+                             reinit=True)
+            model = train(model=model,
+                          training_loader=dl_train,
+                          validation_loader=dl_val,
+                          epochs=args.num_epochs,
+                          optimizer=optimizer,
+                          rounds_between_evals=args.rounds_between_evals,
+                          hetro=hetro,
+                          use_max_pooling=args.use_max_pooling,
+                          device=device)
+            train_metrics.append(
+                eval(model,
+                     dl_train,
+                     hetro=hetro,
+                     use_max_pooling=args.use_max_pooling,
+                     device=device,
+                     split_name=constants.TRAIN)
+            )
+            validation_metrics.append(
+                eval(model,
+                     dl_val,
+                     hetro=hetro,
+                     use_max_pooling=args.use_max_pooling,
+                     device=device,
+                     split_name=constants.VALIDATION)
+            )
+            test_metrics.append(
+                eval(model,
+                     dl_test,
+                     hetro=hetro,
+                     use_max_pooling=args.use_max_pooling,
+                     device=device,
+                     split_name=constants.TEST)
+            )
+            run.finish()
+        validation_metric_aggregates = utils.aggregate_metrics_across_splits(validation_metrics)
+        train_metric_aggregates = utils.aggregate_metrics_across_splits(train_metrics)
+        test_metric_aggregates = utils.aggregate_metrics_across_splits(test_metrics)
+        print(f'\n*** Train Metrics: ***')
+        train_metric_averages, train_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+            metric_aggregates=train_metric_aggregates,
+            split_name=constants.TRAIN,
+            print_results=True)
+        print(f'\n*** Validation Metrics: ***')
+        validation_metric_averages, validation_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+            metric_aggregates=validation_metric_aggregates,
+            split_name=constants.VALIDATION,
+            print_results=True)
+        print(f'\n*** Test Metrics: ***')
+        test_metric_averages, test_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+            metric_aggregates=test_metric_aggregates,
+            split_name=constants.TEST,
+            print_results=True)
 
-        print(model)
-        dl_train,dl_val, dl_test = create_dataloaders(kg_dataset,
-                                               batch_size=config.batch_size,
-                                               val_percent=config.val_percent,
-                                               test_percent=config.test_percent)
-
-
-        # # TODO: Make log_freq a flag.
-        # if hetro == False:
-        #     wandb.watch(model, log='all', log_freq=5)
-
+    else:
+        dl_train, dl_val, dl_test = create_dataloaders(kg_dataset,
+                                                       batch_size=args.batch_size,
+                                                       val_percent=args.val_percent,
+                                                       test_percent=args.test_percent)
         optimizer = torch.optim.Adam(
             model.parameters(),
-            lr=config.learning_rate,
-            weight_decay=config.weight_decay)
+            lr=args.learning_rate,
+            weight_decay=args.weight_decay)
+        wandb.init(project="persuasive_arguments",
+                   config=args,
+                   name=f"{'heterophelous' if args.hetro else 'homophealous'} "
+                        f"{args.model} with BERT Embeddings and "
+                        f"{'max' if args.use_max_pooling else 'average'} pooling")
         model = train(model=model,
                       training_loader=dl_train,
                       validation_loader=dl_val,
-                      epochs=config.num_epochs,
+                      epochs=args.num_epochs,
                       optimizer=optimizer,
-                      batch_size=config.batch_size,
-                      rounds_between_evals=config.rounds_between_evals,
+                      rounds_between_evals=args.rounds_between_evals,
                       hetro=hetro,
-                      use_max_pooling = config.use_max_pooling)
-        eval(model, dl_test, hetro=hetro, use_max_pooling = config.use_max_pooling)
+                      use_max_pooling=args.use_max_pooling,
+                      device=device)
+        train_metrics = eval(
+            model,
+            dl_train,
+            hetro=hetro,
+            use_max_pooling=args.use_max_pooling,
+            device=device,
+            split_name=constants.TRAIN,
+        )
+        validation_metrics = eval(
+            model,
+            dl_val,
+            hetro=hetro,
+            use_max_pooling=args.use_max_pooling,
+            device=device,
+            split_name=constants.VALIDATION,
+        )
+        test_metrics = eval(
+            model,
+            dl_test,
+            hetro=hetro,
+            use_max_pooling=args.use_max_pooling,
+            device=device,
+            split_name=constants.TEST)
+        all_metrics = {
+            constants.TRAIN: train_metrics,
+            constants.VALIDATION: validation_metrics,
+            constants.TEST: test_metrics}
+        print(all_metrics)
