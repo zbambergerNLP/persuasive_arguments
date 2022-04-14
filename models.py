@@ -376,6 +376,7 @@ class GCNWithBertEmbeddings(torch.nn.Module):
                  num_node_features: int,
                  num_classes: int,
                  hidden_layer_dim: int,
+                 is_hetro: bool,
                  use_frozen_bert: bool = True,
                  use_max_pooling: bool = True):
         """
@@ -400,16 +401,15 @@ class GCNWithBertEmbeddings(torch.nn.Module):
         self.conv2 = GCNConv(self.hidden_layer_dim, self.num_classes)
         self.loss = nn.BCEWithLogitsLoss()
         self.max_pooling = use_max_pooling
+        self.is_hetro = is_hetro
 
-    def forward(self,
-                data: torch_geometric.data.Data):
+    def forward(self, x, edge_index, batch=None):
         """
 
         :param data: A collection of node and edge data corresponding to a batch of graphs inputted to the model.
         :return: A probability distribution over the output labels. A torch tensor of shape
             [batch_size, num_output_labels].
         """
-        x, edge_index = data.x, data.edge_index
         input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
         bert_outputs = self.bert_model(
             input_ids=torch.squeeze(input_ids, dim=1).long(),
@@ -417,33 +417,61 @@ class GCNWithBertEmbeddings(torch.nn.Module):
             attention_mask=torch.squeeze(attention_mask, dim=1).long(),
         )
         node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
-        x = self.conv1(node_embeddings, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, training=self.training)
-        x = self.conv2(x, edge_index)
-        if self.max_pooling:
-            x = global_max_pool(x, data.batch)
-        else:
-            x = global_mean_pool(x, data.batch)
-        return F.log_softmax(x, dim=1)
+        node_embeddings = self.conv1(node_embeddings, edge_index)
+        node_embeddings = node_embeddings.relu()
+        # node_embeddings = F.dropout(node_embeddings, training=self.training)
+        node_embeddings = self.conv2(node_embeddings, edge_index)
 
-# class GAT(torch.nn.Module): #Todo after one HetroModel works go back to trying this model
-#     def __init__(self, hidden_channels, out_channels):
-#         super().__init__()
-#         self.conv1 = GATConv((-1, -1), hidden_channels, add_self_loops=False)
-#         self.lin1 = Linear(-1, hidden_channels)
-#         self.conv2 = GATConv((-1, -1), out_channels, add_self_loops=False)
-#         self.lin2 = Linear(-1, out_channels)
-#
-#     def forward(self, data: HeteroData):
-#         x, edge_index = data.x, data.edge_index
-#         x = self.conv1(x, edge_index) + self.lin1(x)
-#         x = x.relu()
-#         x = self.conv2(x, edge_index) + self.lin2(x)
-#         return x
+        if self.is_hetro:
+            return node_embeddings
+        else:
+            if self.max_pooling:
+                node_embeddings = global_max_pool(node_embeddings, batch)
+            else:
+                node_embeddings = global_mean_pool(node_embeddings, batch)
+            return F.log_softmax(node_embeddings, dim=1)
 
 class GAT(torch.nn.Module):
-    def __init__(self, hidden_channels, out_channels, use_frozen_bert: bool = True):
+    def __init__(self, hidden_channels, out_channels,  is_hetro: bool,
+                 use_frozen_bert: bool = True,
+                 use_max_pooling: bool = True):
+        super().__init__()
+        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
+        if use_frozen_bert:
+            for param in self.bert_model.parameters():
+                param.requires_grad = False
+        self.conv1 = GATConv((-1, -1), hidden_channels, add_self_loops=False)
+        self.lin1 = Linear(-1, hidden_channels)
+        self.conv2 = GATConv((-1, -1), out_channels, add_self_loops=False)
+        self.lin2 = Linear(-1, out_channels)
+        self.loss = nn.BCEWithLogitsLoss()
+        self.max_pooling = use_max_pooling
+        self.is_hetro = is_hetro
+
+    def forward(self, x, edge_index, batch = None):
+        input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
+        bert_outputs = self.bert_model(
+            input_ids=torch.squeeze(input_ids, dim=1).long(),
+            token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
+            attention_mask=torch.squeeze(attention_mask, dim=1).long(),
+        )
+        node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
+        node_embeddings = self.conv1(node_embeddings, edge_index) + self.lin1(node_embeddings)
+        node_embeddings = node_embeddings.relu()
+        node_embeddings = self.conv2(node_embeddings, edge_index) + self.lin2(node_embeddings)
+        if self.is_hetro:
+            return node_embeddings
+        else:
+            if self.max_pooling:
+                node_embeddings = global_max_pool(node_embeddings, batch)
+            else:
+                node_embeddings = global_mean_pool(node_embeddings, batch)
+            return F.log_softmax(node_embeddings, dim=1)
+
+class GraphSage(torch.nn.Module):
+    def __init__(self, hidden_channels, out_channels,  is_hetro: bool,
+                 use_frozen_bert: bool = True,
+                 use_max_pooling: bool = True):
         super().__init__()
         self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
         if use_frozen_bert:
@@ -451,9 +479,11 @@ class GAT(torch.nn.Module):
                 param.requires_grad = False
         self.conv1 = SAGEConv((-1, -1), hidden_channels)
         self.conv2 = SAGEConv((-1, -1), out_channels)
+        self.loss = nn.BCEWithLogitsLoss()
+        self.max_pooling = use_max_pooling
+        self.is_hetro = is_hetro
 
-
-    def forward(self, x, edge_index):
+    def forward(self, x, edge_index, batch = None):
         input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
         bert_outputs = self.bert_model(
             input_ids=torch.squeeze(input_ids, dim=1).long(),
@@ -465,7 +495,15 @@ class GAT(torch.nn.Module):
         # pdb.set_trace()
         node_embeddings = self.conv1(node_embeddings, edge_index).relu()
         node_embeddings = self.conv2(node_embeddings, edge_index)
-        return node_embeddings
+
+        if self.is_hetro:
+            return node_embeddings
+        else:
+            if self.max_pooling:
+                node_embeddings = global_max_pool(node_embeddings, batch)
+            else:
+                node_embeddings = global_mean_pool(node_embeddings, batch)
+            return F.log_softmax(node_embeddings, dim=1)
 
 
 def count_parameters(model):

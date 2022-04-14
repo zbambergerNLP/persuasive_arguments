@@ -11,7 +11,7 @@ import torch_geometric.loader as geom_data
 import utils
 import wandb
 from data_loaders import CMVKGDataset, CMVKGHetroDataset
-from models import GCNWithBertEmbeddings, GAT
+from models import GCNWithBertEmbeddings, GraphSage, GAT
 import constants
 import argparse
 from tqdm import tqdm
@@ -72,12 +72,16 @@ parser.add_argument('--rounds_between_evals',
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="Work in debug mode")
 parser.add_argument('--use_max_pooling',
                     type=bool,
                     default=True,
                     help="if True use max pooling in GNN else use average pooling")
+parser.add_argument('--model',
+                    type=str,
+                    default='GCN',
+                    help="chose which model to run with the options are: GVN, GAT , SAGE")
 
 def find_labels_for_batch(batch_data):
     batch_labels = []
@@ -123,9 +127,11 @@ def train(model: torch.nn.Module,
                     else:
                         gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
                     out+=gnn_out[key]
+                out = F.log_softmax(out, dim=1)
             else:
                 y = sampled_data.y
-                out = model(sampled_data)
+                # out = model(sampled_data)
+                out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
             preds = torch.argmax(out, dim=1)
             y_one_hot = F.one_hot(y, 2)
             if hetro:
@@ -160,9 +166,11 @@ def train(model: torch.nn.Module,
                         else:
                             gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
                         out += gnn_out[key]
+                    out = F.log_softmax(out, dim=1)
                 else:
                     y = sampled_data.y
-                    out = model(sampled_data)
+                    # out = model(sampled_data)
+                    out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
                 preds = torch.argmax(out, dim=1)
                 y_one_hot = F.one_hot(y, 2)
                 if hetro:
@@ -207,9 +215,11 @@ def eval(model: torch.nn.Module,
                     else:
                         gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
                     out += gnn_out[key]
+                out = F.log_softmax(out, dim=1)
             else:
                 y = sampled_data.y
-                out = model(sampled_data)
+                # out = model(sampled_data)
+                out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
             preds = torch.argmax(out, dim=1)
             num_correct_preds = (preds == y).sum().float()
             accuracy = num_correct_preds / y.shape[0] * 100
@@ -272,36 +282,49 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     with wandb.init(project="persuasive_arguments", config=args, name="GCN with BERT Embeddings MAX pooling"):
         config = wandb.config
+        if config.model == 'GCN':
+            if hetro ==True:
+                raise Exception (f'GCN is still not working with hetro graphs')
+            model = GCNWithBertEmbeddings(
+                num_node_features,
+                num_classes=num_classes,
+                hidden_layer_dim=config.gcn_hidden_layer_dim,
+                use_max_pooling=config.use_max_pooling,
+                is_hetro = hetro)
+        elif config.model =='SAGE':
+            model = GraphSage(hidden_channels=config.gcn_hidden_layer_dim, out_channels=num_classes, is_hetro=hetro, use_max_pooling=config.use_max_pooling)
+
+        elif config.model == 'GAT':
+            model = GAT(hidden_channels=config.gcn_hidden_layer_dim, out_channels=num_classes, is_hetro=hetro, use_max_pooling=config.use_max_pooling)
+
+        else:
+            raise Exception(f'{config.model} is not implemented')
 
         if hetro == False:
             kg_dataset = CMVKGDataset(
                 current_path + "/cmv_modes/change-my-view-modes-master",
                 version=constants.v2_path,
                 debug=args.debug)
-            model = GCNWithBertEmbeddings(
-                num_node_features,
-                num_classes=num_classes,
-                hidden_layer_dim=config.gcn_hidden_layer_dim,
-                use_max_pooling=config.use_max_pooling)
+
         else:
            kg_dataset =CMVKGHetroDataset(
                 current_path + "/cmv_modes/change-my-view-modes-master",
                 version=constants.v2_path,
                 debug=config.debug)
             # utils.get_dataset_stats(kg_dataset)
-           model = GAT(hidden_channels=config.gcn_hidden_layer_dim, out_channels=num_classes)
            data = kg_dataset[2]
            model = to_hetero(model, data.metadata(), aggr='sum')
 
+        print(model)
         dl_train,dl_val, dl_test = create_dataloaders(kg_dataset,
                                                batch_size=config.batch_size,
                                                val_percent=config.val_percent,
                                                test_percent=config.test_percent)
 
 
-        # TODO: Make log_freq a flag.
-        if hetro == False:
-            wandb.watch(model, log='all', log_freq=5)
+        # # TODO: Make log_freq a flag.
+        # if hetro == False:
+        #     wandb.watch(model, log='all', log_freq=5)
 
         optimizer = torch.optim.Adam(
             model.parameters(),
