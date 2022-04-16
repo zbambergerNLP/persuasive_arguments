@@ -26,7 +26,7 @@ Example command:
 srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --num_epochs 30 \
     --batch_size 16 \
-    --learning_rate 1e-4 \
+    --learning_rate 1e-3 \
     --weight_decay 5e-4 \
     --gcn_hidden_layer_dim 128 \
     --test_percent 0.1 \
@@ -34,7 +34,8 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --rounds_between_evals 1 \
     --model "GAT" \
     --debug "" \
-    --hetro True \
+    --hetro "" \
+    --use_max_pooling "" \
     --use_k_fold_cross_validation True \
     --num_cross_validation_splits 5
 """
@@ -100,6 +101,7 @@ parser.add_argument('--num_cross_validation_splits',
                     default=5,
                     help="The number of cross validation splits we perform as part of k-fold cross validation.")
 
+# TODO: Fix documentation across this file.
 
 def find_labels_for_batch(batch_data):
     batch_labels = []
@@ -276,7 +278,7 @@ def eval(model: torch.nn.Module,
                 out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
             preds = torch.argmax(out, dim=1).cpu()
             preds_list.append(preds)
-            targets_list.append(y)
+            targets_list.append(y.cpu())
         preds_list = np.concatenate(preds_list)
         targets_list = np.concatenate(targets_list)
         eval_metrics = metrics.compute_metrics(num_labels=constants.NUM_LABELS,
@@ -288,8 +290,48 @@ def eval(model: torch.nn.Module,
         return eval_metrics
 
 
-# TODO: Modify the below function so that the validation and test sets are sampled from a sliding window over the
-#  entire dataset (consistent with k-fold cross validation).
+def create_dataloaders_for_k_fold_cross_validation(graph_dataset: Dataset,
+                                                   shuffled_indices,
+                                                   batch_size: int,
+                                                   val_percent: float,
+                                                   test_percent: float,
+                                                   k_fold_index: int,
+                                                   num_workers: int = 0):
+    """
+
+    :param graph_dataset:
+    :param shuffled_indices:
+    :param batch_size:
+    :param val_percent:
+    :param test_percent:
+    :param k_fold_index:
+    :param num_workers:
+    :return:
+    """
+    num_of_examples = len(graph_dataset.dataset)
+    test_len = int(test_percent * num_of_examples)
+    val_len = int(val_percent * num_of_examples)
+    held_out_len = test_len + val_len
+    held_out_indices = shuffled_indices[k_fold_index * held_out_len:(k_fold_index + 1) * held_out_len]
+    train_indices = shuffled_indices[:k_fold_index * held_out_len]
+    train_indices.extend(shuffled_indices[(k_fold_index + 1) * held_out_len:])
+    val_indices = held_out_indices[:val_len]
+    test_indices = held_out_indices[val_len:]
+    dl_train = geom_data.DataLoader(graph_dataset,
+                                    batch_size=batch_size,
+                                    num_workers=num_workers,
+                                    sampler=SubsetRandomSampler(train_indices))
+    dl_val = geom_data.DataLoader(graph_dataset,
+                                  batch_size=batch_size,
+                                  num_workers=num_workers,
+                                  sampler=SubsetRandomSampler(val_indices))
+    dl_test = geom_data.DataLoader(graph_dataset,
+                                   batch_size=batch_size,
+                                   num_workers=num_workers,
+                                   sampler=SubsetRandomSampler(test_indices))
+    return dl_train, dl_val, dl_test
+
+
 def create_dataloaders(graph_dataset: Dataset,
                        batch_size: int,
                        val_percent: float,
@@ -395,12 +437,16 @@ if __name__ == '__main__':
         train_metrics = []
         validation_metrics = []
         test_metrics = []
+        num_of_examples = len(kg_dataset.dataset)
+        shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
         for validation_split_index in range(args.num_cross_validation_splits):
-            dl_train, dl_val, dl_test = create_dataloaders(
+            dl_train, dl_val, dl_test = create_dataloaders_for_k_fold_cross_validation(
                 kg_dataset,
+                shuffled_indices=shuffled_indices,
                 batch_size=args.batch_size,
                 val_percent=args.val_percent,
-                test_percent=args.test_percent)
+                test_percent=args.test_percent,
+                k_fold_index=validation_split_index)
             split_model = copy.deepcopy(model)
             optimizer = torch.optim.Adam(
                 model.parameters(),
@@ -411,7 +457,7 @@ if __name__ == '__main__':
                              name=f"{'heterophelous' if args.hetro else 'homophealous'} "
                                   f"{args.model} with BERT Embeddings and "
                                   f"{'max' if args.use_max_pooling else 'average'} pooling "
-                                  f"(split #{validation_split_index})",
+                                  f"(split #{validation_split_index + 1})",
                              reinit=True)
             model = train(model=model,
                           training_loader=dl_train,
