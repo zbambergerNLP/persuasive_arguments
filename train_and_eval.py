@@ -14,8 +14,8 @@ import torch_geometric.loader as geom_data
 import metrics
 import utils
 import wandb
-from data_loaders import CMVKGDataset, CMVKGHetroDataset
-from models import GCNWithBertEmbeddings, GraphSage, GAT
+from data_loaders import CMVKGDataset, CMVKGHetroDataset, CMVKGHetroDatasetEdges
+from models import GCNWithBertEmbeddings, GCNHetero, GraphSage, GAT
 import constants
 import argparse
 from tqdm import tqdm
@@ -89,8 +89,8 @@ parser.add_argument('--use_max_pooling',
                     help="if True use max pooling in GNN else use average pooling")
 parser.add_argument('--model',
                     type=str,
-                    default='GCN',
-                    help="chose which model to run with the options are: GVN, GAT , SAGE")
+                    default='GAT',
+                    help="chose which model to run with the options are: GCN, GAT , SAGE")
 parser.add_argument('--use_k_fold_cross_validation',
                     type=bool,
                     default=False,
@@ -102,6 +102,7 @@ parser.add_argument('--num_cross_validation_splits',
                     help="The number of cross validation splits we perform as part of k-fold cross validation.")
 
 # TODO: Fix documentation across this file.
+
 
 def find_labels_for_batch(batch_data):
     batch_labels = []
@@ -370,6 +371,7 @@ def create_dataloaders(graph_dataset: Dataset,
 
 
 if __name__ == '__main__':
+    hetero_type = 'nodes'
     num_classes = 2
     args = parser.parse_args()
     hetro = args.hetro
@@ -377,20 +379,27 @@ if __name__ == '__main__':
     for parameter, value in args_dict.items():
         print(f'{parameter}: {value}')
 
+
     num_node_features = constants.BERT_HIDDEN_DIM
     current_path = os.getcwd()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    print(f'Initializing model: {args.model}')
+    print(f'Initializing model: {args.model} device: {device}')
     if args.model == constants.GCN:
         if hetro:
-            raise NotImplementedError('GCN is still not working with hetro graphs')
-        model = GCNWithBertEmbeddings(
-            num_node_features,
+            raise Exception('Hetero GCN is still not implemented')
+            model = GCNHetero( num_node_features,
             num_classes=num_classes,
             hidden_layer_dim=args.gcn_hidden_layer_dim,
             use_max_pooling=args.use_max_pooling,
             is_hetro=hetro)
+        else:
+            model = GCNWithBertEmbeddings(
+                num_node_features,
+                num_classes=num_classes,
+                hidden_layer_dim=args.gcn_hidden_layer_dim,
+                use_max_pooling=args.use_max_pooling,
+                is_hetro=hetro)
     elif args.model == constants.SAGE:
         model = GraphSage(hidden_channels=args.gcn_hidden_layer_dim,
                           out_channels=num_classes,
@@ -409,19 +418,32 @@ if __name__ == '__main__':
     #  perspective.
     dir_name = os.path.join(current_path, "cmv_modes", "knowledge_graph_datasets")
     utils.ensure_dir_exists(dir_name)
+
     if hetro:
         print('Initializing heterophealous dataset')
-        if os.path.exists(os.path.join(dir_name, 'hetro_dataset.pt')):
-            kg_dataset = torch.load(os.path.join(dir_name, 'hetro_dataset.pt'))
-        else:
-            kg_dataset = CMVKGHetroDataset(
-                current_path + "/cmv_modes/change-my-view-modes-master",
-                version=constants.v2_path,
-                debug=args.debug)
-            torch.save(kg_dataset, os.path.join(dir_name, 'hetro_dataset.pt'))
+        if hetero_type == 'nodes':
+            if os.path.exists(os.path.join(dir_name, 'hetro_dataset.pt')):
+                kg_dataset = torch.load(os.path.join(dir_name, 'hetro_dataset.pt'))
+            else:
+                kg_dataset = CMVKGHetroDataset(
+                    current_path + "/cmv_modes/change-my-view-modes-master",
+                    version=constants.v2_path,
+                    debug=args.debug)
+                torch.save(kg_dataset, os.path.join(dir_name, 'hetro_dataset.pt'))
+        elif hetero_type == 'edges':
+            if os.path.exists(os.path.join(dir_name, 'hetro_edges_dataset.pt')):
+                kg_dataset = torch.load(os.path.join(dir_name, 'hetro_edges_dataset.pt'))
+            else:
+                kg_dataset = CMVKGHetroDatasetEdges(
+                    current_path + "/cmv_modes/change-my-view-modes-master",
+                    version=constants.v2_path,
+                    debug=args.debug)
+                torch.save(kg_dataset, os.path.join(dir_name, 'hetro_edges_dataset.pt'))
         data = kg_dataset[2]
         print('Converting model to hetero')
-        model = to_hetero(model, data.metadata(), aggr='sum')
+        if args.model != constants.GCN:
+            model = to_hetero(model, data.metadata(), aggr='sum')
+
     else:
         print('initializing homophealous dataset')
         if os.path.exists(os.path.join(dir_name, 'homophelous_dataset.pt')):

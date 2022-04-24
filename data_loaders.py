@@ -125,7 +125,9 @@ class CMVKGHetroDataset(CMVKGDataset):
                  debug: bool = False):
         super(CMVKGHetroDataset, self).__init__(directory_path=directory_path, version=version, debug=debug)
 
-    def calc_bert_inputs(self, dataset_values, relevant_ids):
+    def calc_bert_inputs(self, dataset_values, relevant_ids =None):
+        if relevant_ids is None:
+            relevant_ids = list(range(len(dataset_values)))
         bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
                                 f'id_to_{constants.TOKEN_TYPE_IDS}',
                                 f'id_to_{constants.ATTENTION_MASK}']
@@ -201,7 +203,6 @@ class CMVKGHetroDataset(CMVKGDataset):
         stacked_bert_inputs_premise = torch.concat((two_empty_nodes ,stacked_bert_inputs_premise), dim= 2 )
 
         data = HeteroData()
-        # data.has_self_loops()
         data[constants.CLAIM].x = stacked_bert_inputs_claim.T.long()
         data[constants.CLAIM].y = [self.labels[index]] * data[constants.CLAIM].x.shape[0]
         data[constants.PREMISE].x = stacked_bert_inputs_premise.T.long()
@@ -211,5 +212,39 @@ class CMVKGHetroDataset(CMVKGDataset):
         data[constants.CLAIM, 'relation', constants.PREMISE].edge_index = self.convert_edge_indexes(claim_premise_e)
         data[constants.PREMISE, 'relation', constants.CLAIM].edge_index = self.convert_edge_indexes(premise_claim_e)
         data[constants.PREMISE, 'relation', constants.PREMISE].edge_index = self.convert_edge_indexes(premise_premise_e)
+
+        return data
+
+
+class CMVKGHetroDatasetEdges(CMVKGHetroDataset):
+    def __init__(self, directory_path: str,
+                 version: str,
+                 debug: bool = False):
+        super(CMVKGHetroDatasetEdges, self).__init__(directory_path=directory_path, version=version, debug=debug)
+
+
+    def __getitem__(self, index: int):
+        stacked_bert_inputs = self.calc_bert_inputs(self.dataset[index])
+
+        support_e = []
+        attack_e = []
+
+        support_types = ['agreement', 'support']
+        attack_types = ['rebuttal', 'partial_disagreement', 'undercutter']
+
+        for i, e in enumerate(self.dataset[index][constants.EDGES]):
+            if self.dataset[index][constants.EDGES_TYPES][i] in support_types:
+                support_e.append(e)
+            elif self.dataset[index][constants.EDGES_TYPES][i] in attack_types:
+                attack_e.append(e)
+            else:
+                raise Exception(f'not implemented {self.dataset[index][constants.EDGES_TYPES][i] } ')
+
+        data = HeteroData()
+        data[constants.NODE].x = stacked_bert_inputs.T.long()
+        data[constants.NODE].y = [self.labels[index]] * data[constants.NODE].x.shape[0]
+
+        data[constants.NODE, 'support', constants.NODE].edge_index = torch.tensor(support_e, dtype=torch.long).T
+        data[constants.NODE, 'attack', constants.NODE].edge_index = torch.tensor(attack_e, dtype=torch.long).T
 
         return data

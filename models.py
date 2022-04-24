@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 import torch_geometric.data
 import transformers
-from torch_geometric.nn import GCNConv, global_mean_pool,  GATConv, Linear, to_hetero, SAGEConv, global_max_pool
+from torch_geometric.nn import GCNConv, global_mean_pool,  GATConv, Linear, to_hetero, SAGEConv, global_max_pool, HeteroConv
 from torch_geometric.data import HeteroData
 import torch.nn as nn
 import numpy as np
@@ -370,7 +370,6 @@ class BaselineLogisticRegression(torch.nn.Module):
         return eval_metrics
 
 
-# TODO: Expand this model's GCN architecture.
 class GCNWithBertEmbeddings(torch.nn.Module):
     def __init__(self,
                  num_node_features: int,
@@ -419,6 +418,70 @@ class GCNWithBertEmbeddings(torch.nn.Module):
         node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
         node_embeddings = self.conv1(node_embeddings, edge_index)
         node_embeddings = node_embeddings.relu()
+        node_embeddings = F.dropout(node_embeddings, training=self.training)
+        node_embeddings = self.conv2(node_embeddings, edge_index)
+
+        if self.is_hetro:
+            return node_embeddings
+        else:
+            if self.max_pooling:
+                node_embeddings = global_max_pool(node_embeddings, batch)
+            else:
+                node_embeddings = global_mean_pool(node_embeddings, batch)
+            return F.log_softmax(node_embeddings, dim=1)
+
+class GCNHetero(torch.nn.Module):
+    def __init__(self,
+                 num_node_features: int,
+                 num_classes: int,
+                 hidden_layer_dim: int,
+                 is_hetro: bool,
+                 use_frozen_bert: bool = True,
+                 use_max_pooling: bool = True):
+        super().__init__()
+
+        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
+        if use_frozen_bert:
+            for param in self.bert_model.parameters():
+                param.requires_grad = False
+
+        self.num_node_features = num_node_features
+        self.num_classes = num_classes
+        self.hidden_layer_dim = hidden_layer_dim
+        self.conv1 = HeteroConv({
+            (constants.CLAIM, 'relation', constants.CLAIM):GCNConv(self.num_node_features, self.hidden_layer_dim),
+            (constants.CLAIM, 'relation', constants.PREMISE):GCNConv(self.num_node_features, self.hidden_layer_dim),
+            (constants.PREMISE, 'relation', constants.CLAIM):GCNConv(self.num_node_features, self.hidden_layer_dim),
+            (constants.PREMISE, 'relation', constants.PREMISE):GCNConv(self.num_node_features, self.hidden_layer_dim),
+        }, aggr='sum')
+        self.conv2 = HeteroConv({
+            (constants.CLAIM, 'relation', constants.CLAIM): GCNConv(self.hidden_layer_dim,self.num_classes),
+            (constants.CLAIM, 'relation', constants.PREMISE): GCNConv(self.hidden_layer_dim,self.num_classes),
+            (constants.PREMISE, 'relation', constants.CLAIM): GCNConv(self.hidden_layer_dim,self.num_classes),
+            (constants.PREMISE, 'relation', constants.PREMISE): GCNConv(self.hidden_layer_dim,self.num_classes),
+        }, aggr='sum')
+        self.loss = nn.BCEWithLogitsLoss()
+        self.max_pooling = use_max_pooling
+        self.is_hetro = is_hetro
+
+    def forward(self, x, edge_index, batch=None):
+        """
+
+        :param data: A collection of node and edge data corresponding to a batch of graphs inputted to the model.
+        :return: A probability distribution over the output labels. A torch tensor of shape
+            [batch_size, num_output_labels].
+        """
+        node_embeddings = {}
+        for key in x.keys():
+            input_ids, token_type_ids, attention_mask = torch.hsplit(x[key], sections=3)
+            bert_outputs = self.bert_model(
+                input_ids=torch.squeeze(input_ids, dim=1).long(),
+                token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
+                attention_mask=torch.squeeze(attention_mask, dim=1).long(),
+            )
+            node_embeddings[key] = bert_outputs['last_hidden_state'][:, 0, :]
+        node_embeddings = self.conv1(node_embeddings, edge_index)
+        # node_embeddings = node_embeddings.relu()
         # node_embeddings = F.dropout(node_embeddings, training=self.training)
         node_embeddings = self.conv2(node_embeddings, edge_index)
 

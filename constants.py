@@ -127,6 +127,7 @@ SIGN_LIST = [POSITIVE, NEGATIVE]
 OP = "OP"
 TITLE = "title"
 NODE_ID = "id"
+NODE = "node"
 PREMISE = "premise"
 CLAIM = "claim"
 TYPE = "type"
@@ -140,3 +141,5 @@ ID_TO_NODE_SUB_TYPE = 'id_to_node_sub_type'
 INDEX_TO_ID = 'idx_to_id'
 EDGES = 'edges'
 EDGES_TYPES = 'edges_types'
+
+
