@@ -45,7 +45,7 @@ parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--hetro',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--num_epochs',
                     type=int,
@@ -81,7 +81,7 @@ parser.add_argument('--rounds_between_evals',
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="Work in debug mode")
 parser.add_argument('--use_max_pooling',
                     type=bool,
@@ -102,7 +102,6 @@ parser.add_argument('--num_cross_validation_splits',
                     help="The number of cross validation splits we perform as part of k-fold cross validation.")
 
 # TODO: Fix documentation across this file.
-
 
 def find_labels_for_batch(batch_data):
     batch_labels = []
@@ -371,7 +370,7 @@ def create_dataloaders(graph_dataset: Dataset,
 
 
 if __name__ == '__main__':
-    hetero_type = 'nodes'
+    hetero_type = 'edges'
     num_classes = 2
     args = parser.parse_args()
     hetro = args.hetro
@@ -441,9 +440,7 @@ if __name__ == '__main__':
                 torch.save(kg_dataset, os.path.join(dir_name, 'hetro_edges_dataset.pt'))
         data = kg_dataset[2]
         print('Converting model to hetero')
-        if args.model != constants.GCN:
-            model = to_hetero(model, data.metadata(), aggr='sum')
-
+        model = to_hetero(model, data.metadata(), aggr='sum')
     else:
         print('initializing homophealous dataset')
         if os.path.exists(os.path.join(dir_name, 'homophelous_dataset.pt')):

@@ -230,7 +230,7 @@ class CMVKGHetroDatasetEdges(CMVKGHetroDataset):
         attack_e = []
 
         support_types = ['agreement', 'support']
-        attack_types = ['rebuttal', 'partial_disagreement', 'undercutter']
+        attack_types = ['rebuttal', 'partial_disagreement', 'undercutter', 'disagreement']
 
         for i, e in enumerate(self.dataset[index][constants.EDGES]):
             if self.dataset[index][constants.EDGES_TYPES][i] in support_types:
@@ -240,11 +240,15 @@ class CMVKGHetroDatasetEdges(CMVKGHetroDataset):
             else:
                 raise Exception(f'not implemented {self.dataset[index][constants.EDGES_TYPES][i] } ')
 
+        two_empty_nodes = torch.concat((torch.zeros_like(stacked_bert_inputs[:, :, 0]).unsqueeze(dim=2),
+                                        torch.zeros_like(stacked_bert_inputs[:, :, 0]).unsqueeze(dim=2)), dim=2)
+        stacked_bert_inputs = torch.concat((two_empty_nodes, stacked_bert_inputs), dim=2)
+
         data = HeteroData()
         data[constants.NODE].x = stacked_bert_inputs.T.long()
         data[constants.NODE].y = [self.labels[index]] * data[constants.NODE].x.shape[0]
 
-        data[constants.NODE, 'support', constants.NODE].edge_index = torch.tensor(support_e, dtype=torch.long).T
-        data[constants.NODE, 'attack', constants.NODE].edge_index = torch.tensor(attack_e, dtype=torch.long).T
+        data[constants.NODE, 'support', constants.NODE].edge_index =  self.convert_edge_indexes(support_e)
+        data[constants.NODE, 'attack', constants.NODE].edge_index = self.convert_edge_indexes(attack_e)
 
         return data
