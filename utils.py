@@ -8,6 +8,8 @@ import re
 import constants
 
 
+# TODO: Create a function to count the number of examples associated with each label.
+
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -62,8 +64,8 @@ def get_metrics_avg_and_std_across_splits(
     if print_results:
         for metric_name in metric_averages.keys():
             print(f'\t\tmetric name ({split_name}): {metric_name}\n'
-                  f'\t\t\tmean metric value ({split_name}): {metric_averages[metric_name]}\n'
-                  f'\t\t\tstandard deviation ({split_name}): {metric_stds[metric_name]}')
+                  f'\t\t\tmean metric value ({split_name}): {metric_averages[metric_name]:.3f}\n'
+                  f'\t\t\tstandard deviation ({split_name}): {metric_stds[metric_name]:.3f}')
     return metric_averages, metric_stds
 
 
@@ -85,8 +87,8 @@ def print_metrics(eval_metrics: typing.Mapping[str, typing.Sequence[typing.Mappi
 
         for metric_name in metric_averages.keys():
             print(f'\t\tmetric name: {metric_name}\n'
-                  f'\t\t\tmean metric value: {metric_averages[metric_name]}\n'
-                  f'\t\t\tstandard deviation: {metric_stds[metric_name]}')
+                  f'\t\t\tmean metric value: {metric_averages[metric_name]:.3f}\n'
+                  f'\t\t\tstandard deviation: {metric_stds[metric_name]:.3f}')
 
 
 def get_dataset_stats(kg_dataset):

@@ -1,0 +1,25 @@
+program: models.py
+
+method: grid
+metric:
+  name: eval_test_accuracy
+  goal: maximize
+parameters:
+  num_epochs:
+    value: 100
+  batch_size:
+    value: 16
+  test_percent:
+    value: 0.1
+  val_percent:
+    value: 0.1
+  use_k_fold_cross_validation:
+    value: ""
+  weight_decay:
+    value:  0.001
+  seed:
+    values: [ 1, 2, 3 ]
+  learning_rate:
+    values: [ 0.1, 0.01, 0.001, 0.0001, 0.00001 ]
+  scheduler_gamma:
+    values: [ 0.9, 0.99 ]

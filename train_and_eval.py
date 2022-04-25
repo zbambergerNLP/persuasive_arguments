@@ -27,17 +27,20 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --num_epochs 30 \
     --batch_size 16 \
     --learning_rate 1e-3 \
-    --weight_decay 5e-4 \
-    --gcn_hidden_layer_dim 128 \
+    --weight_decay 1e-3 \
+    --scheduler_gamma 0.9 \
+    --gcn_hidden_layer_dim 256 \
     --test_percent 0.1 \
     --val_percent 0.1 \
     --rounds_between_evals 1 \
     --model "GAT" \
     --debug "" \
-    --hetro "" \
+    --hetro "True" \
+    --hetero_type "edges" \
     --use_max_pooling "" \
     --use_k_fold_cross_validation True \
-    --num_cross_validation_splits 5
+    --num_cross_validation_splits 5 \
+    --seed 42
 """
 
 
@@ -53,19 +56,19 @@ parser.add_argument('--hetero_type',
                     help="Relevant only if herto is True. Possible values are 'nodes' or 'edges'. If the value is 'nodes' then node type is used, if the value is 'edges' then edge type is used")
 parser.add_argument('--num_epochs',
                     type=int,
-                    default=5,
+                    default=30,
                     help="The number of training rounds over the knowledge graph dataset.")
 parser.add_argument('--batch_size',
                     type=int,
-                    default=4,
+                    default=16,
                     help="The number of examples per batch per device during both training and evaluation.")
 parser.add_argument('--learning_rate',
                     type=float,
-                    default=1e-2,
+                    default=1e-3,
                     help="The learning rate used by the GCN+BERT model during training.")
 parser.add_argument('--weight_decay',
                     type=float,
-                    default=5e-4,
+                    default=1e-3,
                     help="The weight decay parameter supplied to the optimizer for use during training.")
 parser.add_argument('--gcn_hidden_layer_dim',
                     type=int,
@@ -81,7 +84,7 @@ parser.add_argument('--val_percent',
                     help='The proportion (ratio) of samples dedicated to the validation set.')
 parser.add_argument('--rounds_between_evals',
                     type=int,
-                    default=5,
+                    default=1,
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
                     type=bool,
@@ -93,7 +96,7 @@ parser.add_argument('--use_max_pooling',
                     help="if True use max pooling in GNN else use average pooling")
 parser.add_argument('--model',
                     type=str,
-                    default='SAGE',
+                    default='GAT',
                     help="chose which model to run with the options are: GCN, GAT , SAGE")
 parser.add_argument('--use_k_fold_cross_validation',
                     type=bool,
@@ -104,10 +107,28 @@ parser.add_argument('--num_cross_validation_splits',
                     type=int,
                     default=5,
                     help="The number of cross validation splits we perform as part of k-fold cross validation.")
+parser.add_argument('--seed',
+                    type=int,
+                    default=42,
+                    help="The seed used for random number generation and sampling.")
+parser.add_argument('--scheduler_gamma',
+                    type=float,
+                    default=0.9,
+                    help="Gamma value used for the learning rate scheduler during training.")
+parser.add_argument('--fold_index',
+                    type=int,
+                    default=1,
+                    help="The partition index of the held out data as part of k-fold cross validation.")
 
 # TODO: Fix documentation across this file.
 
+
 def find_labels_for_batch(batch_data):
+    """
+
+    :param batch_data:
+    :return:
+    """
     batch_labels = []
     key = batch_data.node_types[0]
     for b in range(len(batch_data[key].y)):
@@ -120,6 +141,7 @@ def train(model: torch.nn.Module,
           validation_loader: geom_data.DataLoader,
           epochs: int,
           optimizer: torch.optim.Optimizer,
+          scheduler: torch.optim.lr_scheduler,
           device,
           rounds_between_evals: int = 1,
           hetro: bool = False,
@@ -179,9 +201,14 @@ def train(model: torch.nn.Module,
             accuracy = num_correct_preds / y.shape[0] * 100
             epoch_acc += accuracy
             num_batches += 1
-        wandb.log({f'training_{constants.ACCURACY}': epoch_acc / num_batches,
-                   f'training_{constants.EPOCH}': epoch,
-                   f'training_{constants.LOSS}': epoch_loss / num_batches})
+        learning_rate = scheduler.get_last_lr()[0]
+        scheduler.step()
+        wandb.log({
+            f"{constants.TRAIN} {constants.ACCURACY}": epoch_acc / num_batches,
+            f"{constants.TRAIN} {constants.EPOCH}": epoch,
+            f"{constants.TRAIN} {constants.LOSS}": epoch_loss / num_batches,
+            f"learning rate": learning_rate
+        })
 
         # Perform evaluation on the validation set.
         if epoch % rounds_between_evals == 0:
@@ -219,11 +246,10 @@ def train(model: torch.nn.Module,
                 epoch_acc += accuracy
             validation_loss = epoch_loss / num_batches
             validation_acc = epoch_acc / num_batches
-            wandb.log({f'validation_{constants.ACCURACY}': epoch_acc / num_batches,
-                       f'validation_{constants.EPOCH}': epoch,
-                       f'validation_{constants.LOSS}': epoch_loss / num_batches})
-
-            if metric_for_early_stopping == constants.LOSS and validation_loss < lowest_loss:
+            wandb.log({f"{constants.VALIDATION} {constants.ACCURACY}": validation_acc,
+                       f"{constants.VALIDATION} {constants.EPOCH}": epoch,
+                       f"{constants.VALIDATION} {constants.LOSS}": validation_loss})
+            if metric_for_early_stopping == constants.LOSS and validation_loss <= lowest_loss:
                 lowest_loss = validation_loss
                 num_rounds_no_improvement = 0
                 epoch_with_optimal_performance = epoch
@@ -382,21 +408,19 @@ if __name__ == '__main__':
     for parameter, value in args_dict.items():
         print(f'{parameter}: {value}')
 
-
-
+    utils.set_seed(args.seed)
     num_node_features = constants.BERT_HIDDEN_DIM
     current_path = os.getcwd()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
     print(f'Initializing model: {args.model} device: {device}')
     if args.model == constants.GCN:
         if hetro:
+            # model = GCNHetero(num_node_features,
+            #     num_classes=num_classes,
+            #     hidden_layer_dim=args.gcn_hidden_layer_dim,
+            #     use_max_pooling=args.use_max_pooling,
+            #     is_hetro=hetro)
             raise Exception('Hetero GCN is still not implemented')
-            model = GCNHetero( num_node_features,
-            num_classes=num_classes,
-            hidden_layer_dim=args.gcn_hidden_layer_dim,
-            use_max_pooling=args.use_max_pooling,
-            is_hetro=hetro)
         else:
             model = GCNWithBertEmbeddings(
                 num_node_features,
@@ -457,12 +481,13 @@ if __name__ == '__main__':
                 debug=args.debug)
             torch.save(kg_dataset, os.path.join(dir_name, 'homophelous_dataset.pt'))
 
+    num_of_examples = len(kg_dataset.dataset)
+    shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
+
     if args.use_k_fold_cross_validation:
         train_metrics = []
         validation_metrics = []
         test_metrics = []
-        num_of_examples = len(kg_dataset.dataset)
-        shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
         for validation_split_index in range(args.num_cross_validation_splits):
             dl_train, dl_val, dl_test = create_dataloaders_for_k_fold_cross_validation(
                 kg_dataset,
@@ -476,18 +501,24 @@ if __name__ == '__main__':
                 model.parameters(),
                 lr=args.learning_rate,
                 weight_decay=args.weight_decay)
+            scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.scheduler_gamma)
             run = wandb.init(project="persuasive_arguments",
+                             entity="persuasive_arguments",
                              config=args,
-                             name=f"{'heterophelous' if args.hetro else 'homophealous'} "
+                             name=f"{'heterophelous' if args.hetro else 'homophealous'} ({args.hetero_type}) "
                                   f"{args.model} with BERT Embeddings and "
                                   f"{'max' if args.use_max_pooling else 'average'} pooling "
-                                  f"(split #{validation_split_index + 1})",
+                                  f"(split: #{validation_split_index + 1}, "
+                                  f"lr: {args.learning_rate}, "
+                                  f"gamma: {args.scheduler_gamma}, "
+                                  f"hidden_dim: {args.gcn_hidden_layer_dim})",
                              reinit=True)
             model = train(model=model,
                           training_loader=dl_train,
                           validation_loader=dl_val,
                           epochs=args.num_epochs,
                           optimizer=optimizer,
+                          scheduler=scheduler,
                           rounds_between_evals=args.rounds_between_evals,
                           hetro=hetro,
                           use_max_pooling=args.use_max_pooling,
@@ -537,24 +568,38 @@ if __name__ == '__main__':
             print_results=True)
 
     else:
-        dl_train, dl_val, dl_test = create_dataloaders(kg_dataset,
-                                                       batch_size=args.batch_size,
-                                                       val_percent=args.val_percent,
-                                                       test_percent=args.test_percent)
+        dl_train, dl_val, dl_test = create_dataloaders_for_k_fold_cross_validation(
+            kg_dataset,
+            shuffled_indices=shuffled_indices,
+            batch_size=args.batch_size,
+            val_percent=args.val_percent,
+            test_percent=args.test_percent,
+            k_fold_index=args.fold_index)
         optimizer = torch.optim.Adam(
             model.parameters(),
             lr=args.learning_rate,
             weight_decay=args.weight_decay)
-        wandb.init(project="persuasive_arguments",
-                   config=args,
-                   name=f"{'heterophelous' if args.hetro else 'homophealous'} "
-                        f"{args.model} with BERT Embeddings and "
-                        f"{'max' if args.use_max_pooling else 'average'} pooling")
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.scheduler_gamma)
+        experiment_name = f"{'heterophelous' if args.hetro else 'homophealous'} ({args.hetero_type}) "\
+                          f"{args.model} with BERT Embeddings and "\
+                          f"{'max' if args.use_max_pooling else 'average'} pooling "\
+                          f"(seed: {args.seed}, "\
+                          f"lr: {args.learning_rate}, "\
+                          f"gamma: {args.scheduler_gamma}, "\
+                          f"hidden_dim: {args.gcn_hidden_layer_dim})"
+        wandb.init(
+            project="persuasive_arguments",
+            entity="persuasive_arguments",
+            group=experiment_name,
+            config=args,
+            name=f"{experiment_name} [{args.fold_index}]")
+        config = wandb.config
         model = train(model=model,
                       training_loader=dl_train,
                       validation_loader=dl_val,
                       epochs=args.num_epochs,
                       optimizer=optimizer,
+                      scheduler=scheduler,
                       rounds_between_evals=args.rounds_between_evals,
                       hetro=hetro,
                       use_max_pooling=args.use_max_pooling,

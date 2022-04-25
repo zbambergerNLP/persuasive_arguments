@@ -1,0 +1,39 @@
+program: train_and_eval.py
+name: heterophilous_gat_max_pooling
+entity: persuasive_arguments
+project: persuasive_argumentation
+method: grid
+metric:
+  name: eval_test_accuracy
+  goal: maximize
+parameters:
+  num_epochs:
+    value: 30
+  batch_size:
+    value: 16
+  test_percent:
+    value: 0.1
+  val_percent:
+    value: 0.1
+  rounds_between_evals:
+    value: 1
+  model:
+    value: "GAT"
+  debug:
+    value: ""
+  hetro:
+    value: "True"
+  use_max_pooling:
+    value: "True"
+  use_k_fold_cross_validation:
+    value: ""
+  weight_decay:
+    value: 0.001
+  seed:
+    values: [ 1, 2, 3 ]
+  gcn_hidden_layer_dim:
+    values: [ 128, 256, 512 ]
+  learning_rate:
+    values: [ 0.01, 0.001, 0.0001 ]
+  scheduler_gamma:
+    values: [ 0.7, 0.9, 0.99 ]

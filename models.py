@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import copy
 import math
 import os
 import typing
@@ -7,12 +9,11 @@ import typing
 import datasets
 import torch
 import torch.nn.functional as F
-import torch_geometric.data
 import transformers
-from torch_geometric.nn import GCNConv, global_mean_pool,  GATConv, Linear, to_hetero, SAGEConv, global_max_pool, HeteroConv
-from torch_geometric.data import HeteroData
+from torch_geometric.nn import GCNConv, global_mean_pool,  GATConv, Linear, SAGEConv, global_max_pool, HeteroConv
 import torch.nn as nn
 import numpy as np
+import tqdm
 
 import utils
 import wandb
@@ -21,6 +22,70 @@ import constants
 import metrics
 from cmv_modes import preprocessing_knowledge_graph
 from metrics import compute_metrics
+
+"""
+Example usage: 
+srun --gres=gpu:1 -p nlp python models.py \
+    --num_epochs 100 \
+    --batch_size 16 \
+    --learning_rate 1e-2 \
+    --weight_decay 1e-3 \
+    --scheduler_gamma 0.9 \
+    --test_percent 0.1 \
+    --val_percent 0.1 \
+    --debug '' \
+    --use_k_fold_cross_validation 'True' \
+    --num_cross_validation_splits 5 \
+    --seed 42 
+"""
+
+parser = argparse.ArgumentParser(
+    description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
+parser.add_argument('--num_epochs',
+                    type=int,
+                    default=100,
+                    help="The number of training rounds over the knowledge graph dataset.")
+parser.add_argument('--batch_size',
+                    type=int,
+                    default=16,
+                    help="The number of examples per batch per device during both training and evaluation.")
+parser.add_argument('--learning_rate',
+                    type=float,
+                    default=1e-4,
+                    help="The learning rate used by the GCN+BERT model during training.")
+parser.add_argument('--weight_decay',
+                    type=float,
+                    default=5e-4,
+                    help="The weight decay parameter supplied to the optimizer for use during training.")
+parser.add_argument('--test_percent',
+                    type=float,
+                    default=0.1,
+                    help='The proportion (ratio) of samples dedicated to the test set.')
+parser.add_argument('--val_percent',
+                    type=float,
+                    default=0.1,
+                    help='The proportion (ratio) of samples dedicated to the validation set.')
+parser.add_argument('--debug',
+                    type=bool,
+                    default=False,
+                    help="Work in debug mode")
+parser.add_argument('--use_k_fold_cross_validation',
+                    type=bool,
+                    default=False,
+                    help="True if we intend to perform cross validation on the dataset. False otherwise. Using this"
+                         "option is advised if the dataset is small.")
+parser.add_argument('--num_cross_validation_splits',
+                    type=int,
+                    default=5,
+                    help="The number of cross validation splits we perform as part of k-fold cross validation.")
+parser.add_argument('--seed',
+                    type=int,
+                    default=42,
+                    help="The seed used for random number generation and sampling.")
+parser.add_argument('--scheduler_gamma',
+                    type=float,
+                    default=0.9,
+                    help="Gamma value used for the learning rate scheduler during training.")
 
 
 class LogisticRegressionProbe(torch.nn.Module):
@@ -327,6 +392,7 @@ class BaselineLogisticRegression(torch.nn.Module):
             else:
                 num_rounds_no_improvement += 1
 
+            self.train()
             if num_rounds_no_improvement == max_num_rounds_no_improvement:
                 print(f'Performing early stopping after {epoch} epochs.\n'
                       f'Optimal model obtained from epoch #{epoch_with_optimal_performance}')
@@ -370,6 +436,7 @@ class BaselineLogisticRegression(torch.nn.Module):
         return eval_metrics
 
 
+# TODO: Expand this model's GCN architecture.
 class GCNWithBertEmbeddings(torch.nn.Module):
     def __init__(self,
                  num_node_features: int,
@@ -494,6 +561,7 @@ class GCNHetero(torch.nn.Module):
                 node_embeddings = global_mean_pool(node_embeddings, batch)
             return F.log_softmax(node_embeddings, dim=1)
 
+
 class GAT(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels,  is_hetro: bool,
                  use_frozen_bert: bool = True,
@@ -531,6 +599,7 @@ class GAT(torch.nn.Module):
                 node_embeddings = global_mean_pool(node_embeddings, batch)
             return F.log_softmax(node_embeddings, dim=1)
 
+
 class GraphSage(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels,  is_hetro: bool,
                  use_frozen_bert: bool = True,
@@ -546,7 +615,7 @@ class GraphSage(torch.nn.Module):
         self.max_pooling = use_max_pooling
         self.is_hetro = is_hetro
 
-    def forward(self, x, edge_index, batch = None):
+    def forward(self, x, edge_index, batch=None):
         input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
         bert_outputs = self.bert_model(
             input_ids=torch.squeeze(input_ids, dim=1).long(),
@@ -573,25 +642,15 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-class BertParagraphWithMLP(torch.nn.Module):
-    def __init__(self, bert_model, layers, pooling=None):
-        super(BertParagraphWithMLP, self).__init__()
-        self.bert_model = bert_model
-        self.layers = layers
-        self.pooling = pooling
-
-    def forward(self, X):
-        bert_outputs = self.bert_model(X)
-        mlp_outputs = self.layers(bert_outputs)
-        pooling_outputs = self.pooling(mlp_outputs)
-        return F.log_softmax(pooling_outputs, dim=1)
-
-
 class BertBaseline(torch.nn.Module):
     def __init__(self, use_frozen_bert, mlp_layers, device):
         super(BertBaseline, self).__init__()
 
-        self._bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED).to(device)
+        # self._bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED).to(device)
+        self._bert_model = transformers.BertForSequenceClassification.from_pretrained(
+            constants.BERT_BASE_CASED,
+            num_labels=constants.NUM_LABELS,
+        ).to(device)
         if use_frozen_bert:
             for param in self._bert_model.parameters():
                 param.requires_grad = False
@@ -605,9 +664,13 @@ class BertBaseline(torch.nn.Module):
             input tensor has shape [batch_size, sequence_length]
         :return: A tensor with shape [batch_size, num_labels].
         """
-        bert_outputs = self._bert_model(**bert_inputs)
-        sequence_embeddings = bert_outputs['pooler_output'].to(self.device)
-        # sequence_embeddings = bert_outputs['last_hidden_state'].to(self.device)[:, 0, :]
+        bert_outputs = self._bert_model.forward(
+            input_ids=bert_inputs[constants.INPUT_IDS],
+            attention_mask=bert_inputs[constants.ATTENTION_MASK],
+            token_type_ids=bert_inputs[constants.TOKEN_TYPE_IDS],
+            output_hidden_states=True,
+        )
+        sequence_embeddings = bert_outputs.hidden_states[-1].to(self.device)[:, 0, :]
         logits = self._mlp(sequence_embeddings)
         label_probabilities = F.softmax(logits, dim=1)
         return label_probabilities
@@ -623,9 +686,8 @@ class BertBaseline(torch.nn.Module):
             metric_for_early_stopping: str,
             scheduler: typing.Union[torch.optim.lr_scheduler.ExponentialLR,
                                     torch.optim.lr_scheduler.ConstantLR] = None,
-            grad_accumulation_steps: int = 1):
+            fold_index: int = 1):
         """
-
         :param train_loader: A 'torch.utils.data.DataLoader' wrapping a 'preprocessing.CMVDataset' instance. This loader
             contains the training set.
         :param validation_loader: A 'torch.utils.data.DataLoader` wrapping a `preprocessing.CMVDataset` instance. This
@@ -641,126 +703,141 @@ class BertBaseline(torch.nn.Module):
         :param metric_for_early_stopping: The metric used to determine whether or not to stop early. If the metric of
             interest does not improve within `max_num_rounds_no_improvement`, then we stop early.
         """
-        self.train()
-        max_accuracy = 0
-        min_loss = math.inf
+        self.train().to(device)
+        highest_accuracy = 0
+        lowest_loss = math.inf
         num_rounds_no_improvement = 0
         epoch_with_optimal_performance = 0
         best_model_dir_path = os.path.join(os.getcwd(), 'tmp')
         utils.ensure_dir_exists(best_model_dir_path)
-        best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_bert_baseline.pt')
+        best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_probe.pt')
         for epoch in range(num_epochs):
-            epoch_training_metrics = {}
-            loss = 0
+            train_loss = 0.0
+            train_acc = 0.0
+            train_num_batches = 0
             for i, data in enumerate(train_loader, 0):
                 optimizer.zero_grad()
                 targets = data[constants.LABEL].to(device)
-                # print(f'\ttrain targets: {targets}')
                 outputs = self({
                     constants.INPUT_IDS: data[constants.INPUT_IDS].to(self.device),
                     constants.TOKEN_TYPE_IDS: data[constants.TOKEN_TYPE_IDS].to(self.device),
                     constants.ATTENTION_MASK: data[constants.ATTENTION_MASK].to(self.device)
                 })
                 preds = torch.argmax(outputs, dim=1).to(device)
-                # print(f'\ttrain preds: {preds}')
-                loss = loss + loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
-                training_metrics = metrics.compute_metrics(
-                    num_labels=num_labels,
-                    preds=preds.cpu().numpy(),
-                    targets=targets.cpu().numpy(),
-                    split_name=constants.TRAIN)
+                loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
+                loss.backward()
+                optimizer.step()
+                num_correct_preds = (preds == targets).sum().float()
+                accuracy = num_correct_preds / targets.shape[0] * 100
+                train_num_batches += 1
+                train_loss += loss.item()
+                train_acc += accuracy
+            learning_rate = scheduler.get_last_lr()[0]
+            scheduler.step()
+            wandb.log({
+                f"{constants.TRAIN} {constants.ACCURACY}": train_acc / train_num_batches,
+                f"{constants.TRAIN} {constants.EPOCH}": epoch,
+                f"{constants.TRAIN} {constants.LOSS}": train_loss / train_num_batches,
+                "learning rate": learning_rate
+            })
 
-                # include training loss in batch metrics.
-                training_metrics[f'{constants.TRAIN}_{constants.LOSS}'] = loss.detach().cpu().numpy()
+            # Perform Evaluation
+            self.eval()
+            validation_loss = 0.0
+            validation_acc = 0.0
+            validation_num_batches = 0
+            for i, data in enumerate(validation_loader, 0):
+                targets = data[constants.LABEL].to(device)
+                outputs = self({
+                    constants.INPUT_IDS: data[constants.INPUT_IDS].to(device),
+                    constants.TOKEN_TYPE_IDS: data[constants.TOKEN_TYPE_IDS].to(device),
+                    constants.ATTENTION_MASK: data[constants.ATTENTION_MASK].to(device),
+                }).to(device)
+                preds = torch.argmax(outputs, dim=1).to(device)
+                loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
+                validation_loss += loss.item()
+                num_correct_preds = (preds == targets).sum().float()
+                accuracy = num_correct_preds / targets.shape[0] * 100
+                validation_acc += accuracy
+                validation_num_batches += 1
 
-                if (i + 1) % grad_accumulation_steps == 0:
-                    # every 10 iterations of batches of size 10
-                    optimizer.zero_grad()
-                    loss.backward()
-                    # huge graph is cleared here
-                    optimizer.step()
-                    if scheduler:
-                        scheduler.step()
-                    loss = 0
+            validation_loss = validation_loss / validation_num_batches
+            validation_acc = validation_acc / validation_num_batches
+            wandb.log({f"{constants.VALIDATION} {constants.ACCURACY}": validation_acc,
+                       f"{constants.VALIDATION} {constants.EPOCH}": epoch,
+                       f"{constants.VALIDATION} {constants.LOSS}": validation_loss})
 
-                for metric_name, metric_value in training_metrics.items():
-                    if metric_name not in epoch_training_metrics:
-                        epoch_training_metrics[metric_name] = []
-                    epoch_training_metrics[metric_name].append(metric_value)
+            if metric_for_early_stopping == constants.LOSS and validation_loss < lowest_loss:
+                lowest_loss = validation_loss
+                num_rounds_no_improvement = 0
+                epoch_with_optimal_performance = epoch
+                torch.save(self.state_dict(), best_model_path)
+            elif metric_for_early_stopping == constants.ACCURACY and validation_acc > highest_accuracy:
+                highest_accuracy = validation_acc
+                num_rounds_no_improvement = 0
+                epoch_with_optimal_performance = epoch
+                torch.save(self.state_dict(), best_model_path)
+            else:
+                num_rounds_no_improvement += 1
 
-            aggregated_metrics = {}
-            for metric_name, metric_values in epoch_training_metrics.items():
-                aggregated_metrics[metric_name] = np.mean(metric_values)
-            aggregated_metrics[f'{constants.TRAIN}_{constants.EPOCH}'] = epoch
-            wandb.log(aggregated_metrics)
-            # print(f'Train metrics:\n{aggregated_metrics}')
+            self.train()
+            if num_rounds_no_improvement == max_num_rounds_no_improvement:
+                print(f'Performing early stopping after {epoch} epochs.\n')
+                self.load_state_dict(torch.load(best_model_path))
+                break
 
-            # Perform evaluation.
-            if epoch % 5 == 0:
-                epoch_validation_metrics = {}
-                self.eval()
-                for i, data in enumerate(validation_loader):
-                    targets = data[constants.LABEL].to(device)
-                    # print(f'\tvalidation targets: {targets}')
-                    outputs = self({
-                        constants.INPUT_IDS: data[constants.INPUT_IDS].to(device),
-                        constants.TOKEN_TYPE_IDS: data[constants.TOKEN_TYPE_IDS].to(device),
-                        constants.ATTENTION_MASK: data[constants.ATTENTION_MASK].to(device)
-                    }).to(device)
-                    output_distribution = torch.softmax(outputs, dim=1)
-                    preds = torch.argmax(output_distribution, dim=1).to(device)
-                    # print(f'\tvalidation preds: {preds}')
-                    validation_metrics = metrics.compute_metrics(
-                        num_labels=num_labels,
-                        preds=preds.cpu().numpy(),
-                        targets=targets.cpu().numpy(),
-                        split_name=constants.VALIDATION)
+        print(f'Optimal model obtained from epoch #{epoch_with_optimal_performance}')
+        self.load_state_dict(torch.load(best_model_path))
 
-                    # Include validation loss in batch metrics.
-                    validation_metrics[f'{constants.VALIDATION}_{constants.LOSS}'] = (
-                        loss_function(outputs,
-                                      torch.nn.functional.one_hot(targets, num_labels).float()).detach().cpu().numpy()
-                    )
+    def evaluate(self,
+                 dataloader: torch.data.DataLoader,
+                 split_name: str,
+                 device):
+        """
 
-                    for metric_name, metric_value in validation_metrics.items():
-                        if metric_name not in epoch_validation_metrics:
-                            epoch_validation_metrics[metric_name] = []
-                        epoch_validation_metrics[metric_name].append(metric_value)
+        :param dataloader:
+        :type dataloader:
+        :param split_name:
+        :type split_name:
+        :param device:
+        :type device:
+        :return:
+        :rtype:
+        """
+        self.eval()
+        self.to(device)
+        with torch.no_grad():
+            preds_list = []
+            targets_list = []
+            for batch in tqdm.tqdm(dataloader):
+                targets = batch[constants.LABEL].to(device)
+                outputs = self({
+                    constants.INPUT_IDS: batch[constants.INPUT_IDS].to(device),
+                    constants.TOKEN_TYPE_IDS: batch[constants.TOKEN_TYPE_IDS].to(device),
+                    constants.ATTENTION_MASK: batch[constants.ATTENTION_MASK].to(device),
+                }).to(device)
+                preds = torch.argmax(outputs, dim=1).cpu()
+                preds_list.append(preds)
+                targets_list.append(targets.cpu())
+            preds_list = np.concatenate(preds_list)
+            targets_list = np.concatenate(targets_list)
+            eval_metrics = metrics.compute_metrics(num_labels=constants.NUM_LABELS,
+                                                   preds=preds_list,
+                                                   targets=targets_list,
+                                                   split_name=split_name)
+            for metric_name, metric_value in eval_metrics.items():
+                wandb.summary[f"eval_{metric_name}"] = metric_value
+            return eval_metrics
 
-                # Perform metric aggregation over batches
-                aggregated_metrics = {}
-                for metric_name, metric_values in epoch_validation_metrics.items():
-                    aggregated_metrics[metric_name] = np.mean(metric_values)
-                aggregated_metrics[f'{constants.VALIDATION}_{constants.EPOCH}'] = epoch
-
-                # Stop early if accuracy does not increase within `max_num_rounds_no_improvement`evaluation runs.
-                epoch_accuracy = aggregated_metrics[f'{constants.VALIDATION}_{constants.ACCURACY}']
-                epoch_loss = aggregated_metrics[f'{constants.VALIDATION}_{constants.LOSS}']
-                if metric_for_early_stopping == constants.ACCURACY and epoch_accuracy > max_accuracy:
-                    max_accuracy = epoch_accuracy
-                    num_rounds_no_improvement = 0
-                    epoch_with_optimal_performance = epoch
-                    torch.save(self.state_dict(), best_model_path)
-                elif metric_for_early_stopping == constants.LOSS and epoch_loss < min_loss:
-                    min_loss = epoch_loss
-                    num_rounds_no_improvement = 0
-                    epoch_with_optimal_performance = epoch
-                    torch.save(self.state_dict(), best_model_path)
-                else:
-                    num_rounds_no_improvement += 1
-
-                wandb.log(aggregated_metrics)
-                # print(f'Validation metrics:\n{aggregated_metrics}')
-
-                if num_rounds_no_improvement == max_num_rounds_no_improvement:
-                    print(f'Performing early stopping after {epoch} epochs.\n'
-                          f'Optimal model obtained from epoch #{epoch_with_optimal_performance}')
-                    self.load_state_dict(torch.load(best_model_path))
-                    break
 
 if __name__ == '__main__':
-    #model = GCNWithBertEmbeddings(256, 2, 16)
-    #print(model)
+
+    args = parser.parse_args()
+    args_dict = vars(args)
+    for parameter, value in args_dict.items():
+        print(f'{parameter}: {value}')
+    utils.set_seed(args.seed)
+
     examples = preprocessing_knowledge_graph.create_simple_bert_inputs(
         directory_path=os.path.join(os.getcwd(), 'cmv_modes', 'change-my-view-modes-master'),
         version=constants.v2_path)
@@ -788,50 +865,129 @@ if __name__ == '__main__':
     dataset = dataset.shuffle()
     print(f'Entire dataset positive_labels: {sum(dataset[constants.LABEL].numpy() == 1)}\n'
           f'Entire dataset negative_labels: {sum(dataset[constants.LABEL].numpy() == 0)}')
-    # mlp = torch.nn.Sequential(
-    #     torch.nn.Linear(constants.BERT_HIDDEN_DIM, constants.BERT_HIDDEN_DIM),
-    #     torch.nn.ReLU(),
-    #     torch.nn.Linear(constants.BERT_HIDDEN_DIM, 512),
-    #     torch.nn.ReLU(),
-    #     torch.nn.Linear(512, constants.NUM_LABELS),
-    # )
-    mlp = torch.nn.Sequential(torch.nn.Linear(constants.BERT_HIDDEN_DIM, constants.BERT_HIDDEN_DIM),
-                              torch.nn.ReLU(),
-                              torch.nn.Linear(constants.BERT_HIDDEN_DIM, constants.NUM_LABELS))
+
+    # TODO: Create an MLP as a function of a desired model size. This should correspond with the size of a parallel
+    #  GNN model, and be passed via flag.
+    mlp = torch.nn.Sequential(
+        torch.nn.Linear(constants.BERT_HIDDEN_DIM, constants.BERT_HIDDEN_DIM),
+        torch.nn.ReLU(),
+        torch.nn.Linear(constants.BERT_HIDDEN_DIM, 512),
+        torch.nn.ReLU(),
+        torch.nn.Linear(512, constants.NUM_LABELS),
+    )
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     bert_baseline = BertBaseline(use_frozen_bert=True, mlp_layers=mlp, device=device)
 
-    num_cross_validation_splits = 5
-    shard_train_metrics = []
-    shard_eval_metrics = []
-    shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
-              for i in range(num_cross_validation_splits)]
-    for validation_set_index in range(num_cross_validation_splits):
-        split_model = copy.deepcopy(bert_baseline).to(device)
-        validation_and_test_sets = shards[validation_set_index].train_test_split(test_size=0.5)
-        validation_set = validation_and_test_sets[constants.TRAIN].shuffle()
-        print(f'Validation set ({validation_set_index}) positive labels: '
-              f'{sum(validation_set[constants.LABEL].numpy() == 1)}')
-        print(f'Validation set ({validation_set_index}) negative labels: '
-              f'{sum(validation_set[constants.LABEL].numpy() == 0)}')
-        test_set = validation_and_test_sets[constants.TEST].shuffle()
-        training_set = datasets.concatenate_datasets(
-            shards[0:validation_set_index] + shards[validation_set_index + 1:]).shuffle()
-        run_name = f'Fine-tune BERT+MLP Baseline on {constants.BINARY_CMV_DELTA_PREDICTION}, ' \
-                   f'Split #{validation_set_index + 1}'
-        run = wandb.init(
-            project="persuasive_arguments",
-            entity="zbamberger",
-            reinit=True,
-            name=run_name)
-        optimizer = torch.optim.Adam(split_model.parameters(), lr=1e-5)
-        bert_baseline.fit(train_loader=torch.utils.data.DataLoader(training_set, batch_size=1, shuffle=True),
-                          validation_loader=torch.utils.data.DataLoader(validation_set, batch_size=1, shuffle=True),
-                          num_labels=2,
-                          loss_function=torch.nn.BCELoss(),
-                          num_epochs=100,
-                          optimizer=optimizer,
-                          max_num_rounds_no_improvement=10,
-                          metric_for_early_stopping=constants.ACCURACY)
-        run.finish()
-
+    if args.use_k_fold_cross_validation:
+        num_cross_validation_splits = args.num_cross_validation_splits
+        train_metrics = []
+        validation_metrics = []
+        test_metrics = []
+        shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
+                  for i in range(num_cross_validation_splits)]
+        for validation_set_index in range(num_cross_validation_splits):
+            split_model = copy.deepcopy(bert_baseline).to(device)
+            validation_and_test_sets = shards[validation_set_index].train_test_split(
+                args.val_percent / (args.val_percent + args.test_percent))
+            validation_set = validation_and_test_sets[constants.TRAIN]
+            print(f'Validation set ({validation_set_index}) positive labels: '
+                  f'{sum(validation_set[constants.LABEL].numpy() == 1)}')
+            print(f'Validation set ({validation_set_index}) negative labels: '
+                  f'{sum(validation_set[constants.LABEL].numpy() == 0)}')
+            test_set = validation_and_test_sets[constants.TEST]
+            training_set = datasets.concatenate_datasets(
+                shards[0:validation_set_index] + shards[validation_set_index + 1:]).shuffle()
+            run_name = f'Fine-tune BERT+MLP Baseline on {constants.BINARY_CMV_DELTA_PREDICTION}, ' \
+                       f'Split #{validation_set_index + 1}'
+            run = wandb.init(
+                project="persuasive_arguments",
+                entity="zbamberger",
+                reinit=True,
+                name=run_name)
+            optimizer = torch.optim.Adam(split_model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+            train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
+            validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=args.batch_size, shuffle=True)
+            test_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size, shuffle=True)
+            split_model.fit(train_loader=train_loader,
+                            validation_loader=validation_loader,
+                            num_labels=2,
+                            loss_function=torch.nn.BCELoss(),
+                            num_epochs=args.num_epochs,
+                            optimizer=optimizer,
+                            max_num_rounds_no_improvement=10,
+                            metric_for_early_stopping=constants.ACCURACY,
+                            scheduler=torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.scheduler_gamma))
+            train_metrics.append(
+                split_model.evaluate(dataloader=train_loader, split_name=constants.TRAIN, device=device))
+            validation_metrics.append(
+                split_model.evaluate(dataloader=validation_loader, split_name=constants.VALIDATION, device=device))
+            test_metrics.append(
+                split_model.evaluate(dataloader=test_loader, split_name=constants.TEST, device=device))
+            run.finish()
+        validation_metric_aggregates = utils.aggregate_metrics_across_splits(validation_metrics)
+        train_metric_aggregates = utils.aggregate_metrics_across_splits(train_metrics)
+        test_metric_aggregates = utils.aggregate_metrics_across_splits(test_metrics)
+        print(f'\n*** Train Metrics: ***')
+        train_metric_averages, train_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+            metric_aggregates=train_metric_aggregates,
+            split_name=constants.TRAIN,
+            print_results=True)
+        print(f'\n*** Validation Metrics: ***')
+        validation_metric_averages, validation_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+            metric_aggregates=validation_metric_aggregates,
+            split_name=constants.VALIDATION,
+            print_results=True)
+        print(f'\n*** Test Metrics: ***')
+        test_metric_averages, test_metric_stds = utils.get_metrics_avg_and_std_across_splits(
+            metric_aggregates=test_metric_aggregates,
+            split_name=constants.TEST,
+            print_results=True)
+    else:
+        partitioned_dataset = dataset.train_test_split(args.val_percent + args.test_percent)
+        training_set = partitioned_dataset[constants.TRAIN]
+        hidden_sets = partitioned_dataset[constants.TEST]
+        partitioned_hidden_sets = hidden_sets.train_test_split(
+            args.val_percent / (args.val_percent + args.test_percent))
+        validation_set = partitioned_hidden_sets[constants.TRAIN]
+        test_set = partitioned_hidden_sets[constants.TEST]
+        wandb.init(project="persuasive_arguments",
+                   entity="persuasive_arguments",
+                   config=args,
+                   name=f'Bert+GCN Baseline '
+                        f"(seed: {args.seed}, "
+                        f"lr: {args.learning_rate}, "
+                        f"wd: {args.weight_decay}, "
+                        f"gamma: {args.scheduler_gamma})")
+        config = wandb.config
+        optimizer = torch.optim.Adam(bert_baseline.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+        train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
+        validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=args.batch_size, shuffle=True)
+        test_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size, shuffle=True)
+        bert_baseline.fit(
+            train_loader=train_loader,
+            validation_loader=validation_loader,
+            num_labels=2,
+            loss_function=torch.nn.BCELoss(),
+            num_epochs=args.num_epochs,
+            optimizer=optimizer,
+            max_num_rounds_no_improvement=10,
+            metric_for_early_stopping=constants.ACCURACY,
+            scheduler=torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.scheduler_gamma)
+        )
+        train_metrics = bert_baseline.evaluate(
+            dataloader=train_loader,
+            split_name=constants.TRAIN,
+            device=device)
+        validation_metrics = bert_baseline.evaluate(
+            dataloader=validation_loader,
+            split_name=constants.VALIDATION,
+            device=device)
+        test_metrics = bert_baseline.evaluate(
+            dataloader=test_loader,
+            split_name=constants.TEST,
+            device=device)
+        all_metrics = {
+            constants.TRAIN: train_metrics,
+            constants.VALIDATION: validation_metrics,
+            constants.TEST: test_metrics}
+        print(all_metrics)
