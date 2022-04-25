@@ -230,7 +230,7 @@ class CMVKGHetroDatasetEdges(CMVKGHetroDataset):
         attack_e = []
 
         support_types = ['agreement', 'support', 'partial_agreement']
-        attack_types = ['rebuttal', 'partial_disagreement', 'undercutter', 'disagreement', 'partial_attack']
+        attack_types = ['rebuttal', 'partial_disagreement', 'undercutter', 'disagreement', 'partial_attack', 'rebuttal_attack']
 
         for i, e in enumerate(self.dataset[index][constants.EDGES]):
             if self.dataset[index][constants.EDGES_TYPES][i] in support_types:
