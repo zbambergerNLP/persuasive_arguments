@@ -45,8 +45,12 @@ parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--hetro',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="Use heterophilous graphs if true and homophilous if False")
+parser.add_argument('--hetero_type',
+                    type=str,
+                    default='nodes',
+                    help="Relevant only if herto is True. Possible values are 'nodes' or 'edges'. If the value is 'nodes' then node type is used, if the value is 'edges' then edge type is used")
 parser.add_argument('--num_epochs',
                     type=int,
                     default=5,
@@ -81,7 +85,7 @@ parser.add_argument('--rounds_between_evals',
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="Work in debug mode")
 parser.add_argument('--use_max_pooling',
                     type=bool,
@@ -89,7 +93,7 @@ parser.add_argument('--use_max_pooling',
                     help="if True use max pooling in GNN else use average pooling")
 parser.add_argument('--model',
                     type=str,
-                    default='GAT',
+                    default='SAGE',
                     help="chose which model to run with the options are: GCN, GAT , SAGE")
 parser.add_argument('--use_k_fold_cross_validation',
                     type=bool,
@@ -370,13 +374,14 @@ def create_dataloaders(graph_dataset: Dataset,
 
 
 if __name__ == '__main__':
-    hetero_type = 'edges'
-    num_classes = 2
     args = parser.parse_args()
+    num_classes = 2
+    hetero_type = args.hetero_type
     hetro = args.hetro
     args_dict = vars(args)
     for parameter, value in args_dict.items():
         print(f'{parameter}: {value}')
+
 
 
     num_node_features = constants.BERT_HIDDEN_DIM
@@ -420,7 +425,7 @@ if __name__ == '__main__':
 
     if hetro:
         print('Initializing heterophealous dataset')
-        if hetero_type == 'nodes':
+        if hetero_type == constants.NODES:
             if os.path.exists(os.path.join(dir_name, 'hetro_dataset.pt')):
                 kg_dataset = torch.load(os.path.join(dir_name, 'hetro_dataset.pt'))
             else:
@@ -429,7 +434,7 @@ if __name__ == '__main__':
                     version=constants.v2_path,
                     debug=args.debug)
                 torch.save(kg_dataset, os.path.join(dir_name, 'hetro_dataset.pt'))
-        elif hetero_type == 'edges':
+        elif hetero_type == constants.EDGES:
             if os.path.exists(os.path.join(dir_name, 'hetro_edges_dataset.pt')):
                 kg_dataset = torch.load(os.path.join(dir_name, 'hetro_edges_dataset.pt'))
             else:
