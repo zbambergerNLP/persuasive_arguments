@@ -151,12 +151,12 @@ class CMVKGHetroDataset(CMVKGDataset):
         return [new_idx_out_node, new_idx_in_node]
 
     def convert_edge_indexes(self, edge_list):
-        #update edges after a claim node and a premise node were added
-        #add an edge from every added node to the other so each graph will have all kinds of edges
-        edge_list= torch.tensor(edge_list, dtype=torch.long).T + 2
-        edge_to_add = torch.tensor([0,1]).unsqueeze(dim =1)
-        edge_list = torch.concat((edge_to_add,edge_list), dim=1)
-        return  edge_list
+        # Update edges after a claim node and a premise node were added.
+        # Add an edge from every added node to the other so each graph will have all kinds of edges.
+        edge_list = torch.tensor(edge_list, dtype=torch.long).T + 2
+        edge_to_add = torch.tensor([0, 1]).unsqueeze(dim=1)
+        edge_list = torch.concat((edge_to_add, edge_list), dim=1)
+        return edge_list
 
     def __getitem__(self, index: int):
         claim_list = []
@@ -198,9 +198,12 @@ class CMVKGHetroDataset(CMVKGDataset):
                     raise Exception(f'not implemented')
 
         #add 2 claim node and 2 premise node
-        two_empty_nodes = torch.concat((torch.zeros_like(stacked_bert_inputs_claim[:,:,0]).unsqueeze(dim=2), torch.zeros_like(stacked_bert_inputs_claim[:,:,0]).unsqueeze(dim=2)), dim =2)
-        stacked_bert_inputs_claim = torch.concat((two_empty_nodes ,stacked_bert_inputs_claim), dim= 2 )
-        stacked_bert_inputs_premise = torch.concat((two_empty_nodes ,stacked_bert_inputs_premise), dim= 2 )
+        two_empty_nodes = torch.concat(
+            (torch.zeros_like(stacked_bert_inputs_claim[:, :, 0]).unsqueeze(dim=2),
+             torch.zeros_like(stacked_bert_inputs_claim[:, :, 0]).unsqueeze(dim=2)),
+            dim=2)
+        stacked_bert_inputs_claim = torch.concat((two_empty_nodes, stacked_bert_inputs_claim), dim=2)
+        stacked_bert_inputs_premise = torch.concat((two_empty_nodes, stacked_bert_inputs_premise), dim=2)
 
         data = HeteroData()
         data[constants.CLAIM].x = stacked_bert_inputs_claim.T.long()
@@ -213,6 +216,7 @@ class CMVKGHetroDataset(CMVKGDataset):
         data[constants.PREMISE, 'relation', constants.CLAIM].edge_index = self.convert_edge_indexes(premise_claim_e)
         data[constants.PREMISE, 'relation', constants.PREMISE].edge_index = self.convert_edge_indexes(premise_premise_e)
 
+
         return data
 
 
@@ -222,15 +226,15 @@ class CMVKGHetroDatasetEdges(CMVKGHetroDataset):
                  debug: bool = False):
         super(CMVKGHetroDatasetEdges, self).__init__(directory_path=directory_path, version=version, debug=debug)
 
-
     def __getitem__(self, index: int):
         stacked_bert_inputs = self.calc_bert_inputs(self.dataset[index])
 
         support_e = []
         attack_e = []
 
-        support_types = ['agreement', 'support', 'partial_agreement']
-        attack_types = ['rebuttal', 'partial_disagreement', 'undercutter', 'disagreement', 'partial_attack', 'rebuttal_attack']
+        support_types = ['agreement', 'support', 'partial_agreement', 'understand']
+        attack_types = ['rebuttal', 'partial_disagreement', 'undercutter', 'disagreement', 'partial_attack',
+                        'rebuttal_attack', 'attack', 'undercutter_attack']
 
         for i, e in enumerate(self.dataset[index][constants.EDGES]):
             if self.dataset[index][constants.EDGES_TYPES][i] in support_types:
