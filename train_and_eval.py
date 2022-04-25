@@ -36,7 +36,7 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --model "GAT" \
     --debug "" \
     --hetro "True" \
-    --hetero_type "edges" \
+    --hetero_type "nodes" \
     --use_max_pooling "" \
     --use_k_fold_cross_validation True \
     --num_cross_validation_splits 5 \
@@ -143,6 +143,7 @@ def train(model: torch.nn.Module,
           optimizer: torch.optim.Optimizer,
           scheduler: torch.optim.lr_scheduler,
           device,
+          model_name: str,
           rounds_between_evals: int = 1,
           hetro: bool = False,
           use_max_pooling: bool = False,
@@ -166,7 +167,7 @@ def train(model: torch.nn.Module,
     epoch_with_optimal_performance = 0
     best_model_dir_path = os.path.join(os.getcwd(), 'tmp')
     utils.ensure_dir_exists(best_model_dir_path)
-    best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_probe.pt')
+    best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_{model_name}.pt')
     for epoch in range(epochs):
         epoch_loss = 0.0
         epoch_acc = 0.0
@@ -483,7 +484,9 @@ if __name__ == '__main__':
 
     num_of_examples = len(kg_dataset.dataset)
     shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
-
+    model_name = f"{f'{args.hetero_type}_' if args.hetro else ''}" \
+                 f"{'heterophelous' if args.hetro else 'homophealous'}_{args.model}_" \
+                 f"{'max' if args.use_max_pooling else 'average'}_pooling"
     if args.use_k_fold_cross_validation:
         train_metrics = []
         validation_metrics = []
@@ -522,7 +525,8 @@ if __name__ == '__main__':
                           rounds_between_evals=args.rounds_between_evals,
                           hetro=hetro,
                           use_max_pooling=args.use_max_pooling,
-                          device=device)
+                          device=device,
+                          model_name=model_name)
             train_metrics.append(
                 eval(model,
                      dl_train,
@@ -603,7 +607,8 @@ if __name__ == '__main__':
                       rounds_between_evals=args.rounds_between_evals,
                       hetro=hetro,
                       use_max_pooling=args.use_max_pooling,
-                      device=device)
+                      device=device,
+                      model_name=model_name)
         train_metrics = eval(
             model,
             dl_train,

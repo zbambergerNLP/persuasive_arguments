@@ -1,5 +1,5 @@
 program: train_and_eval.py
-name: homophilous_gat_avg_pooling
+name: heterophilous_gat_max_pooling
 entity: persuasive_arguments
 project: persuasive_argumentation
 method: grid
@@ -22,9 +22,11 @@ parameters:
   debug:
     value: ""
   hetro:
-    value: ""
+    value: "True"
+  hetero_type:
+    value: "nodes"
   use_max_pooling:
-    value: ""
+    value: "True"
   use_k_fold_cross_validation:
     value: ""
   weight_decay:

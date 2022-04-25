@@ -1,5 +1,5 @@
 program: train_and_eval.py
-name: heterophilous_gat_avg_pooling
+name: heterophilous_sage_avg_pooling
 entity: persuasive_arguments
 project: persuasive_argumentation
 method: grid
@@ -18,24 +18,26 @@ parameters:
   rounds_between_evals:
     value: 1
   model:
-    value: "GAT"
+    value: "SAGE"
   debug:
     value: ""
   hetro:
     value: "True"
+  hetero_type:
+    value: "edges"
   use_max_pooling:
     value: ""
   use_k_fold_cross_validation:
     value: ""
   weight_decay:
-    value: 0.001
+    values: [ 0.01, 0.001 ]
   seed:
-    values: [ 100, 200]
+    values: [ 100, 101, 102 ]
   fold_index:
-    values: [0, 1, 2, 3, 4]
+    values: [ 0, 1, 2, 3, 4 ]
   gcn_hidden_layer_dim:
     values: [ 128, 256, 512 ]
   learning_rate:
-    values: [ 0.01, 0.001 ]
+    values: [ 0.1, 0.01, 0.001 ]
   scheduler_gamma:
-    values: [ 0.7, 0.9]
+    values: [ 0.7, 0.9, 0.99 ]
