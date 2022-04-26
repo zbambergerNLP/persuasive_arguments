@@ -158,15 +158,9 @@ def train_probe(probing_model: torch.nn.Module,
     # Initialize variables for early stopping.
     best_model_dir_path = os.path.join(os.getcwd(), 'tmp')
     utils.ensure_dir_exists(best_model_dir_path)
-    best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_probe.pt')
     lowest_loss = math.inf
     highest_accuracy = 0
-    num_rounds_no_improvement = 0
-    epoch_with_optimal_performance = 0
-
     probing_model.train()
-    max_accuracy = 0
-    min_loss = math.inf
     num_rounds_no_improvement = 0
     epoch_with_optimal_performance = 0
     best_model_dir_path = os.path.join(os.getcwd(), 'tmp')

@@ -2,7 +2,7 @@ import networkx as nx
 import os
 import sys
 import pickle
-sys.path.insert(0, '../Main')
+# sys.path.insert(0, '../Main')
 # import feature_extraction
 # semanticFeaturesSetup = feature_extraction.SemanticFeaturesSetUp()
 
@@ -180,10 +180,10 @@ def get_data():
     """
 
     # file navigation related operations
-    cwd = os.getcwd()
-    os.chdir("..")
-    os.chdir("UKP")
-    os.chdir("brat-project-final")
+    # cwd = os.getcwd()
+    # os.chdir("..")
+    # os.chdir("UKP")
+    # os.chdir("brat-project-final")
     files = os.listdir(os.getcwd())
 
     # Data collection:
@@ -216,8 +216,8 @@ def get_data():
 
                 result.append(d)
 
-    # return to previous cwd
-    os.chdir(cwd)
+    # # return to previous cwd
+    # os.chdir(cwd)
 
     return result
 

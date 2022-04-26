@@ -324,7 +324,6 @@ def probe_model_on_task(probing_dataset: data_loaders.CMVProbingDataset,
             validation_and_test_sets = shards[validation_set_index].train_test_split(test_size=0.5)
             validation_set = validation_and_test_sets[constants.TRAIN].shuffle()
             test_set = validation_and_test_sets[constants.TEST].shuffle()
-            # validation_set = shards[validation_set_index].shuffle()
             training_set = datasets.concatenate_datasets(
                 shards[0:validation_set_index] + shards[validation_set_index+1:]).shuffle()
             run_name = f'Probe {probing_model_name} on {task_name}, ' \

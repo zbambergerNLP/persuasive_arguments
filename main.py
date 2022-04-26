@@ -145,7 +145,7 @@ parser.add_argument('--probing_model_scheduler_gamma',
                     help="Decays the learning rate of each parameter group by gamma every epoch.")
 parser.add_argument('--run_baseline_experiment',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="True if we wish to run a baseline experiment using logistic regression over bigram features."
                          "False otherwise.")
 
@@ -169,7 +169,7 @@ parser.add_argument('--perform_early_stopping',
 # Data Imbalance Flags
 parser.add_argument('--downsample_binary_premise_mode_prediction',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="True if we intend to downsample probing datasets for binary premise mode prediction.")
 parser.add_argument('--downsample_multi_class_premise_mode_prediction',
                     type=bool,
@@ -209,7 +209,7 @@ parser.add_argument('--fine_tune_model_on_argument_relations',
 # Binary Premise Mode Probing:
 parser.add_argument('--probe_model_on_binary_premise_modes',
                     type=bool,
-                    default=True,
+                    default=False,
                     help=('Whether or not a pre-trained transformer language model should be trained and evaluated'
                           'on a probing task. In this case, the probing task involves classifying the argumentation '
                           'mode (i.e., the presence of ethos, logos, or pathos) within a premise.'))
@@ -225,7 +225,7 @@ parser.add_argument('--generate_new_premise_mode_probing_dataset',
                          ' such a dataset already exists, and is stored in json file within the ./probing directory.')
 parser.add_argument('--fine_tune_model_on_binary_premise_modes',
                     type=bool,
-                    default=True,
+                    default=False,
                     help='Fine tune the model specified in `model_checkpoint_name` on the probing datasets.')
 
 # Multi-Class Premise Mode Probing:
@@ -366,7 +366,7 @@ if __name__ == "__main__":
         report_to=["wandb"],
         load_best_model_at_end=True,
         metric_for_best_model=args.metric_for_early_stopping,
-        greater_is_better=(args.metric_for_early_stopping == constants.ACCURACY)
+        greater_is_better=(args.metric_for_early_stopping == constants.ACCURACY),
     )
     model = transformers.BertForSequenceClassification.from_pretrained(
         args.model_checkpoint_name,
