@@ -34,6 +34,7 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --val_percent 0.1 \
     --rounds_between_evals 1 \
     --model "GAT" \
+    --num_of_layers 2 \
     --debug "" \
     --hetro "True" \
     --hetero_type "nodes" \
@@ -88,7 +89,7 @@ parser.add_argument('--rounds_between_evals',
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="Work in debug mode")
 parser.add_argument('--use_max_pooling',
                     type=bool,
@@ -98,6 +99,10 @@ parser.add_argument('--model',
                     type=str,
                     default='GAT',
                     help="chose which model to run with the options are: GCN, GAT , SAGE")
+parser.add_argument('--num_of_layers',
+                    type=int,
+                    default='1',
+                    help="choose how many layers are going to be in model")
 parser.add_argument('--use_k_fold_cross_validation',
                     type=bool,
                     default=False,
@@ -121,6 +126,7 @@ parser.add_argument('--fold_index',
                     help="The partition index of the held out data as part of k-fold cross validation.")
 
 # TODO: Fix documentation across this file.
+
 
 
 def find_labels_for_batch(batch_data):
@@ -177,6 +183,8 @@ def train(model: torch.nn.Module,
             optimizer.zero_grad()
             if hetro:
                 y = find_labels_for_batch(batch_data=sampled_data)
+                print(sampled_data.x_dict)
+                print(sampled_data.edge_index_dict)
                 gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
                 out = 0
                 for key in gnn_out.keys():
@@ -438,7 +446,8 @@ if __name__ == '__main__':
         model = GAT(hidden_channels=args.gcn_hidden_layer_dim,
                     out_channels=num_classes,
                     is_hetro=hetro,
-                    use_max_pooling=args.use_max_pooling)
+                    use_max_pooling=args.use_max_pooling,
+                    num_of_layers=args.num_of_layers)
     else:
         raise NotImplementedError(f'{args.model} is not implemented')
 

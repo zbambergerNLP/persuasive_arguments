@@ -36,7 +36,7 @@ parameters:
   fold_index:
     values: [ 0, 1, 2, 3, 4 ]
   gcn_hidden_layer_dim:
-    values: [ 128, 256, 512 ]
+    values: [64, 128, 256]
   learning_rate:
     values: [ 0.1, 0.01, 0.001 ]
   scheduler_gamma:
