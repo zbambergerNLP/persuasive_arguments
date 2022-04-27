@@ -570,7 +570,7 @@ class GAT(torch.nn.Module):
         self.conv1 = GATConv((-1, -1), hidden_channels, add_self_loops=False)
         self.lin1 = Linear(-1, hidden_channels)
         self.conv2 = GATConv((-1, -1), out_channels, add_self_loops=False)
-        self.lin2 = Linear(-1, out_channels)
+
         self.loss = nn.BCEWithLogitsLoss()
         self.max_pooling = use_max_pooling
         self.is_hetro = is_hetro
@@ -584,14 +584,14 @@ class GAT(torch.nn.Module):
             attention_mask=torch.squeeze(attention_mask, dim=1).long(),
         )
         node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
+        node_embeddings = self.lin1(node_embeddings)
+        node_embeddings = node_embeddings.relu()
         if self.num_of_layers > 2:
             raise Exception(f'{self.num_of_layers} is not implemented, choose a smaller value')
         if self.num_of_layers > 1:
-            node_embeddings = self.conv1(node_embeddings, edge_index) + self.lin1(node_embeddings)
+            node_embeddings = self.conv1(node_embeddings, edge_index) #Todo change to a smaller dimension
 
-        node_embeddings = self.lin1(node_embeddings)
-        node_embeddings = node_embeddings.relu()
-        node_embeddings = self.conv2(node_embeddings, edge_index) + self.lin2(node_embeddings)
+        node_embeddings = self.conv2(node_embeddings, edge_index)
         if self.is_hetro:
             return node_embeddings
         else:
@@ -605,17 +605,20 @@ class GAT(torch.nn.Module):
 class GraphSage(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels,  is_hetro: bool,
                  use_frozen_bert: bool = True,
-                 use_max_pooling: bool = True):
+                 use_max_pooling: bool = True,
+                 num_of_layers: int = 2):
         super().__init__()
         self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
         if use_frozen_bert:
             for param in self.bert_model.parameters():
                 param.requires_grad = False
-        # self.conv1 = SAGEConv((-1, -1), hidden_channels)
+        self.lin1 = Linear(-1, hidden_channels)
+        self.conv1 = SAGEConv((-1, -1), hidden_channels) #Todo change to a smaller hidden size
         self.conv2 = SAGEConv((-1, -1), out_channels)
         self.loss = nn.BCEWithLogitsLoss()
         self.max_pooling = use_max_pooling
         self.is_hetro = is_hetro
+        self.num_of_layers = num_of_layers
 
     def forward(self, x, edge_index, batch=None):
         input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
@@ -625,8 +628,12 @@ class GraphSage(torch.nn.Module):
             attention_mask=torch.squeeze(attention_mask, dim=1).long(),
         )
         node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
-
-        node_embeddings = self.conv1(node_embeddings, edge_index).relu()
+        node_embeddings = self.lin1(node_embeddings)
+        node_embeddings = node_embeddings.relu()
+        if self.num_of_layers > 2:
+            raise Exception(f'{self.num_of_layers} is not implemented, choose a smaller value')
+        if self.num_of_layers > 1:
+            node_embeddings = self.conv1(node_embeddings, edge_index).relu()
         node_embeddings = self.conv2(node_embeddings, edge_index)
 
         if self.is_hetro:

@@ -49,11 +49,11 @@ parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--hetro',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--hetero_type',
                     type=str,
-                    default='nodes',
+                    default='edges',
                     help="Relevant only if herto is True. Possible values are 'nodes' or 'edges'. If the value is 'nodes' then node type is used, if the value is 'edges' then edge type is used")
 parser.add_argument('--num_epochs',
                     type=int,
@@ -89,7 +89,7 @@ parser.add_argument('--rounds_between_evals',
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="Work in debug mode")
 parser.add_argument('--use_max_pooling',
                     type=bool,
@@ -101,7 +101,7 @@ parser.add_argument('--model',
                     help="chose which model to run with the options are: GCN, GAT , SAGE")
 parser.add_argument('--num_of_layers',
                     type=int,
-                    default='1',
+                    default='2',
                     help="choose how many layers are going to be in model")
 parser.add_argument('--use_k_fold_cross_validation',
                     type=bool,
@@ -126,6 +126,7 @@ parser.add_argument('--fold_index',
                     help="The partition index of the held out data as part of k-fold cross validation.")
 
 # TODO: Fix documentation across this file.
+
 
 
 
@@ -183,8 +184,6 @@ def train(model: torch.nn.Module,
             optimizer.zero_grad()
             if hetro:
                 y = find_labels_for_batch(batch_data=sampled_data)
-                print(sampled_data.x_dict)
-                print(sampled_data.edge_index_dict)
                 gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
                 out = 0
                 for key in gnn_out.keys():
@@ -600,12 +599,14 @@ if __name__ == '__main__':
                           f"lr: {args.learning_rate}, "\
                           f"gamma: {args.scheduler_gamma}, "\
                           f"hidden_dim: {args.gcn_hidden_layer_dim})"
+                        # f"num_of_layers: {args.num_of_layers})"
         wandb.init(
             project="persuasive_arguments",
             entity="persuasive_arguments",
             group=experiment_name,
             config=args,
-            name=f"{experiment_name} [{args.fold_index}]")
+            name=f"{experiment_name} [{args.fold_index}]",
+            dir='.')
         config = wandb.config
         model = train(model=model,
                       training_loader=dl_train,
