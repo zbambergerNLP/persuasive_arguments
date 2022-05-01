@@ -492,7 +492,7 @@ if __name__ == '__main__':
 
     num_of_examples = len(kg_dataset.dataset)
     shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
-    model_name = f"{f'{args.hetero_type}_' if args.hetro else ''}" \
+    model_name = f"{f'{args.hetero_type}_{args.num_of_layers}_layer_' if args.hetro else ''}" \
                  f"{'heterophelous' if args.hetro else 'homophealous'}_{args.model}_" \
                  f"{'max' if args.use_max_pooling else 'average'}_pooling"
     if args.use_k_fold_cross_validation:
@@ -516,13 +516,11 @@ if __name__ == '__main__':
             run = wandb.init(project="persuasive_arguments",
                              entity="persuasive_arguments",
                              config=args,
-                             name=f"{'heterophelous' if args.hetro else 'homophealous'} ({args.hetero_type}) "
-                                  f"{args.model} with BERT Embeddings and "
-                                  f"{'max' if args.use_max_pooling else 'average'} pooling "
-                                  f"(split: #{validation_split_index + 1}, "
+                             name=f"{model_name} (split: #{validation_split_index + 1}, "
                                   f"lr: {args.learning_rate}, "
                                   f"gamma: {args.scheduler_gamma}, "
-                                  f"hidden_dim: {args.gcn_hidden_layer_dim})",
+                                  f"hidden_dim: {args.gcn_hidden_layer_dim}, "
+                                  f"weight_decay: {args.weight_decay})",
                              reinit=True)
             model = train(model=model,
                           training_loader=dl_train,
@@ -592,14 +590,20 @@ if __name__ == '__main__':
             lr=args.learning_rate,
             weight_decay=args.weight_decay)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.scheduler_gamma)
-        experiment_name = f"{'heterophelous' if args.hetro else 'homophealous'} ({args.hetero_type}) "\
-                          f"{args.model} with BERT Embeddings and "\
-                          f"{'max' if args.use_max_pooling else 'average'} pooling "\
-                          f"(seed: {args.seed}, "\
-                          f"lr: {args.learning_rate}, "\
-                          f"gamma: {args.scheduler_gamma}, "\
-                          f"hidden_dim: {args.gcn_hidden_layer_dim})"
-                        # f"num_of_layers: {args.num_of_layers})"
+
+        experiment_name = f"{model_name} (seed: #{args.seed + 1}, " \
+                          f"lr: {args.learning_rate}, " \
+                          f"gamma: {args.scheduler_gamma}, " \
+                          f"hidden_dim: {args.gcn_hidden_layer_dim}, "\
+                          f"weight_decay: {args.weight_decay})"
+        # experiment_name = f"{'heterophelous' if args.hetro else 'homophealous'} ({args.hetero_type}) "\
+        #                   f"{args.model} with BERT Embeddings and "\
+        #                   f"{'max' if args.use_max_pooling else 'average'} pooling "\
+        #                   f"(seed: {args.seed}, "\
+        #                   f"lr: {args.learning_rate}, "\
+        #                   f"gamma: {args.scheduler_gamma}, "\
+        #                   f"hidden_dim: {args.gcn_hidden_layer_dim})"
+        #                 # f"num_of_layers: {args.num_of_layers})"
         wandb.init(
             project="persuasive_arguments",
             entity="persuasive_arguments",
