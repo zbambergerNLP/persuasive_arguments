@@ -204,7 +204,7 @@ def aggregate_graph_features(k):
             fname = file.split('.')[0]
             graph_features_agg[fname] = GraphFeatures(G,k)
             feature_vectors_agg[fname] = graph_features_agg[fname].to_vector()
-            pdb.set_trace()
+            # pdb.set_trace()
             print("done with iter {}".format(iter))
             iter += 1
 

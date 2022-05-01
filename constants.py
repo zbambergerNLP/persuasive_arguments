@@ -107,6 +107,7 @@ JSON = "json"
 PYTORCH = "pt"
 PARQUET = "parquet"
 XML = "xml"
+ANN = "ann"
 
 # Wandb constants
 RESULTS = 'results'
@@ -146,5 +147,7 @@ SUPPORT = 'support'
 ATTACK = 'attack'
 
 
+#PATHS
+UKP_DATA = 'brat-project-final'
 
 

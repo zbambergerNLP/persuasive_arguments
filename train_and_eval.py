@@ -49,7 +49,7 @@ parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--hetro',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--hetero_type',
                     type=str,
