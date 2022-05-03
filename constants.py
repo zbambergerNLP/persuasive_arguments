@@ -107,7 +107,6 @@ JSON = "json"
 PYTORCH = "pt"
 PARQUET = "parquet"
 XML = "xml"
-ANN = "ann"
 
 # Wandb constants
 RESULTS = 'results'
@@ -118,6 +117,7 @@ NODE_DIM = 60
 BERT_HIDDEN_DIM = 768
 GCN = 'GCN'
 SAGE = 'SAGE'
+GAT = 'GAT'
 
 # Pre-processing
 v1_path = 'v1.0'
@@ -147,7 +147,5 @@ SUPPORT = 'support'
 ATTACK = 'attack'
 
 
-#PATHS
-UKP_DATA = 'brat-project-final'
 
 

@@ -8,14 +8,14 @@ import os
 import random
 from torch.utils.data import Dataset
 from torch.utils.data import SubsetRandomSampler
-from torch_geometric.nn import to_hetero, global_mean_pool, global_max_pool
+from torch_geometric.nn import to_hetero,to_hetero_with_bases, global_mean_pool, global_max_pool
 import torch_geometric.loader as geom_data
 
 import metrics
 import utils
 import wandb
 from data_loaders import CMVKGDataset, CMVKGHetroDataset, CMVKGHetroDatasetEdges
-from models import GCNWithBertEmbeddings, GCNHetero, GraphSage, GAT
+from models import homophiliousGNN, HGT
 import constants
 import argparse
 from tqdm import tqdm
@@ -45,6 +45,7 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
 """
 
 
+
 parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--hetro',
@@ -72,8 +73,8 @@ parser.add_argument('--weight_decay',
                     default=1e-3,
                     help="The weight decay parameter supplied to the optimizer for use during training.")
 parser.add_argument('--gcn_hidden_layer_dim',
-                    type=int,
-                    default=128,
+                    type=str,
+                    default='256 128 64 32',
                     help="The dimensionality of the hidden layer within the GCN component of the GCN+BERT model.")
 parser.add_argument('--test_percent',
                     type=float,
@@ -97,11 +98,11 @@ parser.add_argument('--use_max_pooling',
                     help="if True use max pooling in GNN else use average pooling")
 parser.add_argument('--model',
                     type=str,
-                    default='GAT',
+                    default='GCN',
                     help="chose which model to run with the options are: GCN, GAT , SAGE")
 parser.add_argument('--num_of_layers',
                     type=int,
-                    default='2',
+                    default='3',
                     help="choose how many layers are going to be in model")
 parser.add_argument('--use_k_fold_cross_validation',
                     type=bool,
@@ -184,15 +185,10 @@ def train(model: torch.nn.Module,
             optimizer.zero_grad()
             if hetro:
                 y = find_labels_for_batch(batch_data=sampled_data)
-                gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
-                out = 0
-                for key in gnn_out.keys():
-                    if use_max_pooling:
-                        gnn_out[key] = global_max_pool(gnn_out[key], sampled_data[key].batch)
-                    else:
-                        gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
-                    out += gnn_out[key]
-                out = F.log_softmax(out, dim=1)
+
+                if args.hetero_type == constants.EDGES:
+                    batch = sampled_data['node'].batch
+                out = model(sampled_data.x_dict, sampled_data.edge_index_dict, batch)
             else:
                 y = sampled_data.y
                 out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
@@ -229,14 +225,7 @@ def train(model: torch.nn.Module,
                 sampled_data.to(device)
                 if hetro:
                     y = find_labels_for_batch(batch_data=sampled_data)
-                    gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
-                    out = 0
-                    for key in gnn_out.keys():
-                        if use_max_pooling:
-                            gnn_out[key] = global_max_pool(gnn_out[key], sampled_data[key].batch)
-                        else:
-                            gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
-                        out += gnn_out[key]
+                    out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
                     out = F.log_softmax(out, dim=1)
                 else:
                     y = sampled_data.y
@@ -302,14 +291,7 @@ def eval(model: torch.nn.Module,
             sampled_data.to(device)
             if hetro:
                 y = find_labels_for_batch(batch_data=sampled_data)
-                gnn_out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
-                out = 0
-                for key in gnn_out.keys():
-                    if use_max_pooling:
-                        gnn_out[key] = global_max_pool(gnn_out[key], sampled_data[key].batch)
-                    else:
-                        gnn_out[key] = global_mean_pool(gnn_out[key], sampled_data[key].batch)
-                    out += gnn_out[key]
+                out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
                 out = F.log_softmax(out, dim=1)
             else:
                 y = sampled_data.y
@@ -421,35 +403,15 @@ if __name__ == '__main__':
     current_path = os.getcwd()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Initializing model: {args.model} device: {device}')
-    if args.model == constants.GCN:
-        if hetro:
-            # model = GCNHetero(num_node_features,
-            #     num_classes=num_classes,
-            #     hidden_layer_dim=args.gcn_hidden_layer_dim,
-            #     use_max_pooling=args.use_max_pooling,
-            #     is_hetro=hetro)
-            raise Exception('Hetero GCN is still not implemented')
-        else:
-            model = GCNWithBertEmbeddings(
-                num_node_features,
-                num_classes=num_classes,
-                hidden_layer_dim=args.gcn_hidden_layer_dim,
-                use_max_pooling=args.use_max_pooling,
-                is_hetro=hetro)
-    elif args.model == constants.SAGE:
-        model = GraphSage(hidden_channels=args.gcn_hidden_layer_dim,
-                          out_channels=num_classes,
-                          is_hetro=hetro,
-                          use_max_pooling=args.use_max_pooling)
-    elif args.model == 'GAT':
-        model = GAT(hidden_channels=args.gcn_hidden_layer_dim,
+    hidden_dim = list(map(int,args.gcn_hidden_layer_dim.split(" ")))
+    if hetro:
+        raise NotImplementedError(f'hetro is not implemented')
+    else:
+        model = homophiliousGNN(hidden_channels=hidden_dim,
                     out_channels=num_classes,
-                    is_hetro=hetro,
+                    conv_type=args.model,
                     use_max_pooling=args.use_max_pooling,
                     num_of_layers=args.num_of_layers)
-    else:
-        raise NotImplementedError(f'{args.model} is not implemented')
-
     # TODO: Creating the knowledge graph datasets takes a lot of time. As of now we make this a one time cost by saving
     #  and loading these datasets. In the future we should optimize the data creation process from a runtime
     #  perspective.
@@ -478,7 +440,12 @@ if __name__ == '__main__':
                 torch.save(kg_dataset, os.path.join(dir_name, 'hetro_edges_dataset.pt'))
         data = kg_dataset[2]
         print('Converting model to hetero')
-        model = to_hetero(model, data.metadata(), aggr='sum')
+        # model = to_hetero(model, data.metadata(), aggr='sum')
+        # model = to_hetero_with_bases(model, data.metadata(), num_bases=1)
+        model = HGT(hidden_channels=hidden_dim,
+                          out_channels=num_classes,
+                          metad=data.metadata(),
+                          use_max_pooling=args.use_max_pooling)
     else:
         print('initializing homophealous dataset')
         if os.path.exists(os.path.join(dir_name, 'homophelous_dataset.pt')):
@@ -594,8 +561,8 @@ if __name__ == '__main__':
         experiment_name = f"{model_name} (seed: #{args.seed + 1}, " \
                           f"lr: {args.learning_rate}, " \
                           f"gamma: {args.scheduler_gamma}, " \
-                          f"hidden_dim: {args.gcn_hidden_layer_dim}, "\
-                          f"weight_decay: {args.weight_decay})"
+                          f"h_d: {args.gcn_hidden_layer_dim}, "\
+                          f"w_d: {args.weight_decay})"
         # experiment_name = f"{'heterophelous' if args.hetro else 'homophealous'} ({args.hetero_type}) "\
         #                   f"{args.model} with BERT Embeddings and "\
         #                   f"{'max' if args.use_max_pooling else 'average'} pooling "\

@@ -10,7 +10,7 @@ import datasets
 import torch
 import torch.nn.functional as F
 import transformers
-from torch_geometric.nn import GCNConv, global_mean_pool,  GATConv, Linear, SAGEConv, global_max_pool, HeteroConv
+from torch_geometric.nn import GCNConv, global_mean_pool,  GATConv, Linear, SAGEConv, global_max_pool, HeteroConv, HGTConv
 import torch.nn as nn
 import numpy as np
 import tqdm
@@ -430,15 +430,14 @@ class BaselineLogisticRegression(torch.nn.Module):
         return eval_metrics
 
 
-# TODO: Expand this model's GCN architecture.
-class GCNWithBertEmbeddings(torch.nn.Module):
+class homophiliousGNN(torch.nn.Module):
     def __init__(self,
-                 num_node_features: int,
-                 num_classes: int,
-                 hidden_layer_dim: int,
-                 is_hetro: bool,
+                 out_channels: int,
+                 hidden_channels: list,
+                 conv_type: str,
                  use_frozen_bert: bool = True,
-                 use_max_pooling: bool = True):
+                 use_max_pooling: bool = True,
+                 num_of_layers: int = 2):
         """
 
         :param num_node_features: The dimensionality of each node within the batch of graph inputs.
@@ -454,129 +453,29 @@ class GCNWithBertEmbeddings(torch.nn.Module):
             for param in self.bert_model.parameters():
                 param.requires_grad = False
 
-        self.num_node_features = num_node_features
-        self.num_classes = num_classes
-        self.hidden_layer_dim = hidden_layer_dim
-        self.conv1 = GCNConv(self.num_node_features, self.hidden_layer_dim)
-        self.conv2 = GCNConv(self.hidden_layer_dim, self.num_classes)
+        self.lin1 = Linear(-1, hidden_channels[0])
+        self.convs = torch.nn.ModuleList()
+        for i, _ in enumerate(range(num_of_layers)):
+            if conv_type == constants.GCN:
+                conv = GCNConv(hidden_channels[i], hidden_channels[i + 1], add_self_loops=False)
+            elif conv_type == constants.GAT:
+                conv = GATConv((-1, -1), hidden_channels[i + 1], add_self_loops=False)
+            elif conv_type == constants.SAGE:
+                conv = SAGEConv((-1, -1), hidden_channels[i + 1])
+            else:
+                raise Exception(f'{conv_type} not implemented')
+            self.convs.append(conv)
+        self.lin2 = Linear(-1, out_channels)
         self.loss = nn.BCEWithLogitsLoss()
         self.max_pooling = use_max_pooling
-        self.is_hetro = is_hetro
+        self.num_of_layers = num_of_layers
 
     def forward(self, x, edge_index, batch=None):
         """
-
         :param data: A collection of node and edge data corresponding to a batch of graphs inputted to the model.
         :return: A probability distribution over the output labels. A torch tensor of shape
             [batch_size, num_output_labels].
         """
-        input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
-        bert_outputs = self.bert_model(
-            input_ids=torch.squeeze(input_ids, dim=1).long(),
-            token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
-            attention_mask=torch.squeeze(attention_mask, dim=1).long(),
-        )
-        node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
-        node_embeddings = self.conv1(node_embeddings, edge_index)
-        node_embeddings = node_embeddings.relu()
-        node_embeddings = F.dropout(node_embeddings, training=self.training)
-        node_embeddings = self.conv2(node_embeddings, edge_index)
-
-        if self.is_hetro:
-            return node_embeddings
-        else:
-            if self.max_pooling:
-                node_embeddings = global_max_pool(node_embeddings, batch)
-            else:
-                node_embeddings = global_mean_pool(node_embeddings, batch)
-            return F.log_softmax(node_embeddings, dim=1)
-
-
-class GCNHetero(torch.nn.Module):
-    def __init__(self,
-                 num_node_features: int,
-                 num_classes: int,
-                 hidden_layer_dim: int,
-                 is_hetro: bool,
-                 use_frozen_bert: bool = True,
-                 use_max_pooling: bool = True):
-        super().__init__()
-
-        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
-        if use_frozen_bert:
-            for param in self.bert_model.parameters():
-                param.requires_grad = False
-
-        self.num_node_features = num_node_features
-        self.num_classes = num_classes
-        self.hidden_layer_dim = hidden_layer_dim
-        self.conv1 = HeteroConv({
-            (constants.CLAIM, 'relation', constants.CLAIM):GCNConv(self.num_node_features, self.hidden_layer_dim),
-            (constants.CLAIM, 'relation', constants.PREMISE):GCNConv(self.num_node_features, self.hidden_layer_dim),
-            (constants.PREMISE, 'relation', constants.CLAIM):GCNConv(self.num_node_features, self.hidden_layer_dim),
-            (constants.PREMISE, 'relation', constants.PREMISE):GCNConv(self.num_node_features, self.hidden_layer_dim),
-        }, aggr='sum')
-        self.conv2 = HeteroConv({
-            (constants.CLAIM, 'relation', constants.CLAIM): GCNConv(self.hidden_layer_dim,self.num_classes),
-            (constants.CLAIM, 'relation', constants.PREMISE): GCNConv(self.hidden_layer_dim,self.num_classes),
-            (constants.PREMISE, 'relation', constants.CLAIM): GCNConv(self.hidden_layer_dim,self.num_classes),
-            (constants.PREMISE, 'relation', constants.PREMISE): GCNConv(self.hidden_layer_dim,self.num_classes),
-        }, aggr='sum')
-        self.loss = nn.BCEWithLogitsLoss()
-        self.max_pooling = use_max_pooling
-        self.is_hetro = is_hetro
-
-    def forward(self, x, edge_index, batch=None):
-        """
-
-        :param data: A collection of node and edge data corresponding to a batch of graphs inputted to the model.
-        :return: A probability distribution over the output labels. A torch tensor of shape
-            [batch_size, num_output_labels].
-        """
-        node_embeddings = {}
-        for key in x.keys():
-            input_ids, token_type_ids, attention_mask = torch.hsplit(x[key], sections=3)
-            bert_outputs = self.bert_model(
-                input_ids=torch.squeeze(input_ids, dim=1).long(),
-                token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
-                attention_mask=torch.squeeze(attention_mask, dim=1).long(),
-            )
-            node_embeddings[key] = bert_outputs['last_hidden_state'][:, 0, :]
-        node_embeddings = self.conv1(node_embeddings, edge_index)
-        # node_embeddings = node_embeddings.relu()
-        # node_embeddings = F.dropout(node_embeddings, training=self.training)
-        node_embeddings = self.conv2(node_embeddings, edge_index)
-
-        if self.is_hetro:
-            return node_embeddings
-        else:
-            if self.max_pooling:
-                node_embeddings = global_max_pool(node_embeddings, batch)
-            else:
-                node_embeddings = global_mean_pool(node_embeddings, batch)
-            return F.log_softmax(node_embeddings, dim=1)
-
-
-class GAT(torch.nn.Module):
-    def __init__(self, hidden_channels, out_channels,  is_hetro: bool,
-                 use_frozen_bert: bool = True,
-                 use_max_pooling: bool = True,
-                 num_of_layers:int = 2):
-        super().__init__()
-        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
-        if use_frozen_bert:
-            for param in self.bert_model.parameters():
-                param.requires_grad = False
-        self.conv1 = GATConv((-1, -1), hidden_channels, add_self_loops=False)
-        self.lin1 = Linear(-1, hidden_channels)
-        self.conv2 = GATConv((-1, -1), out_channels, add_self_loops=False)
-
-        self.loss = nn.BCEWithLogitsLoss()
-        self.max_pooling = use_max_pooling
-        self.is_hetro = is_hetro
-        self.num_of_layers =num_of_layers
-
-    def forward(self, x, edge_index, batch = None):
         input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
         bert_outputs = self.bert_model(
             input_ids=torch.squeeze(input_ids, dim=1).long(),
@@ -586,24 +485,22 @@ class GAT(torch.nn.Module):
         node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
         node_embeddings = self.lin1(node_embeddings)
         node_embeddings = node_embeddings.relu()
-        if self.num_of_layers > 2:
-            raise Exception(f'{self.num_of_layers} is not implemented, choose a smaller value')
-        if self.num_of_layers > 1:
-            node_embeddings = self.conv1(node_embeddings, edge_index) #Todo change to a smaller dimension
 
-        node_embeddings = self.conv2(node_embeddings, edge_index)
-        if self.is_hetro:
-            return node_embeddings
+        for conv in self.convs:
+            node_embeddings = conv(node_embeddings, edge_index).relu()
+
+        if self.max_pooling:
+            node_embeddings = global_max_pool(node_embeddings, batch)
         else:
-            if self.max_pooling:
-                node_embeddings = global_max_pool(node_embeddings, batch)
-            else:
-                node_embeddings = global_mean_pool(node_embeddings, batch)
-            return F.log_softmax(node_embeddings, dim=1)
+            node_embeddings = global_mean_pool(node_embeddings, batch)
+        node_embeddings = self.lin2(node_embeddings)
+        return F.log_softmax(node_embeddings, dim=1)
 
 
-class GraphSage(torch.nn.Module):
-    def __init__(self, hidden_channels, out_channels,  is_hetro: bool,
+
+
+class HGT(torch.nn.Module):
+    def __init__(self, hidden_channels, out_channels,metad,
                  use_frozen_bert: bool = True,
                  use_max_pooling: bool = True,
                  num_of_layers: int = 2):
@@ -612,39 +509,36 @@ class GraphSage(torch.nn.Module):
         if use_frozen_bert:
             for param in self.bert_model.parameters():
                 param.requires_grad = False
-        self.lin1 = Linear(-1, hidden_channels)
-        self.conv1 = SAGEConv((-1, -1), hidden_channels) #Todo change to a smaller hidden size
-        self.conv2 = SAGEConv((-1, -1), out_channels)
-        self.loss = nn.BCEWithLogitsLoss()
-        self.max_pooling = use_max_pooling
-        self.is_hetro = is_hetro
-        self.num_of_layers = num_of_layers
+        self.node_types = metad[0]
 
-    def forward(self, x, edge_index, batch=None):
-        input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
-        bert_outputs = self.bert_model(
-            input_ids=torch.squeeze(input_ids, dim=1).long(),
-            token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
-            attention_mask=torch.squeeze(attention_mask, dim=1).long(),
-        )
-        node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
-        node_embeddings = self.lin1(node_embeddings)
-        node_embeddings = node_embeddings.relu()
-        if self.num_of_layers > 2:
-            raise Exception(f'{self.num_of_layers} is not implemented, choose a smaller value')
-        if self.num_of_layers > 1:
-            node_embeddings = self.conv1(node_embeddings, edge_index).relu()
-        node_embeddings = self.conv2(node_embeddings, edge_index)
+        self.lin_dict = torch.nn.ModuleDict()
+        for node_type in self.node_types:
+            self.lin_dict[node_type] = Linear(-1, hidden_channels[0])
 
-        if self.is_hetro:
-            return node_embeddings
-        else:
+        self.convs = torch.nn.ModuleList()
+        for i,_ in enumerate(range(num_of_layers)):
+            conv = HGTConv(hidden_channels[i], hidden_channels[i+1], metad, group='sum')
+            self.convs.append(conv)
+
+        self.lin = Linear(hidden_channels[num_of_layers], out_channels)
+
+    def forward(self, x_dict, edge_index_dict, batch =None):
+        for node_type, x in x_dict.items():
+            x_dict[node_type] = self.lin_dict[node_type](x.long()).relu_()
+
+        for conv in self.convs:
+            x_dict = conv(x_dict, edge_index_dict)
+
+
+        out = 0
+        for node_type, x in x_dict.items():
             if self.max_pooling:
-                node_embeddings = global_max_pool(node_embeddings, batch)
+                x_dict[node_type] = global_max_pool(x_dict[node_type], batch)
             else:
-                node_embeddings = global_mean_pool(node_embeddings, batch)
-            return F.log_softmax(node_embeddings, dim=1)
-
+                x_dict[node_type] = global_mean_pool(x_dict[node_type], batch)
+            out+= x_dict[node_type] / len(self.node_types) # TODO: Introduce functionality for mean/max/sum aggregation of nodes across distinct types.
+        out = self.lin(out)
+        return F.log_softmax(out, dim=1)
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

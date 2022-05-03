@@ -12,8 +12,6 @@ import pickle
 #################
 
 # Dictionary Keys
-import constants
-
 NAME = "name"
 ENTITIES = "entities"
 ATTRIBUTES = "attributes"
@@ -182,18 +180,20 @@ def get_data():
     """
 
     # file navigation related operations
-    cwd = os.getcwd()
-    files = os.listdir(os.path.join(cwd,constants.UKP_DATA))
+    # cwd = os.getcwd()
+    # os.chdir("..")
+    # os.chdir("UKP")
+    # os.chdir("brat-project-final")
+    files = os.listdir(os.getcwd())
 
     # Data collection:
 
     result = []
     for f in files:
-        print(f)
-        full_path_f= os.path.join(cwd,constants.UKP_DATA, f)
+
         if f.endswith(".ann"):
 
-            with open(full_path_f, "r") as fileHandle:
+            with open(f, "r") as fileHandle:
 
                 d = {
                     NAME: f,
@@ -216,7 +216,11 @@ def get_data():
 
                 result.append(d)
 
+    # # return to previous cwd
+    # os.chdir(cwd)
+
     return result
+
 
 ########################
 ### Helper Functions ###
@@ -417,7 +421,7 @@ def convert_to_graph(d):
 
 if __name__ == "__main__":
     annotated_essay_dicts = get_data()
-    start_idx = 1
+    start_idx = 270
     for i in range(start_idx, len(annotated_essay_dicts)):
         annotated_essay = annotated_essay_dicts[i]
         name = annotated_essay[NAME]
@@ -433,7 +437,6 @@ if __name__ == "__main__":
         with open( '../UKP/graphs/' + name + '-mappings', 'wb') as f:
             pickle.dump((node_mapping, edge_mapping, node_rev_mapping, edge_rev_mapping), f)
         print("FINISHED WRITING TO FILE")
-
 
         # print("\t", ENTITIES)
         # for key, value in entities.items():
