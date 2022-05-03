@@ -17,4 +17,8 @@ T11	Claim 1927 1992	without the cooperation, there would be no victory of compet
 A3	Stance T11 For
 R4	supports Arg1:T10 Arg2:T11	
 R5	supports Arg1:T9 Arg2:T11	
-R6	supports Arg1:T8 Arg2:T7	
+R6	supports Arg1:T8 Arg2:T7
+
+
+
+

@@ -1,3 +1,6 @@
+import os
+import pathlib
+
 TRAIN = "train"
 EVAL = "eval"
 TEST = "test"
@@ -149,3 +152,14 @@ ATTACK = 'attack'
 
 
 
+##############
+###### PATH
+##############
+# 'nt' refers to Windows, 'posix' as Linux (triton01 GPU cluster
+if os.name == 'nt':
+    BASE_DIR = pathlib.PurePath('/Users/b.noam/Library/CloudStorage/OneDrive-Technion/Master/Courses/Deep 236605/FinalProject')
+else:
+    BASE_DIR = pathlib.PurePath('/home/b.noam/persuasive_arguments')
+
+UKP = BASE_DIR /'UKP'
+UKP_DATA = UKP  / 'brat-project-final'

@@ -6,7 +6,7 @@ import pickle
 # import feature_extraction
 # semanticFeaturesSetup = feature_extraction.SemanticFeaturesSetUp()
 
-
+import constants
 #################
 ### Constants ###
 #################
@@ -180,20 +180,18 @@ def get_data():
     """
 
     # file navigation related operations
-    # cwd = os.getcwd()
-    # os.chdir("..")
-    # os.chdir("UKP")
-    # os.chdir("brat-project-final")
-    files = os.listdir(os.getcwd())
+    cwd = os.getcwd()
+    files = os.listdir(constants.UKP_DATA)
 
     # Data collection:
 
     result = []
     for f in files:
-
+        print(f)
+        full_path_f= os.path.join(constants.UKP_DATA, f)
         if f.endswith(".ann"):
 
-            with open(f, "r") as fileHandle:
+            with open(full_path_f, "r") as fileHandle:
 
                 d = {
                     NAME: f,
@@ -421,7 +419,7 @@ def convert_to_graph(d):
 
 if __name__ == "__main__":
     annotated_essay_dicts = get_data()
-    start_idx = 270
+    start_idx = 270 #TODO why start at 270?
     for i in range(start_idx, len(annotated_essay_dicts)):
         annotated_essay = annotated_essay_dicts[i]
         name = annotated_essay[NAME]
