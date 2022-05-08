@@ -180,7 +180,6 @@ def get_data():
     """
 
     # file navigation related operations
-    cwd = os.getcwd()
     files = os.listdir(constants.UKP_DATA)
 
     # Data collection:

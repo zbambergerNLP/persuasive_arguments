@@ -2,14 +2,15 @@ import os
 
 import torch
 import transformers
+import pandas as pd
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 from torch_geometric.data import Data
 from torch_geometric.data import HeteroData
 
 import constants
-from cmv_modes.preprocessing_knowledge_graph import make_op_reply_graphs, create_bert_inputs
-
+from cmv_modes.preprocessing_knowledge_graph import make_op_reply_graphs, create_bert_inputs, GraphExample
+from UKP.parser import process_entity, process_attribute, process_relation
 
 # TODO: Ensure that both the BERT model and its corresponding tokenizer are accessible even without internet connection.
 
@@ -276,25 +277,20 @@ class UKPDataset(torch.utils.data.Dataset):
         self.dataset = []
         self.labels = []
 
-        for file_name in tqdm(os.listdir(thread_directory)):
-            if file_name.endswith(constants.XML):
-                file_path = os.path.join(thread_directory, file_name)
-                with open(file_path, 'r') as fileHandle:
-                    data = fileHandle.read()
-                    bs_data = BeautifulSoup(data, constants.XML)
-                    examples = make_op_reply_graphs(
-                        bs_data=bs_data,
-                        file_name=file_name,
-                        is_positive=(sign == constants.POSITIVE))
-                    examples = create_bert_inputs(examples,
-                                                  tokenizer=transformers.BertTokenizer.from_pretrained(
-                                                      constants.BERT_BASE_CASED))
-                    self.dataset.extend(examples)
-                    example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
-                    self.labels.extend(example_labels)
-                    if debug:
-                        if len(self.labels) >= 20:
-                            break
+        for file_name in tqdm(os.listdir(constants.UKP_DATA)):
+            if file_name.endswith(constants.ANN):
+                file_path = os.path.join((constants.UKP_DATA), file_name)
+
+                examples = self.make_op_reply_graphs(file_name=file_name)
+                examples = create_bert_inputs([examples],
+                                              tokenizer=transformers.BertTokenizer.from_pretrained(
+                                                  constants.BERT_BASE_CASED))
+                self.dataset.extend(examples)
+                example_label = self.find_label(file_name)
+                self.labels.append(example_label)
+                if debug:
+                    if len(self.labels) >= 20:
+                        break
 
     def __len__(self):
         return len(self.dataset)
@@ -313,3 +309,86 @@ class UKPDataset(torch.utils.data.Dataset):
         return Data(x=stacked_bert_inputs.T,
                     edge_index=torch.tensor(self.dataset[index]['edges']).T,
                     y=torch.tensor(self.labels[index]))
+
+    def find_label(self,file_name):
+        file_name = file_name.split(".")[0]
+        df = pd.read_csv(constants.UKP_LABELS_FILE)
+        deltas_pos = df.loc[(df[constants.ID_CSV] == file_name) & (df[constants.DELTA_CSV] > 0), constants.DELTA_CSV]
+        deltas_neg = df.loc[(df[constants.ID_CSV] == file_name) & (df[constants.DELTA_CSV] <= 0), constants.DELTA_CSV]
+        label = 1 if len(deltas_pos) > len(deltas_neg) else 0
+        return label
+
+    def find_op(self, file_name):
+        file_name = file_name.split(".")[0]
+        file_name = file_name + "." + constants.TXT
+        with open(os.path.join(constants.UKP_DATA, file_name), "r") as fileHandle:
+            lines = fileHandle.readlines()
+            return lines[0]
+
+    def parse_ann_file(self, file_name):
+        with open(os.path.join(constants.UKP_DATA, file_name), "r") as fileHandle:
+            d = {
+                constants.NAME: file_name,
+                constants.ENTITIES: {},
+                constants.ATTRIBUTES: {},
+                constants.RELATIONS: {}
+            }
+
+            lines = fileHandle.readlines()
+            for line in lines:
+                if line[0] == constants.T:
+                    process_entity(line, d)
+                elif line[0] == constants.A:
+                    process_attribute(line, d)
+                elif line[0] == constants.R:
+                    process_relation(line, d)
+                else:
+                    raise Exception("Unknown node/edge type encountered." +
+                                    "See line which caused error below:\n" + line + " "+file_name )
+        return d
+
+    def make_op_reply_graphs(self, file_name):
+        #get OP text
+        op_txt = self.find_op(file_name)
+        d = self.parse_ann_file(file_name)
+
+        #get nodes
+        id_to_idx = {constants.TITLE: 0}
+        id_to_text = {constants.TITLE: op_txt}
+        id_to_node_type = {constants.TITLE: constants.CLAIM} #TODO think what is the type of the op
+
+
+        for i, item in enumerate(d[constants.ENTITIES]):
+            node_idx = i + 1
+            id_to_idx[item] = node_idx
+            id_to_text[item] = d[constants.ENTITIES][item].data
+            id_to_node_type[item] = d[constants.ENTITIES][item].type
+
+
+        idx_to_id = {value: key for key, value in id_to_idx.items()}
+
+        #get edges
+        edges = []
+        edges_types = []
+        for e in d[constants.ATTRIBUTES]:
+            src = id_to_idx[d[constants.ATTRIBUTES][e].entity]
+            dest = 0 #title/Op
+            edges.append([src, dest])
+            edges_types.append(d[constants.ATTRIBUTES][e].value) #Todo talk to Zach if we should add value = For/Against or type = Stance
+        for e in d[constants.RELATIONS]:
+            src = id_to_idx[d[constants.RELATIONS][e].source]
+            dest = id_to_idx[d[constants.RELATIONS][e].target]
+            edges.append([src, dest])
+            edges_types.append(d[constants.RELATIONS][e].type)
+
+        #create results
+        result: GraphExample = {
+            constants.ID_TO_INDEX: id_to_idx,
+            constants.ID_TO_TEXT: id_to_text,
+            constants.ID_TO_NODE_TYPE: id_to_node_type,
+            constants.ID_TO_NODE_SUB_TYPE: {}, #no subtypes in UKP database
+            constants.INDEX_TO_ID: idx_to_id,
+            constants.EDGES: edges,
+            constants.EDGES_TYPES: edges_types
+        }
+        return result

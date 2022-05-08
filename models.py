@@ -436,8 +436,7 @@ class homophiliousGNN(torch.nn.Module):
                  hidden_channels: list,
                  conv_type: str,
                  use_frozen_bert: bool = True,
-                 use_max_pooling: bool = True,
-                 num_of_layers: int = 2):
+                 use_max_pooling: bool = True,):
         """
 
         :param num_node_features: The dimensionality of each node within the batch of graph inputs.
@@ -455,7 +454,7 @@ class homophiliousGNN(torch.nn.Module):
 
         self.lin1 = Linear(-1, hidden_channels[0])
         self.convs = torch.nn.ModuleList()
-        for i, _ in enumerate(range(num_of_layers)):
+        for i, _ in enumerate(range(len(hidden_channels)-1)):
             if conv_type == constants.GCN:
                 conv = GCNConv(hidden_channels[i], hidden_channels[i + 1], add_self_loops=False)
             elif conv_type == constants.GAT:
@@ -468,7 +467,7 @@ class homophiliousGNN(torch.nn.Module):
         self.lin2 = Linear(-1, out_channels)
         self.loss = nn.BCEWithLogitsLoss()
         self.max_pooling = use_max_pooling
-        self.num_of_layers = num_of_layers
+
 
     def forward(self, x, edge_index, batch=None):
         """

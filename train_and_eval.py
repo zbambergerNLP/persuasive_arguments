@@ -14,7 +14,7 @@ import torch_geometric.loader as geom_data
 import metrics
 import utils
 import wandb
-from data_loaders import CMVKGDataset, CMVKGHetroDataset, CMVKGHetroDatasetEdges
+from data_loaders import CMVKGDataset, CMVKGHetroDataset, CMVKGHetroDatasetEdges, UKPDataset
 from models import homophiliousGNN, HGT
 import constants
 import argparse
@@ -24,6 +24,7 @@ from tqdm import tqdm
 """
 Example command:
 srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
+    --data CMV \
     --num_epochs 30 \
     --batch_size 16 \
     --learning_rate 1e-3 \
@@ -34,7 +35,6 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --val_percent 0.1 \
     --rounds_between_evals 1 \
     --model "GAT" \
-    --num_of_layers 2 \
     --debug "" \
     --hetro "True" \
     --hetero_type "nodes" \
@@ -48,6 +48,10 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
 
 parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
+parser.add_argument('--data',
+                    type=str,
+                    default='CMV',
+                    help="Defines which database to use CMV or UKP")
 parser.add_argument('--hetro',
                     type=bool,
                     default=False,
@@ -100,10 +104,6 @@ parser.add_argument('--model',
                     type=str,
                     default='GCN',
                     help="chose which model to run with the options are: GCN, GAT , SAGE")
-parser.add_argument('--num_of_layers',
-                    type=int,
-                    default='3',
-                    help="choose how many layers are going to be in model")
 parser.add_argument('--use_k_fold_cross_validation',
                     type=bool,
                     default=False,
@@ -154,7 +154,6 @@ def train(model: torch.nn.Module,
           model_name: str,
           rounds_between_evals: int = 1,
           hetro: bool = False,
-          use_max_pooling: bool = False,
           metric_for_early_stopping: str = constants.ACCURACY,
           max_num_rounds_no_improvement: int = 10) -> torch.nn.Module:
     """Train a GCNWithBERTEmbeddings model on examples consisting of persuasive argument knowledge graphs.
@@ -410,12 +409,17 @@ if __name__ == '__main__':
         model = homophiliousGNN(hidden_channels=hidden_dim,
                     out_channels=num_classes,
                     conv_type=args.model,
-                    use_max_pooling=args.use_max_pooling,
-                    num_of_layers=args.num_of_layers)
+                    use_max_pooling=args.use_max_pooling,)
     # TODO: Creating the knowledge graph datasets takes a lot of time. As of now we make this a one time cost by saving
     #  and loading these datasets. In the future we should optimize the data creation process from a runtime
     #  perspective.
-    dir_name = os.path.join(current_path, "cmv_modes", "knowledge_graph_datasets")
+    if args.data == constants.CMV:
+        dir_name = os.path.join(current_path, "cmv_modes", "knowledge_graph_datasets")
+    elif args.data == constants.UKP:
+        dir_name = constants.UKP
+    else:
+        raise Exception(f'{args.data} not implemented')
+
     utils.ensure_dir_exists(dir_name)
 
     if hetro:
@@ -447,15 +451,24 @@ if __name__ == '__main__':
                           metad=data.metadata(),
                           use_max_pooling=args.use_max_pooling)
     else:
-        print('initializing homophealous dataset')
-        if os.path.exists(os.path.join(dir_name, 'homophelous_dataset.pt')):
-            kg_dataset = torch.load(os.path.join(dir_name, 'homophelous_dataset.pt'))
-        else:
-            kg_dataset = CMVKGDataset(
-                current_path + "/cmv_modes/change-my-view-modes-master",
-                version=constants.v2_path,
-                debug=args.debug)
-            torch.save(kg_dataset, os.path.join(dir_name, 'homophelous_dataset.pt'))
+        print(f'initializing homophealous {args.data} dataset')
+        if args.data == constants.CMV:
+            if os.path.exists(os.path.join(dir_name, 'homophelous_dataset.pt')):
+                kg_dataset = torch.load(os.path.join(dir_name, 'homophelous_dataset.pt'))
+            else:
+                kg_dataset = CMVKGDataset(
+                    current_path + "/cmv_modes/change-my-view-modes-master",
+                    version=constants.v2_path,
+                    debug=args.debug)
+                torch.save(kg_dataset, os.path.join(dir_name, 'homophelous_dataset.pt'))
+        elif args.data == constants.UKP:
+            if os.path.exists(os.path.join(dir_name, 'homophelous_dataset.pt')):
+                kg_dataset = torch.load(os.path.join(dir_name, 'homophelous_dataset.pt'))
+            else:
+                kg_dataset = UKPDataset(
+                    constants.UKP_DIR,
+                    debug=args.debug)
+                torch.save(kg_dataset, os.path.join(dir_name, 'homophelous_dataset.pt'))
 
     num_of_examples = len(kg_dataset.dataset)
     shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
@@ -497,7 +510,6 @@ if __name__ == '__main__':
                           scheduler=scheduler,
                           rounds_between_evals=args.rounds_between_evals,
                           hetro=hetro,
-                          use_max_pooling=args.use_max_pooling,
                           device=device,
                           model_name=model_name)
             train_metrics.append(
@@ -587,7 +599,6 @@ if __name__ == '__main__':
                       scheduler=scheduler,
                       rounds_between_evals=args.rounds_between_evals,
                       hetro=hetro,
-                      use_max_pooling=args.use_max_pooling,
                       device=device,
                       model_name=model_name)
         train_metrics = eval(

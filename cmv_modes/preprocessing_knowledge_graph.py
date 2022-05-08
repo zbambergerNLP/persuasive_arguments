@@ -1,5 +1,6 @@
 import copy
 import os
+from typing import Tuple, Dict, Union, Any, List
 
 import torch
 import transformers
@@ -180,7 +181,9 @@ GraphDataset = typing.Sequence[GraphExample]
 def make_op_subgraph(
         bs_data: BeautifulSoup,
         file_name: str = None,
-        is_positive: bool = None) -> typing.Tuple[IDToTextMapping, IDToIndexMapping,IDToNodeTypeMapping,IDToNodeTypeMapping, IndexToIDMapping, Edges, EdgesTypes]:
+        is_positive: bool = None) -> tuple[
+    dict[Any, Union[str, Any]], dict[Any, int], dict[Any, Any], dict[Any, Any], dict, list[tuple[int, ...]], list[
+        Union[str, list[str]]]]:
     """Create a collection of mappings that are used to construct `torch_geometric.data.Data` instances for GCN models.
 
     Given a parsed xml file, generate the following data related to the title and original post:
@@ -239,7 +242,7 @@ def make_op_subgraph(
                 edges.append(tuple([node_idx, edge_destination_id]))
                 edges_types.append(rels)
 
-    return id_to_text, id_to_idx, id_to_node_type, id_to_node_sub_type, idx_to_id, edges, edges_types
+    return (id_to_text, id_to_idx, id_to_node_type, id_to_node_sub_type, idx_to_id, edges, edges_types)
 
 
 def make_op_reply_graph(reply_data: BeautifulSoup,

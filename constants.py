@@ -44,6 +44,7 @@ TOKEN_TYPE_IDS = 'token_type_ids'
 ATTENTION_MASK = 'attention_mask'
 
 # CMV Dataset
+CMV= 'CMV'
 BINARY_CMV_DELTA_PREDICTION = 'binary_cmv_delta_prediction'
 CONVOKIT_DATASET_NAME = 'winning-args-corpus'
 CMV_DATASET_NAME = 'cmv_delta_prediction.json'
@@ -110,6 +111,8 @@ JSON = "json"
 PYTORCH = "pt"
 PARQUET = "parquet"
 XML = "xml"
+ANN = "ann"
+TXT = "txt"
 
 # Wandb constants
 RESULTS = 'results'
@@ -150,8 +153,22 @@ SUPPORT = 'support'
 ATTACK = 'attack'
 
 
+#UKP parsing
+UKP = "UKP"
+# Dictionary Keys
+NAME = "name"
+ENTITIES = "entities"
+ATTRIBUTES = "attributes"
+RELATIONS = "relations"
 
+# Parser related constants
+T = "T"
+A = "A"
+R = "R"
 
+#CSV columb names
+ID_CSV  = "ID"
+DELTA_CSV  = "DELTA"
 ##############
 ###### PATH
 ##############
@@ -161,5 +178,6 @@ if os.name == 'nt':
 else:
     BASE_DIR = pathlib.PurePath('/home/b.noam/persuasive_arguments')
 
-UKP = BASE_DIR /'UKP'
-UKP_DATA = UKP  / 'brat-project-final'
+UKP_DIR = BASE_DIR / 'UKP'
+UKP_DATA = UKP_DIR / 'brat-project-final'
+UKP_LABELS_FILE = UKP_DIR / 'all_labeled_data.csv'
