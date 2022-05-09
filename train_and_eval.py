@@ -127,7 +127,7 @@ parser.add_argument('--scheduler_gamma',
                     help="Gamma value used for the learning rate scheduler during training.")
 parser.add_argument('--fold_index',
                     type=int,
-                    default=1,
+                    default=0,
                     help="The partition index of the held out data as part of k-fold cross validation.")
 
 # TODO: Fix documentation across this file.
@@ -594,7 +594,8 @@ if __name__ == '__main__':
 
         # The experiment names are unique within a sweep. Each experiment consists of k runs, where k is the number
         # of k-fold cross validation folds. These k runs within each experiment are grouped.
-        experiment_name = f"{model_name} (seed: #{args.seed + 1}, " \
+        experiment_name = f"{model_name} " \
+                          f"(seed: #{args.seed}, " \
                           f"lr: {args.learning_rate}, " \
                           f"gamma: {args.scheduler_gamma}, " \
                           f"h_d: {args.gcn_hidden_layer_dim}, "\

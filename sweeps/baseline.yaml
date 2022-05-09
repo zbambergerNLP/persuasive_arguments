@@ -24,7 +24,9 @@ parameters:
   weight_decay:
     value:  0.001
   seed:
-    values: [ 1, 2, 3 ]
+    values: [ 501, 502, 503 ]
+  fold_index:
+    values: [ 0, 1, 2, 3, 4 ]
   learning_rate:
     values: [ 0.1, 0.01, 0.001, 0.0001, 0.00001 ]
   scheduler_gamma:

@@ -103,6 +103,10 @@ parser.add_argument('--dropout_probability',
                     type=float,
                     default=0.3,
                     help="The dropout probability across each layer of the MLP in the baseline model.")
+parser.add_argument('--fold_index',
+                    type=int,
+                    default=1,
+                    help="The partition index of the held out data as part of k-fold cross validation.")
 
 
 class LogisticRegressionProbe(torch.nn.Module):
@@ -869,6 +873,12 @@ if __name__ == '__main__':
         use_frozen_bert=True,
         mlp_layers=mlp,
         device=device)
+    model_name = f'Fine-tune BERT+MLP Baseline on {constants.BINARY_CMV_DELTA_PREDICTION}'
+    experiment_name = f"{model_name} " \
+                      f"(seed: #{args.seed}, " \
+                      f"lr: {args.learning_rate}, " \
+                      f"gamma: {args.scheduler_gamma}, " \
+                      f"w_d: {args.weight_decay})"
 
     if args.use_k_fold_cross_validation:
         num_cross_validation_splits = args.num_cross_validation_splits
@@ -889,13 +899,15 @@ if __name__ == '__main__':
             test_set = validation_and_test_sets[constants.TEST]
             training_set = datasets.concatenate_datasets(
                 shards[0:validation_set_index] + shards[validation_set_index + 1:]).shuffle()
-            run_name = f'Fine-tune BERT+MLP Baseline on {constants.BINARY_CMV_DELTA_PREDICTION}, ' \
-                       f'Split #{validation_set_index + 1}'
             run = wandb.init(
-                project="persuasive_argumentation",
+                project="persuasive_arguments",
                 entity="persuasive_arguments",
-                reinit=True,
-                name=run_name)
+                group=experiment_name,
+                config=args,
+                name=f"{experiment_name} [{validation_set_index}]",
+                dir='.')
+            # TODO: Create a helper utility function which generates the optimizer and scheduler given the necessary
+            #  parameters.
             optimizer = torch.optim.Adam(
                 split_model.parameters(),
                 lr=args.learning_rate,
@@ -919,6 +931,7 @@ if __name__ == '__main__':
                     gamma=args.scheduler_gamma
                 )
             )
+            # TODO: Implement helper function to aggregate metrics across folds during k fold cross validation.
             train_metrics.append(
                 split_model.evaluate(
                     dataloader=train_loader,
@@ -965,14 +978,13 @@ if __name__ == '__main__':
             args.val_percent / (args.val_percent + args.test_percent))
         validation_set = partitioned_hidden_sets[constants.TRAIN]
         test_set = partitioned_hidden_sets[constants.TEST]
-        wandb.init(project="persuasive_arguments",
-                   entity="persuasive_arguments",
-                   config=args,
-                   name=f'Bert+GCN Baseline '
-                        f"(seed: {args.seed}, "
-                        f"lr: {args.learning_rate}, "
-                        f"wd: {args.weight_decay}, "
-                        f"gamma: {args.scheduler_gamma})")
+        wandb.init(
+            project="persuasive_arguments",
+            entity="persuasive_arguments",
+            group=experiment_name,
+            config=args,
+            name=f"{experiment_name} [{args.fold_index}]",
+            dir='.')
         config = wandb.config
         optimizer = torch.optim.Adam(
             bert_baseline.parameters(),
@@ -1005,3 +1017,8 @@ if __name__ == '__main__':
             validation_loader=validation_loader,
             test_loader=test_loader
         ))
+
+    # TODO: Implement an option for k-fold cross validation during wandb sweeps via grouping as is done in
+    #  train_and_eval.py
+
+    # TODO: Consolidate code across this entire module.
