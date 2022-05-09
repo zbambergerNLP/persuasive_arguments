@@ -152,9 +152,9 @@ EDGES_TYPES = 'edges_types'
 SUPPORT = 'support'
 ATTACK = 'attack'
 
-
-#UKP parsing
+# UKP parsing
 UKP = "UKP"
+
 # Dictionary Keys
 NAME = "name"
 ENTITIES = "entities"
@@ -166,12 +166,16 @@ T = "T"
 A = "A"
 R = "R"
 
-#CSV columb names
-ID_CSV  = "ID"
-DELTA_CSV  = "DELTA"
-##############
-###### PATH
-##############
+# CSV column names
+ID_CSV = "ID"
+DELTA_CSV = "DELTA"
+
+###################
+###### PATH  ######
+###################
+
+# TODO: Remove dependance on static paths.
+
 # 'nt' refers to Windows, 'posix' as Linux (triton01 GPU cluster
 if os.name == 'nt':
     BASE_DIR = pathlib.PurePath('/Users/b.noam/Library/CloudStorage/OneDrive-Technion/Master/Courses/Deep 236605/FinalProject')

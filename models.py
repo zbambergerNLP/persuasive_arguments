@@ -36,8 +36,10 @@ srun --gres=gpu:1 -p nlp python models.py \
     --debug '' \
     --use_k_fold_cross_validation 'True' \
     --num_cross_validation_splits 5 \
+    --dropout_probability 0.5 \
     --seed 42 
 """
+
 
 parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
@@ -74,6 +76,17 @@ parser.add_argument('--use_k_fold_cross_validation',
                     default=False,
                     help="True if we intend to perform cross validation on the dataset. False otherwise. Using this"
                          "option is advised if the dataset is small.")
+parser.add_argument('--max_num_rounds_no_improvement',
+                    type=int,
+                    default=10,
+                    help="The permissible number of validation set evaluations in which the desired metric does not "
+                         "improve. If the desired validation metric does not improve within this number of evaluation "
+                         "attempts, then early stopping is performed.")
+parser.add_argument('--metric_for_early_stopping',
+                    type=str,
+                    default=constants.ACCURACY,
+                    help="The metric to track on the validation set as part of early stopping. If this metric does not "
+                         "improve after a few evalution steps on the validation set, we perform early stopping.")
 parser.add_argument('--num_cross_validation_splits',
                     type=int,
                     default=5,
@@ -86,6 +99,10 @@ parser.add_argument('--scheduler_gamma',
                     type=float,
                     default=0.9,
                     help="Gamma value used for the learning rate scheduler during training.")
+parser.add_argument('--dropout_probability',
+                    type=float,
+                    default=0.3,
+                    help="The dropout probability across each layer of the MLP in the baseline model.")
 
 
 class LogisticRegressionProbe(torch.nn.Module):
@@ -272,11 +289,13 @@ def eval_probe(probing_model: torch.nn.Module,
 
 class BaselineLogisticRegression(torch.nn.Module):
     """
-
+    A baseline linear regression model meant to be used on bi-gram features from persuasive arguments and their
+    contexts.
     """
 
     def __init__(self, num_features, num_labels):
         """
+        Initialize a logistic regression model used to predict argument persuasiveness.
 
         :param num_features: An integer representing the number of dimensions that exist in the input tensor.
         :param num_labels: The number of labels for the probing classification problem.
@@ -285,7 +304,8 @@ class BaselineLogisticRegression(torch.nn.Module):
         self.linear = torch.nn.Linear(num_features, num_labels)
 
     def forward(self, x):
-        """Pass input x through the model as part of the forward pass.
+        """
+        Pass input x through the model as part of the forward pass.
 
         :param x: A tensor with shape [batch_size, num_labels].
         :return: A tensor with shape [batch_size, num_labels].
@@ -306,6 +326,7 @@ class BaselineLogisticRegression(torch.nn.Module):
                                     torch.optim.lr_scheduler.ConstantLR] = None,
             ):
         """
+        Train the linear regression baseline model to predict argument persuasiveness.
 
         :param train_loader: A 'torch.utils.data.DataLoader' wrapping a 'preprocessing.CMVDataset' instance. This loader
             contains the training set.
@@ -399,6 +420,7 @@ class BaselineLogisticRegression(torch.nn.Module):
                  split_name: str = constants.TEST,
                  log_results: bool = True) -> typing.Mapping[str, float]:
         """
+        Evaluate the ability of a linear regression baseline model to predict argument persuasiveness.
 
         :param test_loader: A 'torch.utils.data.DataLoader` wrapping a `preprocessing.CMVDataset` instance. This
             loader contains the test set.
@@ -430,44 +452,63 @@ class BaselineLogisticRegression(torch.nn.Module):
         return eval_metrics
 
 
-class homophiliousGNN(torch.nn.Module):
+class HomophiliousGNN(torch.nn.Module):
+    """
+    An implementation for a homophilous graph neural network over the knowledge graphs of persuasive arguments.
+
+    Nodes within the argument knowledge graphs correspond to argumentative prepositions. Relations within the knowledge
+    graph correspond to either a supporting or an attacking relation from the source preposition towards the target
+    preposition.
+
+    The model ultamitely predicts the argument's persuasiveness given the argument's context (e.g., the title and OP
+    within the CMV dataset).
+    """
+
     def __init__(self,
                  out_channels: int,
                  hidden_channels: list,
                  conv_type: str,
                  use_frozen_bert: bool = True,
-                 use_max_pooling: bool = True,):
+                 use_max_pooling: bool = True):
         """
+        Initialize a homophilous graph neural network to predict argument persuasiveness given context.
 
-        :param num_node_features: The dimensionality of each node within the batch of graph inputs.
-        :param num_classes: The number of possible output classes produced by the final layer of the model.
-        :param hidden_layer_dim: The dimensionality of the GNN's intermediate layers.
-        :param use_frozen_bert: A boolean denoting whether or not the BERT model which produces node embeddings should
-            be updated during training.
+        :param out_channels: The label-space dimensionality of the downstream task. The number of possible labels this
+            model is tasked to predict among.
+        :param hidden_channels: A list of the hidden dimensions used by this model. The first dimension is used to
+            convert from BERT's hidden dimension to one more suitable for graph convolutions. The remaining dimensions
+            reflect the outputs of the GNN's convolutional layers. There is also a final linear transformation
+            from the final hidden dimension to the label-space dimensionality after pooling/super-node aggregation.
+        :param conv_type: The string name of the graph convolutional layers used in this GNN. Must be one of {"GCN",
+            "GAT", "SAGE"}.
+        :param use_frozen_bert: True if we intend to use a frozen BERT model to produce node embeddings. False if BERT's
+            weights should be updated while training the GNN (such that BERT's embeddings would evolve beyond their
+            pre-trained values).
+        :param use_max_pooling: True if we intend to use max pooling to aggregate node representations.
+            Nodes are aggregated as part of graph-classification before projecting to the label-space dimensionality.
         """
         super().__init__()
-
         self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
         if use_frozen_bert:
             for param in self.bert_model.parameters():
                 param.requires_grad = False
-
-        self.lin1 = Linear(-1, hidden_channels[0])
+        prev_layer_dimension = hidden_channels[0]
+        self.lin1 = Linear(constants.BERT_HIDDEN_DIM, prev_layer_dimension)
         self.convs = torch.nn.ModuleList()
-        for i, _ in enumerate(range(len(hidden_channels)-1)):
+        for layer_dim in hidden_channels[1:]:
             if conv_type == constants.GCN:
-                conv = GCNConv(hidden_channels[i], hidden_channels[i + 1], add_self_loops=False)
+                conv = GCNConv(prev_layer_dimension, layer_dim, add_self_loops=False)
             elif conv_type == constants.GAT:
-                conv = GATConv((-1, -1), hidden_channels[i + 1], add_self_loops=False)
+                conv = GATConv((-1, -1), layer_dim, add_self_loops=False)
             elif conv_type == constants.SAGE:
-                conv = SAGEConv((-1, -1), hidden_channels[i + 1])
+                conv = SAGEConv((-1, -1), layer_dim)
             else:
                 raise Exception(f'{conv_type} not implemented')
+            prev_layer_dimension = layer_dim
             self.convs.append(conv)
-        self.lin2 = Linear(-1, out_channels)
+        self.lin2 = Linear(prev_layer_dimension, out_channels)
         self.loss = nn.BCEWithLogitsLoss()
         self.max_pooling = use_max_pooling
-
 
     def forward(self, x, edge_index, batch=None):
         """
@@ -496,38 +537,68 @@ class homophiliousGNN(torch.nn.Module):
         return F.log_softmax(node_embeddings, dim=1)
 
 
-
-
+# TODO: Document this entire class, and all of it's associated methods.
 class HGT(torch.nn.Module):
-    def __init__(self, hidden_channels, out_channels,metad,
+    def __init__(self,
+                 hidden_channels: typing.List[int],
+                 out_channels: int,
+                 hetero_metadata: typing.Tuple[typing.List[str], typing.List[typing.Tuple[str, str, str]]],
                  use_frozen_bert: bool = True,
-                 use_max_pooling: bool = True,
-                 num_of_layers: int = 2):
+                 use_max_pooling: bool = True):
+        """
+        Initialize an HGT model on top of BERT embeddings to predict argument persuasiveness.
+
+        :param hidden_channels: A list of the hidden dimensions used by this model. The first dimension is used to
+            convert from BERT's hidden dimension to one more suitable for graph convolutions. The remaining dimensions
+            reflect the outputs of the GNN's convolutional layers. There is also a final linear transformation
+            from the final hidden dimension to the label-space dimensionality after pooling/super-node aggregation.
+        :param out_channels: The label-space dimensionality of the downstream task. The number of possible labels this
+            model is tasked to predict among.
+        :param hetero_metadata: The input graph's heterogeneous meta-data, i.e. its node and edge types.
+        :param use_frozen_bert: True if we intend to use a frozen BERT model to produce node embeddings. False if BERT's
+            weights should be updated while training the GNN (such that BERT's embeddings would evolve beyond their
+            pre-trained values).
+        :param use_max_pooling: True if we intend to use max pooling to aggregate node representations.
+            Nodes are aggregated as part of graph-classification before projecting to the label-space dimensionality.
+        """
+        # TODO: Add comments to document the flow of this initialization.
         super().__init__()
         self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
         if use_frozen_bert:
             for param in self.bert_model.parameters():
                 param.requires_grad = False
-        self.node_types = metad[0]
+        self.node_types = hetero_metadata[0]
 
         self.lin_dict = torch.nn.ModuleDict()
+        prev_layer_dimension = hidden_channels[0]
         for node_type in self.node_types:
             self.lin_dict[node_type] = Linear(-1, hidden_channels[0])
 
         self.convs = torch.nn.ModuleList()
-        for i,_ in enumerate(range(num_of_layers)):
-            conv = HGTConv(hidden_channels[i], hidden_channels[i+1], metad, group='sum')
+        for hidden_layer_dim in hidden_channels[1:]:
+            conv = HGTConv(prev_layer_dimension, hidden_layer_dim, hetero_metadata, group='sum')
             self.convs.append(conv)
+            prev_layer_dimension = hidden_layer_dim
 
-        self.lin = Linear(hidden_channels[num_of_layers], out_channels)
+        self.lin = Linear(prev_layer_dimension, out_channels)
 
-    def forward(self, x_dict, edge_index_dict, batch =None):
+    # TODO: Annotate parameter types and add documentation to this function.
+    def forward(self,
+                x_dict,
+                edge_index_dict,
+                batch=None):
+        """
+
+        :param x_dict:
+        :param edge_index_dict:
+        :param batch:
+        :return:
+        """
         for node_type, x in x_dict.items():
             x_dict[node_type] = self.lin_dict[node_type](x.long()).relu_()
 
         for conv in self.convs:
             x_dict = conv(x_dict, edge_index_dict)
-
 
         out = 0
         for node_type, x in x_dict.items():
@@ -535,23 +606,42 @@ class HGT(torch.nn.Module):
                 x_dict[node_type] = global_max_pool(x_dict[node_type], batch)
             else:
                 x_dict[node_type] = global_mean_pool(x_dict[node_type], batch)
-            out+= x_dict[node_type] / len(self.node_types) # TODO: Introduce functionality for mean/max/sum aggregation of nodes across distinct types.
+            # TODO: Introduce functionality for mean/max/sum aggregation of nodes across distinct types.
+            out += x_dict[node_type] / len(self.node_types)
         out = self.lin(out)
         return F.log_softmax(out, dim=1)
 
-def count_parameters(model):
+
+def count_parameters(model: torch.nn.Module) -> int:
+    """
+    Count the number of parameters within the provided model.
+
+    :param model: The model in which we are trying to count the number of parameters.
+    :return: The number of trainable parameters within our model.
+    """
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 class BertBaseline(torch.nn.Module):
-    def __init__(self, use_frozen_bert, mlp_layers, device):
-        super(BertBaseline, self).__init__()
+    def __init__(self,
+                 use_frozen_bert: bool,
+                 mlp_layers: torch.nn.Sequential,
+                 device: torch.device):
+        """
+        Initialize a persuasiveness prediction baseline model.
 
-        # self._bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED).to(device)
+        Initialize a BERT model (followed by an MLP) used to predict argument persuasiveness given tokenized sequential
+        inputs of the form [argument context, argument]. Within CMV, argument context refers to the title and OP
+        text, and the argument corresponds to the persuasive reply (which may or may not have earned a Delta).
+
+        :param use_frozen_bert: True we we intend to freeze the BERT encoder which precedes the MLP. False otherwise.
+        :param mlp_layers: The torch.nn layers corresponding to the layers of the baseline's NLP.
+        :param device: The device on which the model and data are stored.
+        """
+        super(BertBaseline, self).__init__()
         self._bert_model = transformers.BertForSequenceClassification.from_pretrained(
             constants.BERT_BASE_CASED,
-            num_labels=constants.NUM_LABELS,
-        ).to(device)
+            num_labels=constants.NUM_LABELS).to(device)
         if use_frozen_bert:
             for param in self._bert_model.parameters():
                 param.requires_grad = False
@@ -559,7 +649,7 @@ class BertBaseline(torch.nn.Module):
         self.device = device
 
     def forward(self, bert_inputs):
-        """Pass input x through the model as part of the forward pass.
+        """Pass tokenized inputs through the model as part of the forward pass.
 
         :param bert_inputs: A dictionary mapping string keys to tensor values corresponding to BERT inputs. Each
             input tensor has shape [batch_size, sequence_length]
@@ -586,9 +676,10 @@ class BertBaseline(torch.nn.Module):
             max_num_rounds_no_improvement: int,
             metric_for_early_stopping: str,
             scheduler: typing.Union[torch.optim.lr_scheduler.ExponentialLR,
-                                    torch.optim.lr_scheduler.ConstantLR] = None,
-            fold_index: int = 1):
+                                    torch.optim.lr_scheduler.ConstantLR] = None):
         """
+        Train the baseline model on the persuasiveness prediction task.
+
         :param train_loader: A 'torch.utils.data.DataLoader' wrapping a 'preprocessing.CMVDataset' instance. This loader
             contains the training set.
         :param validation_loader: A 'torch.utils.data.DataLoader` wrapping a `preprocessing.CMVDataset` instance. This
@@ -613,6 +704,7 @@ class BertBaseline(torch.nn.Module):
         utils.ensure_dir_exists(best_model_dir_path)
         best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_probe.pt')
         for epoch in range(num_epochs):
+            self.train()
             train_loss = 0.0
             train_acc = 0.0
             train_num_batches = 0
@@ -644,48 +736,45 @@ class BertBaseline(torch.nn.Module):
 
             # Perform Evaluation
             self.eval()
-            validation_loss = 0.0
-            validation_acc = 0.0
-            validation_num_batches = 0
-            for i, data in enumerate(validation_loader, 0):
-                targets = data[constants.LABEL].to(device)
-                outputs = self({
-                    constants.INPUT_IDS: data[constants.INPUT_IDS].to(device),
-                    constants.TOKEN_TYPE_IDS: data[constants.TOKEN_TYPE_IDS].to(device),
-                    constants.ATTENTION_MASK: data[constants.ATTENTION_MASK].to(device),
-                }).to(device)
-                preds = torch.argmax(outputs, dim=1).to(device)
-                loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
-                validation_loss += loss.item()
-                num_correct_preds = (preds == targets).sum().float()
-                accuracy = num_correct_preds / targets.shape[0] * 100
-                validation_acc += accuracy
-                validation_num_batches += 1
-
-            validation_loss = validation_loss / validation_num_batches
-            validation_acc = validation_acc / validation_num_batches
-            wandb.log({f"{constants.VALIDATION} {constants.ACCURACY}": validation_acc,
-                       f"{constants.VALIDATION} {constants.EPOCH}": epoch,
-                       f"{constants.VALIDATION} {constants.LOSS}": validation_loss})
-
-            if metric_for_early_stopping == constants.LOSS and validation_loss < lowest_loss:
-                lowest_loss = validation_loss
-                num_rounds_no_improvement = 0
-                epoch_with_optimal_performance = epoch
-                torch.save(self.state_dict(), best_model_path)
-            elif metric_for_early_stopping == constants.ACCURACY and validation_acc > highest_accuracy:
-                highest_accuracy = validation_acc
-                num_rounds_no_improvement = 0
-                epoch_with_optimal_performance = epoch
-                torch.save(self.state_dict(), best_model_path)
-            else:
-                num_rounds_no_improvement += 1
-
-            self.train()
-            if num_rounds_no_improvement == max_num_rounds_no_improvement:
-                print(f'Performing early stopping after {epoch} epochs.\n')
-                self.load_state_dict(torch.load(best_model_path))
-                break
+            with torch.no_grad():
+                validation_loss = 0.0
+                validation_acc = 0.0
+                validation_num_batches = 0
+                for i, data in enumerate(validation_loader, 0):
+                    targets = data[constants.LABEL].to(device)
+                    outputs = self({
+                        constants.INPUT_IDS: data[constants.INPUT_IDS].to(device),
+                        constants.TOKEN_TYPE_IDS: data[constants.TOKEN_TYPE_IDS].to(device),
+                        constants.ATTENTION_MASK: data[constants.ATTENTION_MASK].to(device),
+                    }).to(device)
+                    preds = torch.argmax(outputs, dim=1).to(device)
+                    loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
+                    validation_loss += loss.item()
+                    num_correct_preds = (preds == targets).sum().float()
+                    accuracy = num_correct_preds / targets.shape[0] * 100
+                    validation_acc += accuracy
+                    validation_num_batches += 1
+                validation_loss = validation_loss / validation_num_batches
+                validation_acc = validation_acc / validation_num_batches
+                wandb.log({f"{constants.VALIDATION} {constants.ACCURACY}": validation_acc,
+                           f"{constants.VALIDATION} {constants.EPOCH}": epoch,
+                           f"{constants.VALIDATION} {constants.LOSS}": validation_loss})
+                if metric_for_early_stopping == constants.LOSS and validation_loss < lowest_loss:
+                    lowest_loss = validation_loss
+                    num_rounds_no_improvement = 0
+                    epoch_with_optimal_performance = epoch
+                    torch.save(self.state_dict(), best_model_path)
+                elif metric_for_early_stopping == constants.ACCURACY and validation_acc > highest_accuracy:
+                    highest_accuracy = validation_acc
+                    num_rounds_no_improvement = 0
+                    epoch_with_optimal_performance = epoch
+                    torch.save(self.state_dict(), best_model_path)
+                else:
+                    num_rounds_no_improvement += 1
+                if num_rounds_no_improvement == max_num_rounds_no_improvement:
+                    print(f'Performing early stopping after {epoch} epochs.\n')
+                    self.load_state_dict(torch.load(best_model_path))
+                    break
 
         print(f'Optimal model obtained from epoch #{epoch_with_optimal_performance}')
         self.load_state_dict(torch.load(best_model_path))
@@ -693,17 +782,13 @@ class BertBaseline(torch.nn.Module):
     def evaluate(self,
                  dataloader: torch.data.DataLoader,
                  split_name: str,
-                 device):
-        """
+                 device: torch.device) -> typing.Mapping[str, float]:
+        """Evaluate a trained model on a dataset contained within the provided data loader.
 
-        :param dataloader:
-        :type dataloader:
-        :param split_name:
-        :type split_name:
-        :param device:
-        :type device:
-        :return:
-        :rtype:
+        :param dataloader: The dataloader instance containing the dataset on which the model is evaluated.
+        :param split_name: One of {"train", "validation", "test"}
+        :param device: The device
+        :return: A dictionary mapping metric names to their float values.
         """
         self.eval()
         self.to(device)
@@ -769,15 +854,21 @@ if __name__ == '__main__':
 
     # TODO: Create an MLP as a function of a desired model size. This should correspond with the size of a parallel
     #  GNN model, and be passed via flag.
+    # TODO: Enable configuration of the MLP architecture through flag parameters.
     mlp = torch.nn.Sequential(
         torch.nn.Linear(constants.BERT_HIDDEN_DIM, constants.BERT_HIDDEN_DIM),
         torch.nn.ReLU(),
+        torch.nn.Dropout(args.dropout_probability),
         torch.nn.Linear(constants.BERT_HIDDEN_DIM, 512),
         torch.nn.ReLU(),
+        torch.nn.Dropout(args.dropout_probability),
         torch.nn.Linear(512, constants.NUM_LABELS),
     )
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    bert_baseline = BertBaseline(use_frozen_bert=True, mlp_layers=mlp, device=device)
+    bert_baseline = BertBaseline(
+        use_frozen_bert=True,
+        mlp_layers=mlp,
+        device=device)
 
     if args.use_k_fold_cross_validation:
         num_cross_validation_splits = args.num_cross_validation_splits
@@ -801,30 +892,53 @@ if __name__ == '__main__':
             run_name = f'Fine-tune BERT+MLP Baseline on {constants.BINARY_CMV_DELTA_PREDICTION}, ' \
                        f'Split #{validation_set_index + 1}'
             run = wandb.init(
-                project="persuasive_arguments",
-                entity="zbamberger",
+                project="persuasive_argumentation",
+                entity="persuasive_arguments",
                 reinit=True,
                 name=run_name)
-            optimizer = torch.optim.Adam(split_model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-            train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
-            validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=args.batch_size, shuffle=True)
-            test_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size, shuffle=True)
-            split_model.fit(train_loader=train_loader,
-                            validation_loader=validation_loader,
-                            num_labels=2,
-                            loss_function=torch.nn.BCELoss(),
-                            num_epochs=args.num_epochs,
-                            optimizer=optimizer,
-                            max_num_rounds_no_improvement=10,
-                            metric_for_early_stopping=constants.ACCURACY,
-                            scheduler=torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.scheduler_gamma))
+            optimizer = torch.optim.Adam(
+                split_model.parameters(),
+                lr=args.learning_rate,
+                weight_decay=args.weight_decay)
+            train_loader, validation_loader, test_loader = utils.create_data_loaders(
+                training_set=training_set,
+                validation_set=validation_set,
+                test_set=test_set,
+                batch_size=args.batch_size)
+            split_model.fit(
+                train_loader=train_loader,
+                validation_loader=validation_loader,
+                num_labels=2,
+                loss_function=torch.nn.BCELoss(),
+                num_epochs=args.num_epochs,
+                optimizer=optimizer,
+                max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
+                metric_for_early_stopping=constants.ACCURACY,
+                scheduler=torch.optim.lr_scheduler.ExponentialLR(
+                    optimizer,
+                    gamma=args.scheduler_gamma
+                )
+            )
             train_metrics.append(
-                split_model.evaluate(dataloader=train_loader, split_name=constants.TRAIN, device=device))
+                split_model.evaluate(
+                    dataloader=train_loader,
+                    split_name=constants.TRAIN,
+                    device=device)
+            )
             validation_metrics.append(
-                split_model.evaluate(dataloader=validation_loader, split_name=constants.VALIDATION, device=device))
+                split_model.evaluate(dataloader=validation_loader,
+                                     split_name=constants.VALIDATION,
+                                     device=device)
+            )
             test_metrics.append(
-                split_model.evaluate(dataloader=test_loader, split_name=constants.TEST, device=device))
+                split_model.evaluate(
+                    dataloader=test_loader,
+                    split_name=constants.TEST,
+                    device=device
+                )
+            )
             run.finish()
+
         validation_metric_aggregates = utils.aggregate_metrics_across_splits(validation_metrics)
         train_metric_aggregates = utils.aggregate_metrics_across_splits(train_metrics)
         test_metric_aggregates = utils.aggregate_metrics_across_splits(test_metrics)
@@ -860,10 +974,16 @@ if __name__ == '__main__':
                         f"wd: {args.weight_decay}, "
                         f"gamma: {args.scheduler_gamma})")
         config = wandb.config
-        optimizer = torch.optim.Adam(bert_baseline.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-        train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=args.batch_size, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size, shuffle=True)
+        optimizer = torch.optim.Adam(
+            bert_baseline.parameters(),
+            lr=args.learning_rate,
+            weight_decay=args.weight_decay
+        )
+        train_loader, validation_loader, test_loader = utils.create_data_loaders(
+            training_set=training_set,
+            validation_set=validation_set,
+            test_set=test_set,
+            batch_size=args.batch_size)
         bert_baseline.fit(
             train_loader=train_loader,
             validation_loader=validation_loader,
@@ -871,24 +991,17 @@ if __name__ == '__main__':
             loss_function=torch.nn.BCELoss(),
             num_epochs=args.num_epochs,
             optimizer=optimizer,
-            max_num_rounds_no_improvement=10,
-            metric_for_early_stopping=constants.ACCURACY,
-            scheduler=torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.scheduler_gamma)
+            max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
+            metric_for_early_stopping=args.metric_for_early_stopping,
+            scheduler=torch.optim.lr_scheduler.ExponentialLR(
+                optimizer,
+                gamma=args.scheduler_gamma
+            )
         )
-        train_metrics = bert_baseline.evaluate(
-            dataloader=train_loader,
-            split_name=constants.TRAIN,
-            device=device)
-        validation_metrics = bert_baseline.evaluate(
-            dataloader=validation_loader,
-            split_name=constants.VALIDATION,
-            device=device)
-        test_metrics = bert_baseline.evaluate(
-            dataloader=test_loader,
-            split_name=constants.TEST,
-            device=device)
-        all_metrics = {
-            constants.TRAIN: train_metrics,
-            constants.VALIDATION: validation_metrics,
-            constants.TEST: test_metrics}
-        print(all_metrics)
+        print(metrics.perform_evaluation_on_splits(
+            eval_fn=bert_baseline.evaluate,
+            device=device,
+            train_loader=train_loader,
+            validation_loader=validation_loader,
+            test_loader=test_loader
+        ))

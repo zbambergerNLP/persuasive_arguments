@@ -76,3 +76,43 @@ def compute_metrics_for_multi_class_classification(
         constants.ACCURACY: accuracy.compute(predictions=predictions, references=labels)
     }
     return metrics
+
+
+def perform_evaluation_on_splits(eval_fn: typing.Callable,
+                                 device: torch.device,
+                                 train_loader: torch.utils.data.DataLoader = None,
+                                 validation_loader: torch.utils.data.DataLoader = None,
+                                 test_loader: torch.utils.data.DataLoader = None) -> (
+        typing.Mapping[str, typing.Mapping[str, float]]):
+    """
+    Perform evaluation with a trained model on the splits contained within the provided data loaders.
+    :param eval_fn: A function which, given a trained pytorch model, evaluates the data from a supplied data loader.
+        This callable function must include the following parameters:
+            * dataloader: The data loader containing the dataset on which evaluation is performed.
+            * split_name: The name of the split corresponding to the data loader. One of {"train", "validation",
+                "test"}.
+            * device: The device on which the model and data reside during evaluation.
+    :param train_loader: A data loader containing the training set on which the model is evaluated.
+    :param validation_loader: A data loader containing the validation set on which the model is evaluated.
+    :param test_loader: A data loader containing the test set on which the model is evaluated.
+    :param device: The device the holds both the data and the model during evaluation.
+    :return: A dictionary mapping the split name to the metrics dictionary associated with evaluation metrics on that
+        split.
+    """
+    all_metrics = {}
+    if train_loader:
+        all_metrics[constants.TRAIN] = eval_fn(
+            dataloader=train_loader,
+            split_name=constants.TRAIN,
+            device=device)
+    if validation_loader:
+        all_metrics[constants.VALIDATION] = eval_fn(
+            dataloader=validation_loader,
+            split_name=constants.VALIDATION,
+            device=device)
+    if test_loader:
+        all_metrics[constants.TEST] = eval_fn(
+            dataloader=test_loader,
+            split_name=constants.TEST,
+            device=device)
+    return all_metrics

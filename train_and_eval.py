@@ -1,21 +1,24 @@
 import copy
 import math
+import typing
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 import os
 import random
+
+import torch_geometric.data
 from torch.utils.data import Dataset
 from torch.utils.data import SubsetRandomSampler
-from torch_geometric.nn import to_hetero,to_hetero_with_bases, global_mean_pool, global_max_pool
+from torch_geometric.nn import to_hetero, to_hetero_with_bases, global_mean_pool, global_max_pool
 import torch_geometric.loader as geom_data
 
 import metrics
 import utils
 import wandb
 from data_loaders import CMVKGDataset, CMVKGHetroDataset, CMVKGHetroDatasetEdges, UKPDataset
-from models import homophiliousGNN, HGT
+from models import HomophiliousGNN, HGT
 import constants
 import argparse
 from tqdm import tqdm
@@ -30,20 +33,19 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --learning_rate 1e-3 \
     --weight_decay 1e-3 \
     --scheduler_gamma 0.9 \
-    --gcn_hidden_layer_dim 256 \
+    --gcn_hidden_layer_dim "128 128 128" \
     --test_percent 0.1 \
     --val_percent 0.1 \
     --rounds_between_evals 1 \
     --model "GAT" \
     --debug "" \
-    --hetro "True" \
+    --hetro "" \
     --hetero_type "nodes" \
     --use_max_pooling "" \
     --use_k_fold_cross_validation True \
     --num_cross_validation_splits 5 \
     --seed 42
 """
-
 
 
 parser = argparse.ArgumentParser(
@@ -59,7 +61,9 @@ parser.add_argument('--hetro',
 parser.add_argument('--hetero_type',
                     type=str,
                     default='edges',
-                    help="Relevant only if herto is True. Possible values are 'nodes' or 'edges'. If the value is 'nodes' then node type is used, if the value is 'edges' then edge type is used")
+                    help="Relevant only if herto is True. Possible values are 'nodes' or 'edges'. "
+                         "If the value is 'nodes' then node type is used, if the value is 'edges' then edge type is "
+                         "used")
 parser.add_argument('--num_epochs',
                     type=int,
                     default=30,
@@ -129,16 +133,16 @@ parser.add_argument('--fold_index',
 # TODO: Fix documentation across this file.
 
 
-
-
-def find_labels_for_batch(batch_data):
+def find_labels_for_batch(batch_data: torch_geometric.data.HeteroData) -> torch.Tensor:
     """
 
-    :param batch_data:
+    :param batch_data: A batch of torch geometric heterogeneous data (i.e., a batch of heterophilous graphs).
     :return:
     """
     batch_labels = []
-    key = batch_data.node_types[0]
+    key = batch_data.node_types[0]  # Return the name of the first node type (e.g., 'claim').
+
+    # Iterate the labels of nodes of the selected type.
     for b in range(len(batch_data[key].y)):
         batch_labels.append(batch_data[key].y[b][0])
     return torch.tensor(batch_labels)
@@ -163,7 +167,13 @@ def train(model: torch.nn.Module,
     :param validation_loader: A torch geometric data loader used to feed batches from the validation set to the model.
     :param epochs: The number of iterations over the training set during model training.
     :param optimizer: The torch optimizer used for weight updates during trianing.
+    :param scheduler:
+    :param device:
+    :param model_name:
     :param rounds_between_evals: An integer denoting the number of epcohs that occur between each evaluation run.
+    :param hetro:
+    :param metric_for_early_stopping:
+    :param max_num_rounds_no_improvement:
     :return: A trained model.
     """
     model.train()
@@ -267,12 +277,12 @@ def train(model: torch.nn.Module,
     return model
 
 
-def eval(model: torch.nn.Module,
-         dataset: geom_data.DataLoader,
-         split_name: str,
-         hetro: bool,
-         device,
-         use_max_pooling: bool = False):
+def evaluate(
+        model: torch.nn.Module,
+        dataset: geom_data.DataLoader,
+        split_name: str,
+        hetro: bool,
+        device):
     """
     Evaluate the performance of a GCNWithBertEmbeddings model.
 
@@ -309,13 +319,14 @@ def eval(model: torch.nn.Module,
         return eval_metrics
 
 
-def create_dataloaders_for_k_fold_cross_validation(graph_dataset: Dataset,
-                                                   shuffled_indices,
-                                                   batch_size: int,
-                                                   val_percent: float,
-                                                   test_percent: float,
-                                                   k_fold_index: int,
-                                                   num_workers: int = 0):
+def create_dataloaders_for_k_fold_cross_validation(
+        graph_dataset: Dataset,
+        shuffled_indices,
+        batch_size: int,
+        val_percent: float,
+        test_percent: float,
+        k_fold_index: int,
+        num_workers: int = 0):
     """
 
     :param graph_dataset:
@@ -355,16 +366,22 @@ def create_dataloaders(graph_dataset: Dataset,
                        batch_size: int,
                        val_percent: float,
                        test_percent: float,
-                       num_workers: int = 0):
+                       num_workers: int = 0) -> (
+        (typing.Tuple[
+            torch.utils.data.DataLoader,
+            torch.utils.data.DataLoader,
+            torch.utils.data.DataLoader
+        ])):
     """Create dataloaders over persuasive argument knowledge graphs.
 
     :param graph_dataset: A 'CMVKGDataset' instance whose examples correspond to knowledge graphs of persuasive
         arguments.
     :param batch_size: The number of examples processed in a single batch as part of training.
-    :param test_percent: The ratio of the original examples dedicated towards a test set. The remaining examples are
-        used as part of model training.
+    :param val_percent: The percentage of the original examples dedicated towards the validation set.
+    :param test_percent: The ratio of the original examples dedicated towards a test set.
     :param num_workers: The number of workers used during training.
-    :return:
+    :return: A 3-tuple of data loaders corresponding to the training loader, validation loader, and test loader
+        respectively.
     """
     num_of_examples = len(graph_dataset.dataset)
     test_len = int(test_percent * num_of_examples)
@@ -402,14 +419,15 @@ if __name__ == '__main__':
     current_path = os.getcwd()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Initializing model: {args.model} device: {device}')
-    hidden_dim = list(map(int,args.gcn_hidden_layer_dim.split(" ")))
+    hidden_dim = list(map(int, args.gcn_hidden_layer_dim.split(" ")))
     if hetro:
         raise NotImplementedError(f'hetro is not implemented')
     else:
-        model = homophiliousGNN(hidden_channels=hidden_dim,
-                    out_channels=num_classes,
-                    conv_type=args.model,
-                    use_max_pooling=args.use_max_pooling,)
+        model = HomophiliousGNN(hidden_channels=hidden_dim,
+                                out_channels=num_classes,
+                                conv_type=args.model,
+                                use_max_pooling=args.use_max_pooling)
+
     # TODO: Creating the knowledge graph datasets takes a lot of time. As of now we make this a one time cost by saving
     #  and loading these datasets. In the future we should optimize the data creation process from a runtime
     #  perspective.
@@ -421,6 +439,8 @@ if __name__ == '__main__':
         raise Exception(f'{args.data} not implemented')
 
     utils.ensure_dir_exists(dir_name)
+
+    # TODO: Remove code duplication below by creating helper functions (either in this file or utils.py).
 
     if hetro:
         print('Initializing heterophealous dataset')
@@ -447,9 +467,9 @@ if __name__ == '__main__':
         # model = to_hetero(model, data.metadata(), aggr='sum')
         # model = to_hetero_with_bases(model, data.metadata(), num_bases=1)
         model = HGT(hidden_channels=hidden_dim,
-                          out_channels=num_classes,
-                          metad=data.metadata(),
-                          use_max_pooling=args.use_max_pooling)
+                    out_channels=num_classes,
+                    hetero_metadata=data.metadata(),
+                    use_max_pooling=args.use_max_pooling)
     else:
         print(f'initializing homophealous {args.data} dataset')
         if args.data == constants.CMV:
@@ -472,9 +492,13 @@ if __name__ == '__main__':
 
     num_of_examples = len(kg_dataset.dataset)
     shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
+
+    # TODO: Create functions which generate model, experiment, and run names for wandb given the relevant parameters
+    #  provided via flags.
     model_name = f"{f'{args.hetero_type}_{args.num_of_layers}_layer_' if args.hetro else ''}" \
                  f"{'heterophelous' if args.hetro else 'homophealous'}_{args.model}_" \
                  f"{'max' if args.use_max_pooling else 'average'}_pooling"
+
     if args.use_k_fold_cross_validation:
         train_metrics = []
         validation_metrics = []
@@ -513,30 +537,28 @@ if __name__ == '__main__':
                           device=device,
                           model_name=model_name)
             train_metrics.append(
-                eval(model,
-                     dl_train,
-                     hetro=hetro,
-                     use_max_pooling=args.use_max_pooling,
-                     device=device,
-                     split_name=constants.TRAIN)
+                evaluate(model,
+                         dl_train,
+                         hetro=hetro,
+                         device=device,
+                         split_name=constants.TRAIN)
             )
             validation_metrics.append(
-                eval(model,
-                     dl_val,
-                     hetro=hetro,
-                     use_max_pooling=args.use_max_pooling,
-                     device=device,
-                     split_name=constants.VALIDATION)
+                evaluate(model,
+                         dl_val,
+                         hetro=hetro,
+                         device=device,
+                         split_name=constants.VALIDATION)
             )
             test_metrics.append(
-                eval(model,
-                     dl_test,
-                     hetro=hetro,
-                     use_max_pooling=args.use_max_pooling,
-                     device=device,
-                     split_name=constants.TEST)
+                evaluate(model,
+                         dl_test,
+                         hetro=hetro,
+                         device=device,
+                         split_name=constants.TEST)
             )
             run.finish()
+
         validation_metric_aggregates = utils.aggregate_metrics_across_splits(validation_metrics)
         train_metric_aggregates = utils.aggregate_metrics_across_splits(train_metrics)
         test_metric_aggregates = utils.aggregate_metrics_across_splits(test_metrics)
@@ -570,19 +592,13 @@ if __name__ == '__main__':
             weight_decay=args.weight_decay)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.scheduler_gamma)
 
+        # The experiment names are unique within a sweep. Each experiment consists of k runs, where k is the number
+        # of k-fold cross validation folds. These k runs within each experiment are grouped.
         experiment_name = f"{model_name} (seed: #{args.seed + 1}, " \
                           f"lr: {args.learning_rate}, " \
                           f"gamma: {args.scheduler_gamma}, " \
                           f"h_d: {args.gcn_hidden_layer_dim}, "\
                           f"w_d: {args.weight_decay})"
-        # experiment_name = f"{'heterophelous' if args.hetro else 'homophealous'} ({args.hetero_type}) "\
-        #                   f"{args.model} with BERT Embeddings and "\
-        #                   f"{'max' if args.use_max_pooling else 'average'} pooling "\
-        #                   f"(seed: {args.seed}, "\
-        #                   f"lr: {args.learning_rate}, "\
-        #                   f"gamma: {args.scheduler_gamma}, "\
-        #                   f"hidden_dim: {args.gcn_hidden_layer_dim})"
-        #                 # f"num_of_layers: {args.num_of_layers})"
         wandb.init(
             project="persuasive_arguments",
             entity="persuasive_arguments",
@@ -601,31 +617,10 @@ if __name__ == '__main__':
                       hetro=hetro,
                       device=device,
                       model_name=model_name)
-        train_metrics = eval(
-            model,
-            dl_train,
-            hetro=hetro,
-            use_max_pooling=args.use_max_pooling,
+        print(metrics.perform_evaluation_on_splits(
+            eval_fn=(lambda dataloader, split_name, device: evaluate(model, dataloader, split_name, hetro, device)),
             device=device,
-            split_name=constants.TRAIN,
-        )
-        validation_metrics = eval(
-            model,
-            dl_val,
-            hetro=hetro,
-            use_max_pooling=args.use_max_pooling,
-            device=device,
-            split_name=constants.VALIDATION,
-        )
-        test_metrics = eval(
-            model,
-            dl_test,
-            hetro=hetro,
-            use_max_pooling=args.use_max_pooling,
-            device=device,
-            split_name=constants.TEST)
-        all_metrics = {
-            constants.TRAIN: train_metrics,
-            constants.VALIDATION: validation_metrics,
-            constants.TEST: test_metrics}
-        print(all_metrics)
+            train_loader=dl_train,
+            validation_loader=dl_val,
+            test_loader=dl_test
+        ))

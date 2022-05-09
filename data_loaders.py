@@ -1,4 +1,5 @@
 import os
+import typing
 
 import torch
 import transformers
@@ -14,16 +15,26 @@ from UKP.parser import process_entity, process_attribute, process_relation
 
 # TODO: Ensure that both the BERT model and its corresponding tokenizer are accessible even without internet connection.
 
+
 class CMVProbingDataset(torch.utils.data.Dataset):
     """A Change My View dataset for probing."""
 
     def __init__(self, cmv_probing_dataset):
+        """
+
+        :param cmv_probing_dataset:
+        """
         self.cmv_probing_dataset = cmv_probing_dataset.to_dict()
         self.hidden_states = cmv_probing_dataset[constants.HIDDEN_STATE]
         self.labels = cmv_probing_dataset[constants.LABEL]
         self.num_examples = cmv_probing_dataset.num_rows
 
     def __getitem__(self, idx):
+        """
+
+        :param idx:
+        :return:
+        """
         return {constants.HIDDEN_STATE: torch.tensor(self.hidden_states[idx]),
                 constants.LABEL: torch.tensor(self.labels[idx])}
 
@@ -35,10 +46,19 @@ class CMVDataset(torch.utils.data.Dataset):
     """A Change My View dataset for fine tuning.."""
 
     def __init__(self, cmv_dataset):
+        """
+
+        :param cmv_dataset:
+        """
         self.cmv_dataset = cmv_dataset.to_dict()
         self.num_examples = cmv_dataset.num_rows
 
     def __getitem__(self, idx):
+        """
+
+        :param idx:
+        :return:
+        """
         item = {}
         for key, value in self.cmv_dataset.items():
             if key in [constants.INPUT_IDS, constants.TOKEN_TYPE_IDS, constants.ATTENTION_MASK, constants.LABEL]:
@@ -51,11 +71,21 @@ class CMVDataset(torch.utils.data.Dataset):
 
 class BaselineLoader(torch.utils.data.Dataset):
     def __init__(self, features, labels):
+        """
+
+        :param features:
+        :param labels:
+        """
         self.features = features
         self.labels = labels
         self.num_examples = len(labels)
 
     def __getitem__(self, item):
+        """
+
+        :param item:
+        :return:
+        """
         return {'features': self.features[item],
                 constants.LABEL: self.labels[item]}
 
@@ -64,6 +94,10 @@ class BaselineLoader(torch.utils.data.Dataset):
 
 
 class CMVKGDataset(torch.utils.data.Dataset):
+    """
+
+    """
+
     def __init__(self,
                  directory_path: str,
                  version: str,
@@ -105,6 +139,11 @@ class CMVKGDataset(torch.utils.data.Dataset):
         return len(self.dataset)
 
     def __getitem__(self, index: int):
+        """
+
+        :param index:
+        :return:
+        """
         bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
                                 f'id_to_{constants.TOKEN_TYPE_IDS}',
                                 f'id_to_{constants.ATTENTION_MASK}']
@@ -121,12 +160,30 @@ class CMVKGDataset(torch.utils.data.Dataset):
 
 
 class CMVKGHetroDataset(CMVKGDataset):
-    def __init__(self, directory_path: str,
+    """
+
+    """
+
+    def __init__(self,
+                 directory_path: str,
                  version: str,
                  debug: bool = False):
+        """
+
+        :param directory_path:
+        :param version:
+        :param debug:
+        """
         super(CMVKGHetroDataset, self).__init__(directory_path=directory_path, version=version, debug=debug)
 
-    def calc_bert_inputs(self, dataset_values, relevant_ids =None):
+    @staticmethod
+    def calc_bert_inputs(dataset_values, relevant_ids=None):
+        """
+
+        :param dataset_values:
+        :param relevant_ids:
+        :return:
+        """
         if relevant_ids is None:
             relevant_ids = list(range(len(dataset_values[constants.INDEX_TO_ID])))
         bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
@@ -146,12 +203,30 @@ class CMVKGHetroDataset(CMVKGDataset):
         stacked_bert_inputs = torch.stack([t for t in formatted_bert_inputs.values()], dim=1)
         return stacked_bert_inputs
 
-    def rearrange_edge_index(self, out_list: list, in_list: list, out_idx: int, in_idx: int):
+    @staticmethod
+    def rearrange_edge_index(out_list: list,
+                             in_list: list,
+                             out_idx: int,
+                             in_idx: int):
+        """
+
+        :param out_list:
+        :param in_list:
+        :param out_idx:
+        :param in_idx:
+        :return:
+        """
         new_idx_out_node = out_list.index(out_idx)
         new_idx_in_node = in_list.index(in_idx)
         return [new_idx_out_node, new_idx_in_node]
 
-    def convert_edge_indexes(self, edge_list):
+    def convert_edge_indexes(self,
+                             edge_list):
+        """
+
+        :param edge_list:
+        :return:
+        """
         # Update edges after a claim node and a premise node were added.
         # Add an edge from every added node to the other so each graph will have all kinds of edges.
         edge_list = torch.tensor(edge_list, dtype=torch.long).T + 2
@@ -159,7 +234,7 @@ class CMVKGHetroDataset(CMVKGDataset):
         edge_list = torch.concat((edge_to_add, edge_list), dim=1)
         return edge_list
 
-    def __getitem__(self, index: int):
+    def __getitem__(self, index: int) -> HeteroData:
         claim_list = []
         premise_list = []
         for key in self.dataset[index][constants.ID_TO_NODE_TYPE]:
@@ -198,7 +273,7 @@ class CMVKGHetroDataset(CMVKGDataset):
                 else:
                     raise Exception(f'not implemented')
 
-        #add 2 claim node and 2 premise node
+        # Add 2 claim node and 2 premise node
         two_empty_nodes = torch.concat(
             (torch.zeros_like(stacked_bert_inputs_claim[:, :, 0]).unsqueeze(dim=2),
              torch.zeros_like(stacked_bert_inputs_claim[:, :, 0]).unsqueeze(dim=2)),
@@ -216,8 +291,6 @@ class CMVKGHetroDataset(CMVKGDataset):
         data[constants.CLAIM, 'relation', constants.PREMISE].edge_index = self.convert_edge_indexes(claim_premise_e)
         data[constants.PREMISE, 'relation', constants.CLAIM].edge_index = self.convert_edge_indexes(premise_claim_e)
         data[constants.PREMISE, 'relation', constants.PREMISE].edge_index = self.convert_edge_indexes(premise_premise_e)
-
-
         return data
 
 
@@ -262,6 +335,9 @@ class CMVKGHetroDatasetEdges(CMVKGHetroDataset):
 
 
 class UKPDataset(torch.utils.data.Dataset):
+    """
+
+    """
     def __init__(self,
                  directory_path: str,
                  debug: bool = False):
@@ -269,8 +345,6 @@ class UKPDataset(torch.utils.data.Dataset):
 
         :param directory_path: The string path to the 'change-my-view-modes-master' directory, which contains versions
             versions of the change my view dataset.
-        :param version: A version of the cmv datasets (i.e.. one of 'v2.0', 'v1.0', and 'original') included within the
-            'chamge-my-view-modes-master' directory.
         :param debug: A boolean denoting whether or not we are in debug mode (in which our input dataset is
             significantly smaller).
         """
@@ -296,6 +370,11 @@ class UKPDataset(torch.utils.data.Dataset):
         return len(self.dataset)
 
     def __getitem__(self, index: int):
+        """
+
+        :param index:
+        :return:
+        """
         bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
                                 f'id_to_{constants.TOKEN_TYPE_IDS}',
                                 f'id_to_{constants.ATTENTION_MASK}']
@@ -310,7 +389,13 @@ class UKPDataset(torch.utils.data.Dataset):
                     edge_index=torch.tensor(self.dataset[index]['edges']).T,
                     y=torch.tensor(self.labels[index]))
 
-    def find_label(self,file_name):
+    @staticmethod
+    def find_label(file_name):
+        """
+
+        :param file_name:
+        :return:
+        """
         file_name = file_name.split(".")[0]
         df = pd.read_csv(constants.UKP_LABELS_FILE)
         deltas_pos = df.loc[(df[constants.ID_CSV] == file_name) & (df[constants.DELTA_CSV] > 0), constants.DELTA_CSV]
@@ -318,14 +403,26 @@ class UKPDataset(torch.utils.data.Dataset):
         label = 1 if len(deltas_pos) > len(deltas_neg) else 0
         return label
 
-    def find_op(self, file_name):
+    @staticmethod
+    def find_op(file_name):
+        """
+
+        :param file_name:
+        :return:
+        """
         file_name = file_name.split(".")[0]
         file_name = file_name + "." + constants.TXT
         with open(os.path.join(constants.UKP_DATA, file_name), "r") as fileHandle:
             lines = fileHandle.readlines()
             return lines[0]
 
-    def parse_ann_file(self, file_name):
+    @staticmethod
+    def parse_ann_file(file_name):
+        """
+
+        :param file_name:
+        :return:
+        """
         with open(os.path.join(constants.UKP_DATA, file_name), "r") as fileHandle:
             d = {
                 constants.NAME: file_name,
@@ -344,19 +441,23 @@ class UKPDataset(torch.utils.data.Dataset):
                     process_relation(line, d)
                 else:
                     raise Exception("Unknown node/edge type encountered." +
-                                    "See line which caused error below:\n" + line + " "+file_name )
+                                    "See line which caused error below:\n" + line + " "+ file_name)
         return d
 
-    def make_op_reply_graphs(self, file_name):
-        #get OP text
+    def make_op_reply_graphs(self, file_name) -> GraphExample:
+        """
+
+        :param file_name:
+        :return:
+        """
+        # Get OP text
         op_txt = self.find_op(file_name)
         d = self.parse_ann_file(file_name)
 
-        #get nodes
+        # Get nodes
         id_to_idx = {constants.TITLE: 0}
         id_to_text = {constants.TITLE: op_txt}
-        id_to_node_type = {constants.TITLE: constants.CLAIM} #TODO think what is the type of the op
-
+        id_to_node_type = {constants.TITLE: constants.CLAIM}
 
         for i, item in enumerate(d[constants.ENTITIES]):
             node_idx = i + 1
@@ -364,29 +465,29 @@ class UKPDataset(torch.utils.data.Dataset):
             id_to_text[item] = d[constants.ENTITIES][item].data
             id_to_node_type[item] = d[constants.ENTITIES][item].type
 
-
         idx_to_id = {value: key for key, value in id_to_idx.items()}
 
-        #get edges
+        # Get edges
         edges = []
         edges_types = []
         for e in d[constants.ATTRIBUTES]:
             src = id_to_idx[d[constants.ATTRIBUTES][e].entity]
-            dest = 0 #title/Op
+            dest = 0  # Title or OP
             edges.append([src, dest])
-            edges_types.append(d[constants.ATTRIBUTES][e].value) #Todo talk to Zach if we should add value = For/Against or type = Stance
+            # TODO: talk to Zach if we should add value = For/Against or type = Stance
+            edges_types.append(d[constants.ATTRIBUTES][e].value)
         for e in d[constants.RELATIONS]:
             src = id_to_idx[d[constants.RELATIONS][e].source]
             dest = id_to_idx[d[constants.RELATIONS][e].target]
             edges.append([src, dest])
             edges_types.append(d[constants.RELATIONS][e].type)
 
-        #create results
+        # Create results
         result: GraphExample = {
             constants.ID_TO_INDEX: id_to_idx,
             constants.ID_TO_TEXT: id_to_text,
             constants.ID_TO_NODE_TYPE: id_to_node_type,
-            constants.ID_TO_NODE_SUB_TYPE: {}, #no subtypes in UKP database
+            constants.ID_TO_NODE_SUB_TYPE: {},  # No subtypes in UKP database
             constants.INDEX_TO_ID: idx_to_id,
             constants.EDGES: edges,
             constants.EDGES_TYPES: edges_types

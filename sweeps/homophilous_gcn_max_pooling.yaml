@@ -28,14 +28,25 @@ parameters:
   use_k_fold_cross_validation:
     value: ""
   weight_decay:
-    values: [ 0.01, 0.001 ]
+    value: 0.001
+  scheduler_gamma:
+    value: 0.9
+  gcn_hidden_layer_dim:
+    values: [ "32",
+              "64",
+              "128",
+              "32 32",
+              "64 32",
+              "128 128",
+              "128 64 32",
+              "32 32 32",
+              "128 128 128",
+              "256 128 64 32",
+              "32 32 32 32",
+              "128 128 128 128" ]
   seed:
-    values: [ 100, 101, 102 ]
+    values: [ 501, 502, 503 ]
   fold_index:
     values: [ 0, 1, 2, 3, 4 ]
-  gcn_hidden_layer_dim:
-    values: [64, 128, 256]
   learning_rate:
     values: [ 0.1, 0.01, 0.001 ]
-  scheduler_gamma:
-    values: [ 0.7, 0.9, 0.99 ]
