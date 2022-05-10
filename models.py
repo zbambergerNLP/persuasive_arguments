@@ -456,6 +456,7 @@ class BaselineLogisticRegression(torch.nn.Module):
         return eval_metrics
 
 
+
 class HomophiliousGNN(torch.nn.Module):
     """
     An implementation for a homophilous graph neural network over the knowledge graphs of persuasive arguments.

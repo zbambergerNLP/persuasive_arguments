@@ -11,7 +11,6 @@ import random
 import torch_geometric.data
 from torch.utils.data import Dataset
 from torch.utils.data import SubsetRandomSampler
-from torch_geometric.nn import to_hetero, to_hetero_with_bases, global_mean_pool, global_max_pool
 import torch_geometric.loader as geom_data
 
 import metrics
@@ -520,7 +519,7 @@ if __name__ == '__main__':
             run = wandb.init(project="persuasive_arguments",
                              entity="persuasive_arguments",
                              config=args,
-                             name=f"{model_name} (split: #{validation_split_index + 1}, "
+                             name=f"{model_name} {args.data} (split: #{validation_split_index + 1}, "
                                   f"lr: {args.learning_rate}, "
                                   f"gamma: {args.scheduler_gamma}, "
                                   f"hidden_dim: {args.gcn_hidden_layer_dim}, "

@@ -173,15 +173,7 @@ DELTA_CSV = "DELTA"
 ###################
 ###### PATH  ######
 ###################
-
-# TODO: Remove dependance on static paths.
-
-# 'nt' refers to Windows, 'posix' as Linux (triton01 GPU cluster
-if os.name == 'nt':
-    BASE_DIR = pathlib.PurePath('/Users/b.noam/Library/CloudStorage/OneDrive-Technion/Master/Courses/Deep 236605/FinalProject')
-else:
-    BASE_DIR = pathlib.PurePath('/home/b.noam/persuasive_arguments')
-
+BASE_DIR = pathlib.PurePath(os.getcwd())
 UKP_DIR = BASE_DIR / 'UKP'
 UKP_DATA = UKP_DIR / 'brat-project-final'
 UKP_LABELS_FILE = UKP_DIR / 'all_labeled_data.csv'
