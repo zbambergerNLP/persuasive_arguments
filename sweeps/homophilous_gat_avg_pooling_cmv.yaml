@@ -7,6 +7,8 @@ metric:
   name: eval_test_accuracy
   goal: maximize
 parameters:
+  data:
+    value: "CMV"
   num_epochs:
     value: 30
   batch_size:
@@ -32,18 +34,16 @@ parameters:
   scheduler_gamma:
     value: 0.9
   gcn_hidden_layer_dim:
-    values: ["32",
-             "64",
-             "128",
-             "32 32"
-             "64 32",
-             "128 128",
-             "128 64 32",
-             "64 64 64",
-             "256 128 64 32",
-             "32 32 32 32",
-             "64 64 64 64",
-             "128 128 128 128"]
+    values:
+      - "32 32"
+      - "64 32"
+      - "128 128"
+      - "128 64 32"
+      - "64 64 64"
+      - "256 128 64 32"
+      - "32 32 32 32"
+      - "64 64 64 64"
+      - "128 128 128 128"
   seed:
     values: [ 501, 502, 503 ]
   fold_index:

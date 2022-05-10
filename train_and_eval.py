@@ -624,3 +624,4 @@ if __name__ == '__main__':
             validation_loader=dl_val,
             test_loader=dl_test
         ))
+

@@ -116,3 +116,4 @@ def perform_evaluation_on_splits(eval_fn: typing.Callable,
             split_name=constants.TEST,
             device=device)
     return all_metrics
+
