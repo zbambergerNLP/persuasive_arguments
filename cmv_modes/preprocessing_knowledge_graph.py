@@ -178,12 +178,19 @@ class GraphExample(typing.TypedDict):
 GraphDataset = typing.Sequence[GraphExample]
 
 
+# TODO: Modify return type documentation for this function.
 def make_op_subgraph(
         bs_data: BeautifulSoup,
         file_name: str = None,
-        is_positive: bool = None) -> tuple[
-    dict[Any, Union[str, Any]], dict[Any, int], dict[Any, Any], dict[Any, Any], dict, list[tuple[int, ...]], list[
-        Union[str, list[str]]]]:
+        is_positive: bool = None) -> (
+        typing.Tuple[
+            typing.Dict[typing.Any, typing.Union[str, typing.Any]],
+            typing.Dict[typing.Any, int],
+            typing.Dict[typing.Any, typing.Any],
+            typing.Dict[typing.Any, typing.Any],
+            typing.Dict[typing.Any, typing.Any],
+            typing.List[typing.Tuple[int, ...]],
+            typing.List[typing.Union[str, typing.List[str]]]]):
     """Create a collection of mappings that are used to construct `torch_geometric.data.Data` instances for GCN models.
 
     Given a parsed xml file, generate the following data related to the title and original post:
@@ -242,7 +249,7 @@ def make_op_subgraph(
                 edges.append(tuple([node_idx, edge_destination_id]))
                 edges_types.append(rels)
 
-    return (id_to_text, id_to_idx, id_to_node_type, id_to_node_sub_type, idx_to_id, edges, edges_types)
+    return id_to_text, id_to_idx, id_to_node_type, id_to_node_sub_type, idx_to_id, edges, edges_types
 
 
 def make_op_reply_graph(reply_data: BeautifulSoup,
@@ -365,7 +372,7 @@ def make_op_reply_graphs(bs_data: BeautifulSoup,
 
 def create_bert_inputs(
         graph_dataset: GraphDataset,
-        tokenizer: transformers.PreTrainedTokenizer) -> GraphDataset:
+        tokenizer: typing.Union[transformers.PreTrainedTokenizer, transformers.AutoTokenizer]) -> GraphDataset:
     """Add language model inputs to nodes within a graph dataset.
 
     :param graph_dataset: A mapping from graph features to their values.

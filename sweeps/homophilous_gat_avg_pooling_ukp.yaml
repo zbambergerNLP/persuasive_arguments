@@ -33,6 +33,10 @@ parameters:
     value: 0.001
   scheduler_gamma:
     value: 0.9
+  encoder_type:
+    values:
+      - "bert"
+      - "sbert"
   gcn_hidden_layer_dim:
     values:
       - "32 32"

@@ -101,6 +101,7 @@ class CMVKGDataset(torch.utils.data.Dataset):
     def __init__(self,
                  directory_path: str,
                  version: str,
+                 model_name: str = constants.BERT_BASE_CASED,
                  debug: bool = False):
         """
 
@@ -108,11 +109,14 @@ class CMVKGDataset(torch.utils.data.Dataset):
             versions of the change my view dataset.
         :param version: A version of the cmv datasets (i.e.. one of 'v2.0', 'v1.0', and 'original') included within the
             'chamge-my-view-modes-master' directory.
+        :param model_name: The name of the model corresponding to the desired tokenizer.
         :param debug: A boolean denoting whether or not we are in debug mode (in which our input dataset is
             significantly smaller).
         """
+        super(CMVKGDataset, self).__init__()
         self.dataset = []
         self.labels = []
+        self.model_name = model_name
         for sign in constants.SIGN_LIST:
             thread_directory = os.path.join(directory_path, version, sign)
             for file_name in tqdm(os.listdir(thread_directory)):
@@ -126,8 +130,7 @@ class CMVKGDataset(torch.utils.data.Dataset):
                             file_name=file_name,
                             is_positive=(sign == constants.POSITIVE))
                         examples = create_bert_inputs(examples,
-                                                      tokenizer=transformers.BertTokenizer.from_pretrained(
-                                                          constants.BERT_BASE_CASED))
+                                                      tokenizer=transformers.AutoTokenizer.from_pretrained(model_name))
                         self.dataset.extend(examples)
                         example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
                         self.labels.extend(example_labels)
@@ -147,6 +150,11 @@ class CMVKGDataset(torch.utils.data.Dataset):
         bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
                                 f'id_to_{constants.TOKEN_TYPE_IDS}',
                                 f'id_to_{constants.ATTENTION_MASK}']
+
+        # SBERT does not consider two inputs in the way BERT does, so the "token type ID" input is not necessary.
+        if self.model_name == "sentence-transformers/all-distilroberta-v1":
+            bert_input_key_names.pop(1)
+
         formatted_bert_inputs = {}
         for input_name in bert_input_key_names:
             formatted_bert_inputs[input_name] = torch.cat(
@@ -220,8 +228,8 @@ class CMVKGHetroDataset(CMVKGDataset):
         new_idx_in_node = in_list.index(in_idx)
         return [new_idx_out_node, new_idx_in_node]
 
-    def convert_edge_indexes(self,
-                             edge_list):
+    @staticmethod
+    def convert_edge_indexes(edge_list):
         """
 
         :param edge_list:
@@ -390,11 +398,16 @@ class UKPDataset(torch.utils.data.Dataset):
                     y=torch.tensor(self.labels[index]))
 
     @staticmethod
-    def find_label(file_name):
+    def find_label(file_name: str,
+                   num_labels: int = 2) -> int:
         """
 
-        :param file_name:
-        :return:
+        :param file_name: The name of the file containing the labels for the UKP dataset.
+        :param num_labels: An integer. Either 2 or 3, representing the number of possible labels. If two labels are
+            selected, they correspond to whether the (binary) decision argument was voted as persuasive. If three labels
+            are selected, they correspond to whether the reader's opinion changed negatively/didn't change/changed
+            positively.
+        :return: The label corresponding to the provided example (context + argument).
         """
         file_name = file_name.split(".")[0]
         df = pd.read_csv(constants.UKP_LABELS_FILE)

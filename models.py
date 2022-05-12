@@ -10,6 +10,7 @@ import datasets
 import torch
 import torch.nn.functional as F
 import transformers
+from sentence_transformers import SentenceTransformer
 from torch_geometric.nn import GCNConv, global_mean_pool,  GATConv, Linear, SAGEConv, global_max_pool, HeteroConv, HGTConv
 import torch.nn as nn
 import numpy as np
@@ -456,7 +457,6 @@ class BaselineLogisticRegression(torch.nn.Module):
         return eval_metrics
 
 
-
 class HomophiliousGNN(torch.nn.Module):
     """
     An implementation for a homophilous graph neural network over the knowledge graphs of persuasive arguments.
@@ -474,7 +474,8 @@ class HomophiliousGNN(torch.nn.Module):
                  hidden_channels: list,
                  conv_type: str,
                  use_frozen_bert: bool = True,
-                 use_max_pooling: bool = True):
+                 use_max_pooling: bool = True,
+                 encoder_type: str = "sbert"):
         """
         Initialize a homophilous graph neural network to predict argument persuasiveness given context.
 
@@ -491,12 +492,23 @@ class HomophiliousGNN(torch.nn.Module):
             pre-trained values).
         :param use_max_pooling: True if we intend to use max pooling to aggregate node representations.
             Nodes are aggregated as part of graph-classification before projecting to the label-space dimensionality.
+        :param encoder_type: A string representing the architecture used for tokenizing texts, and mapping these
+            tokenized sequences to dense representations. Must be one of {"bert", "sbert"}
         """
         super().__init__()
-        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
+
+        # Choose the encoder type among BERT and a distilled RoBERTa sentence transformer.
+        self.encoder_type = encoder_type
+        if self.encoder_type == 'sbert':
+            self.bert_model = SentenceTransformer('all-distilroberta-v1')
+        else:
+            self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
+
+        # Since the dataset is quite small, consider freezing the encoder's parameters to avoid over-fitting.
         if use_frozen_bert:
             for param in self.bert_model.parameters():
                 param.requires_grad = False
+
         prev_layer_dimension = hidden_channels[0]
         self.lin1 = Linear(constants.BERT_HIDDEN_DIM, prev_layer_dimension)
         self.convs = torch.nn.ModuleList()
@@ -521,13 +533,22 @@ class HomophiliousGNN(torch.nn.Module):
         :return: A probability distribution over the output labels. A torch tensor of shape
             [batch_size, num_output_labels].
         """
-        input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
-        bert_outputs = self.bert_model(
-            input_ids=torch.squeeze(input_ids, dim=1).long(),
-            token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
-            attention_mask=torch.squeeze(attention_mask, dim=1).long(),
-        )
-        node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
+        # The SBERT tokenizer produces input_ids and an attention mask. BERT produces these tensors as well as a token
+        # type ID tensor.
+        if self.encoder_type == 'sbert':
+            input_ids, attention_mask = torch.hsplit(x, sections=2)
+            node_embeddings = self.bert_model({
+                constants.INPUT_IDS: torch.squeeze(input_ids, dim=1).long(),
+                constants.ATTENTION_MASK: torch.squeeze(attention_mask, dim=1).long()})['sentence_embedding']
+        else:
+            input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
+            bert_outputs = self.bert_model(
+                input_ids=torch.squeeze(input_ids, dim=1).long(),
+                token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
+                attention_mask=torch.squeeze(attention_mask, dim=1).long(),
+            )
+            node_embeddings = bert_outputs['last_hidden_state'][:, 0, :]
+
         node_embeddings = self.lin1(node_embeddings)
         node_embeddings = node_embeddings.relu()
 
@@ -625,6 +646,21 @@ def count_parameters(model: torch.nn.Module) -> int:
     :return: The number of trainable parameters within our model.
     """
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+# TODO: Implement SBERT version of baseline.
+# class SBERTBaseline(torch.nn.Module):
+#
+#     def __init__(self,
+#                  use_frozen: bool,
+#                  mlp_layers: torch.nn.Sequential,
+#                  device: torch.device):
+#         super(SBERTBaseline, self).__init__()
+#         self._sbert_model = SentenceTransformer("all-distilroberta-v1").to(device)
+#         if use_frozen:
+#             for param in self._sbert_model.parameters():
+#                 param.requires_grad = False
+#         self._mlp = mlp_layers.to(device)
+#         self.device = device
 
 
 class BertBaseline(torch.nn.Module):

@@ -53,6 +53,11 @@ parser.add_argument('--data',
                     type=str,
                     default='CMV',
                     help="Defines which database to use CMV or UKP")
+parser.add_argument('--encoder_type',
+                    type=str,
+                    default='bert',
+                    help="The model used to both tokenize and encode the textual context of argumentative "
+                         "prepositions.")
 parser.add_argument('--hetro',
                     type=bool,
                     default=False,
@@ -406,6 +411,7 @@ def create_dataloaders(graph_dataset: Dataset,
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    assert args.encoder_type in {"bert", "sbert"}
     num_classes = 2
     hetero_type = args.hetero_type
     hetro = args.hetro
@@ -425,7 +431,8 @@ if __name__ == '__main__':
         model = HomophiliousGNN(hidden_channels=hidden_dim,
                                 out_channels=num_classes,
                                 conv_type=args.model,
-                                use_max_pooling=args.use_max_pooling)
+                                use_max_pooling=args.use_max_pooling,
+                                encoder_type=args.encoder_type)
 
     # TODO: Creating the knowledge graph datasets takes a lot of time. As of now we make this a one time cost by saving
     #  and loading these datasets. In the future we should optimize the data creation process from a runtime
@@ -472,29 +479,36 @@ if __name__ == '__main__':
     else:
         print(f'initializing homophealous {args.data} dataset')
         if args.data == constants.CMV:
-            if os.path.exists(os.path.join(dir_name, 'homophelous_dataset.pt')):
-                kg_dataset = torch.load(os.path.join(dir_name, 'homophelous_dataset.pt'))
+            file_name = f'cmv_{args.encoder_type}_homophelous_dataset.pt'
+            if os.path.exists(os.path.join(dir_name, file_name)):
+                kg_dataset = torch.load(os.path.join(dir_name, file_name))
             else:
                 kg_dataset = CMVKGDataset(
                     current_path + "/cmv_modes/change-my-view-modes-master",
                     version=constants.v2_path,
-                    debug=args.debug)
-                torch.save(kg_dataset, os.path.join(dir_name, 'homophelous_dataset.pt'))
+                    debug=args.debug,
+                    model_name=(
+                        constants.BERT_BASE_CASED if args.encoder_type == 'bert'
+                        else "sentence-transformers/all-distilroberta-v1"
+                    ),
+                )
+                torch.save(kg_dataset, os.path.join(dir_name, file_name))
         elif args.data == constants.UKP:
-            if os.path.exists(os.path.join(dir_name, 'homophelous_dataset.pt')):
-                kg_dataset = torch.load(os.path.join(dir_name, 'homophelous_dataset.pt'))
+            file_name = f'ukp_{args.encoder_type}_homophelous_dataset.pt'
+            if os.path.exists(os.path.join(dir_name, file_name)):
+                kg_dataset = torch.load(os.path.join(dir_name, file_name))
             else:
                 kg_dataset = UKPDataset(
                     constants.UKP_DIR,
                     debug=args.debug)
-                torch.save(kg_dataset, os.path.join(dir_name, 'homophelous_dataset.pt'))
+                torch.save(kg_dataset, os.path.join(dir_name, file_name))
 
     num_of_examples = len(kg_dataset.dataset)
     shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
 
     # TODO: Create functions which generate model, experiment, and run names for wandb given the relevant parameters
     #  provided via flags.
-    model_name = f"{f'{args.hetero_type}_{args.num_of_layers}_layer_' if args.hetro else ''}" \
+    model_name = f"{args.encoder_type}_encoder_" \
                  f"{'heterophelous' if args.hetro else 'homophealous'}_{args.model}_" \
                  f"{'max' if args.use_max_pooling else 'average'}_pooling"
 
