@@ -577,7 +577,7 @@ class HGT(torch.nn.Module):
         self.lin_dict = torch.nn.ModuleDict()
         prev_layer_dimension = hidden_channels[0]
         for node_type in self.node_types:
-            self.lin_dict[node_type] = Linear(-1, hidden_channels[0])
+            self.lin_dict[node_type] = Linear(constants.BERT_HIDDEN_DIM, hidden_channels[0])
 
         self.convs = torch.nn.ModuleList()
         for hidden_layer_dim in hidden_channels[1:]:
@@ -586,6 +586,8 @@ class HGT(torch.nn.Module):
             prev_layer_dimension = hidden_layer_dim
 
         self.lin = Linear(prev_layer_dimension, out_channels)
+        self.max_pooling = use_max_pooling
+
 
     # TODO: Annotate parameter types and add documentation to this function.
     def forward(self,
@@ -600,7 +602,14 @@ class HGT(torch.nn.Module):
         :return:
         """
         for node_type, x in x_dict.items():
-            x_dict[node_type] = self.lin_dict[node_type](x.long()).relu_()
+            input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
+            bert_outputs = self.bert_model(
+                input_ids=torch.squeeze(input_ids, dim=1).long(),
+                token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
+                attention_mask=torch.squeeze(attention_mask, dim=1).long(),
+            )
+            x = bert_outputs['last_hidden_state'][:, 0, :]
+            x_dict[node_type] = self.lin_dict[node_type](x).relu_()
 
         for conv in self.convs:
             x_dict = conv(x_dict, edge_index_dict)

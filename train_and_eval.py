@@ -55,11 +55,11 @@ parser.add_argument('--data',
                     help="Defines which database to use CMV or UKP")
 parser.add_argument('--hetro',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--hetero_type',
                     type=str,
-                    default='edges',
+                    default='nodes',
                     help="Relevant only if herto is True. Possible values are 'nodes' or 'edges'. "
                          "If the value is 'nodes' then node type is used, if the value is 'edges' then edge type is "
                          "used")
@@ -193,9 +193,9 @@ def train(model: torch.nn.Module,
             optimizer.zero_grad()
             if hetro:
                 y = find_labels_for_batch(batch_data=sampled_data)
-
+                batch = None
                 if args.hetero_type == constants.EDGES:
-                    batch = sampled_data['node'].batch
+                    batch = sampled_data[constants.NODE].batch
                 out = model(sampled_data.x_dict, sampled_data.edge_index_dict, batch)
             else:
                 y = sampled_data.y
@@ -233,8 +233,9 @@ def train(model: torch.nn.Module,
                 sampled_data.to(device)
                 if hetro:
                     y = find_labels_for_batch(batch_data=sampled_data)
-                    out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
-                    out = F.log_softmax(out, dim=1)
+                    if args.hetero_type == constants.EDGES:
+                        batch = sampled_data[constants.NODE].batch
+                    out = model(sampled_data.x_dict, sampled_data.edge_index_dict, batch)
                 else:
                     y = sampled_data.y
                     out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
@@ -299,8 +300,9 @@ def evaluate(
             sampled_data.to(device)
             if hetro:
                 y = find_labels_for_batch(batch_data=sampled_data)
-                out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
-                out = F.log_softmax(out, dim=1)
+                if args.hetero_type == constants.EDGES:
+                    batch = sampled_data[constants.NODE].batch
+                out = model(sampled_data.x_dict, sampled_data.edge_index_dict, batch)
             else:
                 y = sampled_data.y
                 out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
@@ -408,7 +410,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     num_classes = 2
     hetero_type = args.hetero_type
-    hetro = args.hetro
+    hetreo = args.hetro
     args_dict = vars(args)
     for parameter, value in args_dict.items():
         print(f'{parameter}: {value}')
@@ -417,15 +419,6 @@ if __name__ == '__main__':
     num_node_features = constants.BERT_HIDDEN_DIM
     current_path = os.getcwd()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f'Initializing model: {args.model} device: {device}')
-    hidden_dim = list(map(int, args.gcn_hidden_layer_dim.split(" ")))
-    if hetro:
-        raise NotImplementedError(f'hetro is not implemented')
-    else:
-        model = HomophiliousGNN(hidden_channels=hidden_dim,
-                                out_channels=num_classes,
-                                conv_type=args.model,
-                                use_max_pooling=args.use_max_pooling)
 
     # TODO: Creating the knowledge graph datasets takes a lot of time. As of now we make this a one time cost by saving
     #  and loading these datasets. In the future we should optimize the data creation process from a runtime
@@ -441,7 +434,7 @@ if __name__ == '__main__':
 
     # TODO: Remove code duplication below by creating helper functions (either in this file or utils.py).
 
-    if hetro:
+    if hetreo:
         print('Initializing heterophealous dataset')
         if hetero_type == constants.NODES:
             if os.path.exists(os.path.join(dir_name, 'hetro_dataset.pt')):
@@ -462,13 +455,11 @@ if __name__ == '__main__':
                     debug=args.debug)
                 torch.save(kg_dataset, os.path.join(dir_name, 'hetro_edges_dataset.pt'))
         data = kg_dataset[2]
-        print('Converting model to hetero')
+
+        # print('Converting model to hetero')
         # model = to_hetero(model, data.metadata(), aggr='sum')
         # model = to_hetero_with_bases(model, data.metadata(), num_bases=1)
-        model = HGT(hidden_channels=hidden_dim,
-                    out_channels=num_classes,
-                    hetero_metadata=data.metadata(),
-                    use_max_pooling=args.use_max_pooling)
+
     else:
         print(f'initializing homophealous {args.data} dataset')
         if args.data == constants.CMV:
@@ -492,9 +483,24 @@ if __name__ == '__main__':
     num_of_examples = len(kg_dataset.dataset)
     shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
 
+    print(f'Initializing model: {args.model} device: {device}')
+    hidden_dim = list(map(int, args.gcn_hidden_layer_dim.split(" ")))
+
+    if hetreo:
+        model = HGT(hidden_channels=hidden_dim,
+                 out_channels=num_classes,
+                 hetero_metadata=data.metadata(),
+                use_max_pooling=args.use_max_pooling)
+    else:
+        model = HomophiliousGNN(hidden_channels=hidden_dim,
+                                out_channels=num_classes,
+                                conv_type=args.model,
+                                use_max_pooling=args.use_max_pooling)
+
+
     # TODO: Create functions which generate model, experiment, and run names for wandb given the relevant parameters
     #  provided via flags.
-    model_name = f"{f'{args.hetero_type}_{args.num_of_layers}_layer_' if args.hetro else ''}" \
+    model_name = f"{args.hetero_type}"\
                  f"{'heterophelous' if args.hetro else 'homophealous'}_{args.model}_" \
                  f"{'max' if args.use_max_pooling else 'average'}_pooling"
 
@@ -532,27 +538,27 @@ if __name__ == '__main__':
                           optimizer=optimizer,
                           scheduler=scheduler,
                           rounds_between_evals=args.rounds_between_evals,
-                          hetro=hetro,
+                          hetro=hetreo,
                           device=device,
                           model_name=model_name)
             train_metrics.append(
                 evaluate(model,
                          dl_train,
-                         hetro=hetro,
+                         hetro=hetreo,
                          device=device,
                          split_name=constants.TRAIN)
             )
             validation_metrics.append(
                 evaluate(model,
                          dl_val,
-                         hetro=hetro,
+                         hetro=hetreo,
                          device=device,
                          split_name=constants.VALIDATION)
             )
             test_metrics.append(
                 evaluate(model,
                          dl_test,
-                         hetro=hetro,
+                         hetro=hetreo,
                          device=device,
                          split_name=constants.TEST)
             )
@@ -614,11 +620,11 @@ if __name__ == '__main__':
                       optimizer=optimizer,
                       scheduler=scheduler,
                       rounds_between_evals=args.rounds_between_evals,
-                      hetro=hetro,
+                      hetro=hetreo,
                       device=device,
                       model_name=model_name)
         print(metrics.perform_evaluation_on_splits(
-            eval_fn=(lambda dataloader, split_name, device: evaluate(model, dataloader, split_name, hetro, device)),
+            eval_fn=(lambda dataloader, split_name, device: evaluate(model, dataloader, split_name, hetreo, device)),
             device=device,
             train_loader=dl_train,
             validation_loader=dl_val,
