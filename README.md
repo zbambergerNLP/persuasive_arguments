@@ -5,6 +5,7 @@ Build and analyze of models trained on argumentative text.
 
 Dependencies:
 * transformers
+* sentence-transformers
 * torch
 * torch-geometric
 * torch-scatter
