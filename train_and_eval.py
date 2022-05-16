@@ -51,7 +51,7 @@ parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--data',
                     type=str,
-                    default='CMV',
+                    default='UKP',
                     help="Defines which database to use CMV or UKP")
 parser.add_argument('--encoder_type',
                     type=str,
@@ -86,7 +86,7 @@ parser.add_argument('--weight_decay',
                     help="The weight decay parameter supplied to the optimizer for use during training.")
 parser.add_argument('--gcn_hidden_layer_dim',
                     type=str,
-                    default='256 128 64 32',
+                    default='128 64 32',
                     help="The dimensionality of the hidden layer within the GCN component of the GCN+BERT model.")
 parser.add_argument('--test_percent',
                     type=float,
@@ -133,8 +133,12 @@ parser.add_argument('--fold_index',
                     type=int,
                     default=0,
                     help="The partition index of the held out data as part of k-fold cross validation.")
-
+parser.add_argument('--positive_example_weight',
+                    type=int,
+                    default=5,
+                    help="The weight given to positive examples in the loss function")
 # TODO: Fix documentation across this file.
+
 
 
 def find_labels_for_batch(batch_data: torch_geometric.data.HeteroData) -> torch.Tensor:
@@ -163,7 +167,8 @@ def train(model: torch.nn.Module,
           rounds_between_evals: int = 1,
           hetro: bool = False,
           metric_for_early_stopping: str = constants.ACCURACY,
-          max_num_rounds_no_improvement: int = 10) -> torch.nn.Module:
+          max_num_rounds_no_improvement: int = 10,
+          weights: torch.Tensor  = torch.Tensor([1,1])) -> torch.nn.Module:
     """Train a GCNWithBERTEmbeddings model on examples consisting of persuasive argument knowledge graphs.
 
     :param model: A torch module consisting of a BERT model (used to produce node embeddings), followed by a GCN.
@@ -207,10 +212,7 @@ def train(model: torch.nn.Module,
                 out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
             preds = torch.argmax(out, dim=1)
             y_one_hot = F.one_hot(y, 2)
-            if hetro:
-                loss = F.cross_entropy(out.float(), y_one_hot.float().to(device))
-            else:
-                loss = model.loss(out.float(), y_one_hot.float().to(device))
+            loss = F.cross_entropy(out.float(), y_one_hot.float().to(device), weight=weights.to(device))
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
@@ -246,10 +248,7 @@ def train(model: torch.nn.Module,
                     out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
                 preds = torch.argmax(out, dim=1)
                 y_one_hot = F.one_hot(y, 2)
-                if hetro:
-                    loss = F.cross_entropy(out.float(), y_one_hot.float().to(device))
-                else:
-                    loss = model.loss(out.float(), y_one_hot.float().to(device))
+                loss = F.cross_entropy(out.float(), y_one_hot.float().to(device), weight=weights.to(device))
                 num_correct_preds = (preds == y.to(device)).sum().float()
                 accuracy = num_correct_preds / y.shape[0] * 100
                 num_batches += 1
@@ -368,6 +367,7 @@ def create_dataloaders_for_k_fold_cross_validation(
     return dl_train, dl_val, dl_test
 
 
+
 def create_dataloaders(graph_dataset: Dataset,
                        batch_size: int,
                        val_percent: float,
@@ -427,14 +427,6 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Initializing model: {args.model} device: {device}')
     hidden_dim = list(map(int, args.gcn_hidden_layer_dim.split(" ")))
-    if hetero:
-        raise NotImplementedError(f'hetro is not implemented')
-    else:
-        model = HomophiliousGNN(hidden_channels=hidden_dim,
-                                out_channels=num_classes,
-                                conv_type=args.model,
-                                use_max_pooling=args.use_max_pooling,
-                                encoder_type=args.encoder_type)
 
     # TODO: Creating the knowledge graph datasets takes a lot of time. As of now we make this a one time cost by saving
     #  and loading these datasets. In the future we should optimize the data creation process from a runtime
@@ -518,9 +510,8 @@ if __name__ == '__main__':
         model = HomophiliousGNN(hidden_channels=hidden_dim,
                                 out_channels=num_classes,
                                 conv_type=args.model,
-                                use_max_pooling=args.use_max_pooling)
-
-
+                                use_max_pooling=args.use_max_pooling,
+                                encoder_type=args.encoder_type)
     # TODO: Create functions which generate model, experiment, and run names for wandb given the relevant parameters
     #  provided via flags.
     model_name = f"{args.encoder_type}_encoder_" \
@@ -563,7 +554,8 @@ if __name__ == '__main__':
                           rounds_between_evals=args.rounds_between_evals,
                           hetro=hetero,
                           device=device,
-                          model_name=model_name)
+                          model_name=model_name,
+                          weights=torch.Tensor([1,args.positive_example_weight]))
             train_metrics.append(
                 evaluate(model,
                          dl_train,
@@ -626,8 +618,10 @@ if __name__ == '__main__':
                           f"(seed: #{args.seed}, " \
                           f"lr: {args.learning_rate}, " \
                           f"gamma: {args.scheduler_gamma}, " \
-                          f"h_d: {args.gcn_hidden_layer_dim}, "\
+                          f"h_d: {args.gcn_hidden_layer_dim}, " \
+                          f"af_w: {args.positive_example_weight}, " \
                           f"w_d: {args.weight_decay})"
+
         wandb.init(
             project="persuasive_arguments",
             entity="persuasive_arguments",
@@ -645,7 +639,8 @@ if __name__ == '__main__':
                       rounds_between_evals=args.rounds_between_evals,
                       hetro=hetero,
                       device=device,
-                      model_name=model_name)
+                      model_name=model_name,
+                      weights=torch.Tensor([1,config.positive_example_weight]))
         print(metrics.perform_evaluation_on_splits(
             eval_fn=(lambda dataloader, split_name, device: evaluate(model, dataloader, split_name, hetero, device)),
             device=device,
