@@ -29,7 +29,7 @@ Example usage:
 srun --gres=gpu:1 -p nlp python models.py \
     --num_epochs 100 \
     --batch_size 16 \
-    --learning_rate 1e-2 \
+    --learning_rate 1e-3 \
     --weight_decay 1e-3 \
     --scheduler_gamma 0.9 \
     --test_percent 0.1 \
@@ -37,7 +37,8 @@ srun --gres=gpu:1 -p nlp python models.py \
     --debug '' \
     --use_k_fold_cross_validation 'True' \
     --num_cross_validation_splits 5 \
-    --dropout_probability 0.5 \
+    --dropout_probability 0.3 \
+    --encoder_type 'sbert' \
     --seed 42 
 """
 
@@ -106,8 +107,13 @@ parser.add_argument('--dropout_probability',
                     help="The dropout probability across each layer of the MLP in the baseline model.")
 parser.add_argument('--fold_index',
                     type=int,
-                    default=1,
+                    default=0,
                     help="The partition index of the held out data as part of k-fold cross validation.")
+parser.add_argument('--encoder_type',
+                    type=str,
+                    default='sbert',
+                    help="The model used to both tokenize and encode the textual context of argumentative "
+                         "prepositions.")
 
 
 class LogisticRegressionProbe(torch.nn.Module):
@@ -609,7 +615,6 @@ class HGT(torch.nn.Module):
         self.lin = Linear(prev_layer_dimension, out_channels)
         self.max_pooling = use_max_pooling
 
-
     # TODO: Annotate parameter types and add documentation to this function.
     def forward(self,
                 x_dict,
@@ -656,62 +661,66 @@ def count_parameters(model: torch.nn.Module) -> int:
     """
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-# TODO: Implement SBERT version of baseline.
-# class SBERTBaseline(torch.nn.Module):
-#
-#     def __init__(self,
-#                  use_frozen: bool,
-#                  mlp_layers: torch.nn.Sequential,
-#                  device: torch.device):
-#         super(SBERTBaseline, self).__init__()
-#         self._sbert_model = SentenceTransformer("all-distilroberta-v1").to(device)
-#         if use_frozen:
-#             for param in self._sbert_model.parameters():
-#                 param.requires_grad = False
-#         self._mlp = mlp_layers.to(device)
-#         self.device = device
 
-
-class BertBaseline(torch.nn.Module):
+class EncoderBaseline(torch.nn.Module):
     def __init__(self,
-                 use_frozen_bert: bool,
+                 use_frozen_encoder: bool,
                  mlp_layers: torch.nn.Sequential,
-                 device: torch.device):
+                 device: torch.device,
+                 encoder_type: str = "bert"):
         """
         Initialize a persuasiveness prediction baseline model.
 
-        Initialize a BERT model (followed by an MLP) used to predict argument persuasiveness given tokenized sequential
-        inputs of the form [argument context, argument]. Within CMV, argument context refers to the title and OP
-        text, and the argument corresponds to the persuasive reply (which may or may not have earned a Delta).
+        Initialize a transformer encoder model (followed by an MLP) used to predict argument persuasiveness given
+        tokenized sequential inputs of the form [argument context, argument]. Within CMV, argument context refers to
+        the title and OP text, and the argument corresponds to the persuasive reply (which may or may not have earned a
+        Delta).
 
-        :param use_frozen_bert: True we we intend to freeze the BERT encoder which precedes the MLP. False otherwise.
+        :param use_frozen_encoder: True we we intend to freeze the BERT encoder which precedes the MLP. False otherwise.
         :param mlp_layers: The torch.nn layers corresponding to the layers of the baseline's NLP.
         :param device: The device on which the model and data are stored.
+        :param encoder_type: The name of the encoder model used to create a representation of inputted arguments.
         """
-        super(BertBaseline, self).__init__()
-        self._bert_model = transformers.BertForSequenceClassification.from_pretrained(
-            constants.BERT_BASE_CASED,
-            num_labels=constants.NUM_LABELS).to(device)
-        if use_frozen_bert:
-            for param in self._bert_model.parameters():
+        super(EncoderBaseline, self).__init__()
+        self.encoder_type = encoder_type
+        
+        # Initialize appropriate encoder.
+        if self.encoder_type == "bert":
+            self._encoder_model = transformers.BertForSequenceClassification.from_pretrained(
+                constants.BERT_BASE_CASED,
+                num_labels=constants.NUM_LABELS).to(device)
+        elif self.encoder_type == "sbert":
+            self._encoder_model = SentenceTransformer("all-distilroberta-v1").to(device)
+        else:
+            raise RuntimeError(f"Unsupported encoder type: {self.encoder_type}")
+        
+        if use_frozen_encoder:
+            for param in self._encoder_model.parameters():
                 param.requires_grad = False
         self._mlp = mlp_layers.to(device)
         self.device = device
 
-    def forward(self, bert_inputs):
+    def forward(self, encoder_inputs):
         """Pass tokenized inputs through the model as part of the forward pass.
 
-        :param bert_inputs: A dictionary mapping string keys to tensor values corresponding to BERT inputs. Each
+        :param encoder_inputs: A dictionary mapping string keys to tensor values corresponding to encoder inputs. Each
             input tensor has shape [batch_size, sequence_length]
         :return: A tensor with shape [batch_size, num_labels].
         """
-        bert_outputs = self._bert_model.forward(
-            input_ids=bert_inputs[constants.INPUT_IDS],
-            attention_mask=bert_inputs[constants.ATTENTION_MASK],
-            token_type_ids=bert_inputs[constants.TOKEN_TYPE_IDS],
-            output_hidden_states=True,
-        )
-        sequence_embeddings = bert_outputs.hidden_states[-1].to(self.device)[:, 0, :]
+        # Compute hidden representations for context + argument pairs.
+        if self.encoder_type == "bert":
+            encoder_outputs = self._encoder_model.forward(
+                input_ids=encoder_inputs[constants.INPUT_IDS],
+                attention_mask=encoder_inputs[constants.ATTENTION_MASK],
+                token_type_ids=encoder_inputs[constants.TOKEN_TYPE_IDS],
+                output_hidden_states=True,
+            )
+            sequence_embeddings = encoder_outputs.hidden_states[-1].to(self.device)[:, 0, :]
+        else:
+            sequence_embeddings = self._encoder_model({
+                constants.INPUT_IDS: encoder_inputs[constants.INPUT_IDS],
+                constants.ATTENTION_MASK: encoder_inputs[constants.ATTENTION_MASK]})['sentence_embedding']
+
         logits = self._mlp(sequence_embeddings)
         label_probabilities = F.softmax(logits, dim=1)
         return label_probabilities
@@ -761,11 +770,14 @@ class BertBaseline(torch.nn.Module):
             for i, data in enumerate(train_loader, 0):
                 optimizer.zero_grad()
                 targets = data[constants.LABEL].to(device)
-                outputs = self({
+                encoder_inputs = {
                     constants.INPUT_IDS: data[constants.INPUT_IDS].to(self.device),
-                    constants.TOKEN_TYPE_IDS: data[constants.TOKEN_TYPE_IDS].to(self.device),
                     constants.ATTENTION_MASK: data[constants.ATTENTION_MASK].to(self.device)
-                })
+                }
+                if self.encoder_type == "bert":
+                    encoder_inputs[constants.TOKEN_TYPE_IDS] = data[constants.TOKEN_TYPE_IDS].to(self.device)
+
+                outputs = self(encoder_inputs)
                 preds = torch.argmax(outputs, dim=1).to(device)
                 loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
                 loss.backward()
@@ -792,11 +804,13 @@ class BertBaseline(torch.nn.Module):
                 validation_num_batches = 0
                 for i, data in enumerate(validation_loader, 0):
                     targets = data[constants.LABEL].to(device)
-                    outputs = self({
-                        constants.INPUT_IDS: data[constants.INPUT_IDS].to(device),
-                        constants.TOKEN_TYPE_IDS: data[constants.TOKEN_TYPE_IDS].to(device),
-                        constants.ATTENTION_MASK: data[constants.ATTENTION_MASK].to(device),
-                    }).to(device)
+                    encoder_inputs = {
+                        constants.INPUT_IDS: data[constants.INPUT_IDS].to(self.device),
+                        constants.ATTENTION_MASK: data[constants.ATTENTION_MASK].to(self.device)
+                    }
+                    if self.encoder_type == "bert":
+                        encoder_inputs[constants.TOKEN_TYPE_IDS] = data[constants.TOKEN_TYPE_IDS].to(self.device)
+                    outputs = self(encoder_inputs).to(device)
                     preds = torch.argmax(outputs, dim=1).to(device)
                     loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
                     validation_loss += loss.item()
@@ -847,11 +861,13 @@ class BertBaseline(torch.nn.Module):
             targets_list = []
             for batch in tqdm.tqdm(dataloader):
                 targets = batch[constants.LABEL].to(device)
-                outputs = self({
-                    constants.INPUT_IDS: batch[constants.INPUT_IDS].to(device),
-                    constants.TOKEN_TYPE_IDS: batch[constants.TOKEN_TYPE_IDS].to(device),
-                    constants.ATTENTION_MASK: batch[constants.ATTENTION_MASK].to(device),
-                }).to(device)
+                encoder_inputs = {
+                    constants.INPUT_IDS: batch[constants.INPUT_IDS].to(self.device),
+                    constants.ATTENTION_MASK: batch[constants.ATTENTION_MASK].to(self.device)
+                }
+                if self.encoder_type == "bert":
+                    encoder_inputs[constants.TOKEN_TYPE_IDS] = batch[constants.TOKEN_TYPE_IDS].to(self.device)
+                outputs = self(encoder_inputs).to(device)
                 preds = torch.argmax(outputs, dim=1).cpu()
                 preds_list.append(preds)
                 targets_list.append(targets.cpu())
@@ -884,20 +900,25 @@ if __name__ == '__main__':
           f'negative_labels: {sum(labels == 0)}')
     op_text = [pair[0] for pair in features]
     reply_text = [pair[1] for pair in features]
-    tokenizer = transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
+
+    # Tokenize encoder inputs
+    columns = [constants.INPUT_IDS, constants.ATTENTION_MASK, constants.LABEL]
+    if args.encoder_type == "bert":
+        tokenizer = transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
+        columns.append(constants.TOKEN_TYPE_IDS)
+    elif args.encoder_type == "sbert":
+        tokenizer = transformers.AutoTokenizer.from_pretrained("sentence-transformers/all-distilroberta-v1")
+    else:
+        raise RuntimeError(f"invalid encoder type: {args.encoder_type}")
     verbosity = transformers.logging.get_verbosity()
     transformers.logging.set_verbosity_error()
     tokenized_inputs = tokenizer(op_text, reply_text, padding=True, truncation=True)
     transformers.logging.set_verbosity(verbosity)
+
     dataset_dict = {input_name: input_value for input_name, input_value in tokenized_inputs.items()}
     dataset_dict[constants.LABEL] = labels
     dataset = datasets.Dataset.from_dict(dataset_dict)
-    dataset.set_format(type='torch',
-                       columns=[
-                           constants.INPUT_IDS,
-                           constants.TOKEN_TYPE_IDS,
-                           constants.ATTENTION_MASK,
-                           constants.LABEL])
+    dataset.set_format(type='torch', columns=columns)
     dataset = dataset.shuffle()
     print(f'Entire dataset positive_labels: {sum(dataset[constants.LABEL].numpy() == 1)}\n'
           f'Entire dataset negative_labels: {sum(dataset[constants.LABEL].numpy() == 0)}')
@@ -915,15 +936,18 @@ if __name__ == '__main__':
         torch.nn.Linear(512, constants.NUM_LABELS),
     )
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    bert_baseline = BertBaseline(
-        use_frozen_bert=True,
+    encoder_baseline = EncoderBaseline(
+        use_frozen_encoder=True,
         mlp_layers=mlp,
-        device=device)
-    model_name = f'Fine-tune BERT+MLP Baseline on {constants.BINARY_CMV_DELTA_PREDICTION}'
+        device=device,
+        encoder_type=args.encoder_type,
+    )
+    model_name = f'{args.encoder_type}+mlp baseline on {constants.BINARY_CMV_DELTA_PREDICTION}'
     experiment_name = f"{model_name} " \
                       f"(seed: #{args.seed}, " \
                       f"lr: {args.learning_rate}, " \
                       f"gamma: {args.scheduler_gamma}, " \
+                      f"dropout: {args.dropout_probability}, " \
                       f"w_d: {args.weight_decay})"
 
     if args.use_k_fold_cross_validation:
@@ -934,7 +958,7 @@ if __name__ == '__main__':
         shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
                   for i in range(num_cross_validation_splits)]
         for validation_set_index in range(num_cross_validation_splits):
-            split_model = copy.deepcopy(bert_baseline).to(device)
+            split_model = copy.deepcopy(encoder_baseline).to(device)
             validation_and_test_sets = shards[validation_set_index].train_test_split(
                 args.val_percent / (args.val_percent + args.test_percent))
             validation_set = validation_and_test_sets[constants.TRAIN]
@@ -1033,7 +1057,7 @@ if __name__ == '__main__':
             dir='.')
         config = wandb.config
         optimizer = torch.optim.Adam(
-            bert_baseline.parameters(),
+            encoder_baseline.parameters(),
             lr=args.learning_rate,
             weight_decay=args.weight_decay
         )
@@ -1042,7 +1066,7 @@ if __name__ == '__main__':
             validation_set=validation_set,
             test_set=test_set,
             batch_size=args.batch_size)
-        bert_baseline.fit(
+        encoder_baseline.fit(
             train_loader=train_loader,
             validation_loader=validation_loader,
             num_labels=2,
@@ -1057,7 +1081,7 @@ if __name__ == '__main__':
             )
         )
         print(metrics.perform_evaluation_on_splits(
-            eval_fn=bert_baseline.evaluate,
+            eval_fn=encoder_baseline.evaluate,
             device=device,
             train_loader=train_loader,
             validation_loader=validation_loader,

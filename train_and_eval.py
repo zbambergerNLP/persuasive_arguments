@@ -140,7 +140,6 @@ parser.add_argument('--positive_example_weight',
 # TODO: Fix documentation across this file.
 
 
-
 def find_labels_for_batch(batch_data: torch_geometric.data.HeteroData) -> torch.Tensor:
     """
 
@@ -503,9 +502,9 @@ if __name__ == '__main__':
 
     if hetero:
         model = HGT(hidden_channels=hidden_dim,
-                 out_channels=num_classes,
-                 hetero_metadata=data.metadata(),
-                use_max_pooling=args.use_max_pooling)
+                    out_channels=num_classes,
+                    hetero_metadata=data.metadata(),
+                    use_max_pooling=args.use_max_pooling)
     else:
         model = HomophiliousGNN(hidden_channels=hidden_dim,
                                 out_channels=num_classes,

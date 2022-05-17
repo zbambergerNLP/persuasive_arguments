@@ -23,6 +23,8 @@ parameters:
     value: "accuracy"
   weight_decay:
     value:  0.001
+  encoder_type:
+    values: ["bert", "sbert"]
   seed:
     values: [ 501, 502, 503 ]
   fold_index:
