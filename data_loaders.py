@@ -10,8 +10,9 @@ from torch_geometric.data import Data
 from torch_geometric.data import HeteroData
 
 import constants
-from cmv_modes.preprocessing_knowledge_graph import make_op_reply_graphs, create_bert_inputs, GraphExample
-from UKP.parser import process_entity, process_attribute, process_relation
+from cmv_modes.preprocessing_knowledge_graph import make_op_reply_graphs, create_bert_inputs, GraphExample, find_op_ukp, \
+    find_label_ukp, parse_ann_file
+
 
 # TODO: Ensure that both the BERT model and its corresponding tokenizer are accessible even without internet connection.
 
@@ -347,7 +348,6 @@ class UKPDataset(torch.utils.data.Dataset):
 
     """
     def __init__(self,
-                 directory_path: str,
                  debug: bool = False):
         """
 
@@ -361,14 +361,12 @@ class UKPDataset(torch.utils.data.Dataset):
 
         for file_name in tqdm(os.listdir(constants.UKP_DATA)):
             if file_name.endswith(constants.ANN):
-                file_path = os.path.join((constants.UKP_DATA), file_name)
-
                 examples = self.make_op_reply_graphs(file_name=file_name)
                 examples = create_bert_inputs([examples],
                                               tokenizer=transformers.BertTokenizer.from_pretrained(
                                                   constants.BERT_BASE_CASED))
                 self.dataset.extend(examples)
-                example_label = self.find_label(file_name)
+                example_label = find_label_ukp(file_name)
                 self.labels.append(example_label)
                 if debug:
                     if len(self.labels) >= 20:
@@ -397,65 +395,7 @@ class UKPDataset(torch.utils.data.Dataset):
                     edge_index=torch.tensor(self.dataset[index]['edges']).T,
                     y=torch.tensor(self.labels[index]))
 
-    @staticmethod
-    def find_label(file_name: str,
-                   num_labels: int = 2) -> int:
-        """
 
-        :param file_name: The name of the file containing the labels for the UKP dataset.
-        :param num_labels: An integer. Either 2 or 3, representing the number of possible labels. If two labels are
-            selected, they correspond to whether the (binary) decision argument was voted as persuasive. If three labels
-            are selected, they correspond to whether the reader's opinion changed negatively/didn't change/changed
-            positively.
-        :return: The label corresponding to the provided example (context + argument).
-        """
-        file_name = file_name.split(".")[0]
-        df = pd.read_csv(constants.UKP_LABELS_FILE)
-        deltas_pos = df.loc[(df[constants.ID_CSV] == file_name) & (df[constants.DELTA_CSV] > 0), constants.DELTA_CSV]
-        deltas_neg = df.loc[(df[constants.ID_CSV] == file_name) & (df[constants.DELTA_CSV] <= 0), constants.DELTA_CSV]
-        label = 1 if len(deltas_pos) > len(deltas_neg) else 0
-        return label
-
-    @staticmethod
-    def find_op(file_name):
-        """
-
-        :param file_name:
-        :return:
-        """
-        file_name = file_name.split(".")[0]
-        file_name = file_name + "." + constants.TXT
-        with open(os.path.join(constants.UKP_DATA, file_name), "r") as fileHandle:
-            lines = fileHandle.readlines()
-            return lines[0]
-
-    @staticmethod
-    def parse_ann_file(file_name):
-        """
-
-        :param file_name:
-        :return:
-        """
-        with open(os.path.join(constants.UKP_DATA, file_name), "r") as fileHandle:
-            d = {
-                constants.NAME: file_name,
-                constants.ENTITIES: {},
-                constants.ATTRIBUTES: {},
-                constants.RELATIONS: {}
-            }
-
-            lines = fileHandle.readlines()
-            for line in lines:
-                if line[0] == constants.T:
-                    process_entity(line, d)
-                elif line[0] == constants.A:
-                    process_attribute(line, d)
-                elif line[0] == constants.R:
-                    process_relation(line, d)
-                else:
-                    raise Exception("Unknown node/edge type encountered." +
-                                    "See line which caused error below:\n" + line + " "+ file_name)
-        return d
 
     def make_op_reply_graphs(self, file_name) -> GraphExample:
         """
@@ -464,8 +404,8 @@ class UKPDataset(torch.utils.data.Dataset):
         :return:
         """
         # Get OP text
-        op_txt = self.find_op(file_name)
-        d = self.parse_ann_file(file_name)
+        op_txt = find_op_ukp(file_name)
+        d = parse_ann_file(file_name)
 
         # Get nodes
         id_to_idx = {constants.TITLE: 0}

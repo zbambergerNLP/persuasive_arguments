@@ -1,6 +1,6 @@
 import copy
 import os
-from typing import Tuple, Dict, Union, Any, List
+from typing import Tuple, Dict, Union, Any, List, Sequence
 
 import torch
 import transformers
@@ -8,7 +8,74 @@ from bs4 import BeautifulSoup
 import typing
 import constants
 from tqdm import tqdm
+import pandas as pd
 
+from UKP.parser import process_entity, process_attribute, process_relation
+
+#################################################
+### UKP helper functions ###
+#################################################
+
+def find_label_ukp(file_name: str,
+                   num_labels: int = 2) -> int:
+    """
+
+    :param file_name: The name of the file containing the labels for the UKP dataset.
+    :param num_labels: An integer. Either 2 or 3, representing the number of possible labels. If two labels are
+        selected, they correspond to whether the (binary) decision argument was voted as persuasive. If three labels
+        are selected, they correspond to whether the reader's opinion changed negatively/didn't change/changed
+        positively.
+    :return: The label corresponding to the provided example (context + argument).
+    """
+    file_name = file_name.split(".")[0]
+    df = pd.read_csv(constants.UKP_LABELS_FILE)
+    deltas_pos = df.loc[(df[constants.ID_CSV] == file_name) & (df[constants.DELTA_CSV] > 0), constants.DELTA_CSV]
+    deltas_neg = df.loc[(df[constants.ID_CSV] == file_name) & (df[constants.DELTA_CSV] <= 0), constants.DELTA_CSV]
+    label = 1 if len(deltas_pos) > len(deltas_neg) else 0
+    return label
+
+
+
+def find_op_ukp(file_name):
+    """
+
+    :param file_name:
+    :return:
+    """
+    file_name = file_name.split(".")[0]
+    file_name = file_name + "." + constants.TXT
+    with open(os.path.join(constants.UKP_DATA, file_name), "r") as fileHandle:
+        lines = fileHandle.readlines()
+        return lines[0]
+
+
+
+def parse_ann_file(file_name):
+    """
+
+    :param file_name:
+    :return:
+    """
+    with open(os.path.join(constants.UKP_DATA, file_name), "r") as fileHandle:
+        d = {
+            constants.NAME: file_name,
+            constants.ENTITIES: {},
+            constants.ATTRIBUTES: {},
+            constants.RELATIONS: {}
+        }
+
+        lines = fileHandle.readlines()
+        for line in lines:
+            if line[0] == constants.T:
+                process_entity(line, d)
+            elif line[0] == constants.A:
+                process_attribute(line, d)
+            elif line[0] == constants.R:
+                process_relation(line, d)
+            else:
+                raise Exception("Unknown node/edge type encountered." +
+                                "See line which caused error below:\n" + line + " " + file_name)
+    return d
 
 #################################################
 ### Pre-Processing Inputs for Language Models ###
@@ -148,6 +215,53 @@ def create_simple_bert_inputs(directory_path: str,
                             break
     return dataset, labels
 
+
+def create_original_post_plus_reply_dataset_ukp(
+        file_name: str = None,
+        include_title: bool = True) -> OriginalPostPlusReplySequence:
+    """Create a collection of textual examples, where each consists of a post and a reply.
+
+    Process ann data into examples for language models. A single example consists of:
+    1. An original post.
+    2. A reply to the original post. This reply is represented as a single string.
+
+    :param file_name: The name of the .ann file which we've parsed.
+    :param include_title: True if the text of the title should be included in OP's component of the BERT input. False
+        otherwise.
+    :return: examples - a list of data examples extracted from file_name in the following construction:
+        [[op text], reply text]
+    """
+    original_post_content =find_op_ukp(file_name)
+
+    d = parse_ann_file(file_name)
+    reply_text = ""
+    for i, item in enumerate(d[constants.ENTITIES]):
+        reply_text = reply_text + " " + d[constants.ENTITIES][item].data
+
+    original_post_plus_reply = tuple([original_post_content, reply_text])
+    return original_post_plus_reply
+
+def create_simple_bert_inputs_ukp(debug: bool = False) -> tuple[list[Sequence[tuple[str, str]]], list[int]]:
+    """
+    Create input to BERT by taking relevant text from each ann file.
+    :param debug: A boolean denoting whether or not we are in debug mode (in which our input dataset is
+        significantly smaller).
+    :return: dataset - a list of data examples in the following construction:
+        [[title text, op text], reply text ]
+        labels - the label of the data examples 1 for positive and 0 for negative
+    """
+    dataset = []
+    labels = []
+    for file_name in tqdm(os.listdir(constants.UKP_DATA)):
+        if file_name.endswith(constants.ANN):
+                examples = create_original_post_plus_reply_dataset_ukp(file_name=file_name)
+                dataset.append(examples)
+                example_labels = find_label_ukp(file_name)
+                labels.extend([example_labels])
+                if debug:
+                    if len(labels) >= 5:
+                        break
+    return dataset, labels
 #######################################################
 ### Pre-Processing Inputs for Graph Neural Networks ###
 #######################################################
@@ -402,6 +516,8 @@ def create_bert_inputs(
 
 
 if __name__ == '__main__':
+    d, l =create_simple_bert_inputs_ukp(debug=True)
+    exit()
     claims_lst = []
     premises_lst = []
     label_lst = []

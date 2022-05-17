@@ -137,6 +137,10 @@ parser.add_argument('--positive_example_weight',
                     type=int,
                     default=5,
                     help="The weight given to positive examples in the loss function")
+parser.add_argument('--dropout_probability',
+                    type=float,
+                    default=0.3,
+                    help="The dropout probability across each layer of the covolution in the homophilous  model.")
 # TODO: Fix documentation across this file.
 
 
@@ -510,7 +514,8 @@ if __name__ == '__main__':
                                 out_channels=num_classes,
                                 conv_type=args.model,
                                 use_max_pooling=args.use_max_pooling,
-                                encoder_type=args.encoder_type)
+                                encoder_type=args.encoder_type,
+                                dropout_prob=args.dropout_probability)
     # TODO: Create functions which generate model, experiment, and run names for wandb given the relevant parameters
     #  provided via flags.
     model_name = f"{args.encoder_type}_encoder_" \

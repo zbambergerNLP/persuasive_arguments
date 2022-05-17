@@ -481,7 +481,8 @@ class HomophiliousGNN(torch.nn.Module):
                  conv_type: str,
                  use_frozen_bert: bool = True,
                  use_max_pooling: bool = True,
-                 encoder_type: str = "sbert"):
+                 encoder_type: str = "sbert",
+                 dropout_prob: float = 0.0):
         """
         Initialize a homophilous graph neural network to predict argument persuasiveness given context.
 
@@ -518,6 +519,7 @@ class HomophiliousGNN(torch.nn.Module):
         prev_layer_dimension = hidden_channels[0]
         self.lin1 = Linear(constants.BERT_HIDDEN_DIM, prev_layer_dimension)
         self.convs = torch.nn.ModuleList()
+        self.dropouts = torch.nn.ModuleList()
         for layer_dim in hidden_channels[1:]:
             if conv_type == constants.GCN:
                 conv = GCNConv(prev_layer_dimension, layer_dim, add_self_loops=False)
@@ -529,6 +531,8 @@ class HomophiliousGNN(torch.nn.Module):
                 raise Exception(f'{conv_type} not implemented')
             prev_layer_dimension = layer_dim
             self.convs.append(conv)
+            dropout_layer = nn.Dropout(p=dropout_prob)
+            self.dropouts.append(dropout_layer)
         self.lin2 = Linear(prev_layer_dimension, out_channels)
         self.loss = nn.BCEWithLogitsLoss()
         self.max_pooling = use_max_pooling
@@ -558,8 +562,9 @@ class HomophiliousGNN(torch.nn.Module):
         node_embeddings = self.lin1(node_embeddings)
         node_embeddings = node_embeddings.relu()
 
-        for conv in self.convs:
+        for i, conv in enumerate(self.convs):
             node_embeddings = conv(node_embeddings, edge_index).relu()
+            node_embeddings = self.dropouts[i](node_embeddings)
 
         if self.max_pooling:
             node_embeddings = global_max_pool(node_embeddings, batch)

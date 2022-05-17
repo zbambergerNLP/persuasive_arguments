@@ -173,7 +173,11 @@ DELTA_CSV = "DELTA"
 ###################
 ###### PATH  ######
 ###################
-BASE_DIR = pathlib.PurePath(os.getcwd())
+if os.getlogin() == "b.noam":
+    BASE_DIR = pathlib.PurePath("/home/b.noam/persuasive_arguments")
+else:
+    BASE_DIR = pathlib.PurePath("/home/b.noam/persuasive_arguments") #TODO: Zach please fill this
+
 UKP_DIR = BASE_DIR / 'UKP'
 UKP_DATA = UKP_DIR / 'brat-project-final'
 UKP_LABELS_FILE = UKP_DIR / 'all_labeled_data.csv'
