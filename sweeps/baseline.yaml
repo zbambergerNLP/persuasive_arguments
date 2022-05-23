@@ -30,8 +30,8 @@ parameters:
   fold_index:
     values: [ 0, 1, 2, 3, 4 ]
   learning_rate:
-    values: [ 0.1, 0.01, 0.001, 0.0001, 0.00001 ]
+    values: [ 0.01, 0.001, 0.0001 ]
   scheduler_gamma:
     values: [ 0.9, 0.99 ]
   dropout_probability:
-    values: [0.3, 0.4, 0.5]
+    values: [0.2, 0.3, 0.4, 0.5]

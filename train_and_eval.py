@@ -31,15 +31,17 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --learning_rate 1e-3 \
     --weight_decay 1e-3 \
     --scheduler_gamma 0.9 \
-    --gcn_hidden_layer_dim "128 128 128" \
+    --dropout_probability 0.05 \
+    --gcn_hidden_layer_dim "128 64 32" \
     --test_percent 0.1 \
     --val_percent 0.1 \
     --rounds_between_evals 1 \
     --model "GAT" \
+    --encoder_type "sbert" \
     --debug "" \
     --hetro "" \
     --hetero_type "nodes" \
-    --use_max_pooling "" \
+    --use_max_pooling "True" \
     --use_k_fold_cross_validation True \
     --num_cross_validation_splits 5 \
     --seed 42 \
@@ -137,12 +139,12 @@ parser.add_argument('--fold_index',
                     help="The partition index of the held out data as part of k-fold cross validation.")
 parser.add_argument('--positive_example_weight',
                     type=int,
-                    default=5,
+                    default=1,
                     help="The weight given to positive examples in the loss function")
 parser.add_argument('--dropout_probability',
                     type=float,
                     default=0.3,
-                    help="The dropout probability across each layer of the covolution in the homophilous  model.")
+                    help="The dropout probability across each layer of the convolution in the homophilous  model.")
 # TODO: Fix documentation across this file.
 
 
@@ -173,7 +175,7 @@ def train(model: torch.nn.Module,
           hetro: bool = False,
           metric_for_early_stopping: str = constants.ACCURACY,
           max_num_rounds_no_improvement: int = 10,
-          weights: torch.Tensor  = torch.Tensor([1,1])) -> torch.nn.Module:
+          weights: torch.Tensor = torch.Tensor([1, 1])) -> torch.nn.Module:
     """Train a GCNWithBERTEmbeddings model on examples consisting of persuasive argument knowledge graphs.
 
     :param model: A torch module consisting of a BERT model (used to produce node embeddings), followed by a GCN.
@@ -188,9 +190,9 @@ def train(model: torch.nn.Module,
     :param hetro:
     :param metric_for_early_stopping:
     :param max_num_rounds_no_improvement:
+    :param weights:
     :return: A trained model.
     """
-    model.train()
     model.to(device)
     highest_accuracy = 0
     lowest_loss = math.inf
@@ -199,7 +201,9 @@ def train(model: torch.nn.Module,
     best_model_dir_path = os.path.join(os.getcwd(), 'tmp')
     utils.ensure_dir_exists(best_model_dir_path)
     best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_{model_name}.pt')
+    model_improved_on_validation_set = False
     for epoch in range(epochs):
+        model.train()
         epoch_loss = 0.0
         epoch_acc = 0.0
         num_batches = 0
@@ -268,11 +272,13 @@ def train(model: torch.nn.Module,
                 lowest_loss = validation_loss
                 num_rounds_no_improvement = 0
                 epoch_with_optimal_performance = epoch
+                model_improved_on_validation_set = True
                 torch.save(model.state_dict(), best_model_path)
             elif metric_for_early_stopping == constants.ACCURACY and validation_acc > highest_accuracy:
                 highest_accuracy = validation_acc
                 num_rounds_no_improvement = 0
                 epoch_with_optimal_performance = epoch
+                model_improved_on_validation_set = True
                 torch.save(model.state_dict(), best_model_path)
             else:
                 num_rounds_no_improvement += 1
@@ -280,9 +286,9 @@ def train(model: torch.nn.Module,
             if num_rounds_no_improvement == max_num_rounds_no_improvement:
                 print(f'Performing early stopping after {epoch} epochs.\n'
                       f'Optimal model obtained from epoch #{epoch_with_optimal_performance}')
-                model.load_state_dict(torch.load(best_model_path))
+                if model_improved_on_validation_set:
+                    model.load_state_dict(torch.load(best_model_path))
                 break
-            model.train()
     return model
 
 
@@ -562,7 +568,7 @@ if __name__ == '__main__':
                           hetro=hetero,
                           device=device,
                           model_name=model_name,
-                          weights=torch.Tensor([1,args.positive_example_weight]))
+                          weights=torch.Tensor([1, args.positive_example_weight]))
             train_metrics.append(
                 evaluate(model,
                          dl_train,
@@ -647,7 +653,7 @@ if __name__ == '__main__':
                       hetro=hetero,
                       device=device,
                       model_name=model_name,
-                      weights=torch.Tensor([1,config.positive_example_weight]))
+                      weights=torch.Tensor([1, config.positive_example_weight]))
         print(metrics.perform_evaluation_on_splits(
             eval_fn=(lambda dataloader, split_name, device: evaluate(model, dataloader, split_name, hetero, device)),
             device=device,
