@@ -657,6 +657,71 @@ class HGT(torch.nn.Module):
         return F.log_softmax(out, dim=1)
 
 
+
+class HeteroGNN(torch.nn.Module):
+    def __init__(self, hidden_channels, out_channels, hetero_metadata,conv_type: str, use_frozen_bert: bool = True ):
+        super().__init__()
+        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
+        if use_frozen_bert:
+            for param in self.bert_model.parameters():
+                param.requires_grad = False
+
+        self.lin_dict = torch.nn.ModuleDict()
+        self.node_types = hetero_metadata[0]
+        for node_type in self.node_types:
+            self.lin_dict[node_type] = Linear(constants.BERT_HIDDEN_DIM, hidden_channels[0])
+
+        self.convs = torch.nn.ModuleList()
+        for i in range(len(hidden_channels)):
+            if conv_type == constants.SAGE:
+                conv = HeteroConv({
+                    (constants.CLAIM, constants.RELATION, constants.CLAIM): SAGEConv(-1, hidden_channels[i]),
+                    (constants.CLAIM, constants.RELATION, constants.PREMISE): SAGEConv((-1, -1), hidden_channels[i]),
+                    (constants.PREMISE, constants.RELATION, constants.CLAIM): SAGEConv((-1, -1), hidden_channels[i]),
+                    (constants.PREMISE, constants.RELATION, constants.PREMISE): SAGEConv((-1, -1), hidden_channels[i]),
+                    (constants.PREMISE, constants.RELATION, constants.SUPER_NODE): SAGEConv((-1, -1), hidden_channels[i]),
+                    (constants.CLAIM, constants.RELATION, constants.SUPER_NODE): SAGEConv((-1, -1), hidden_channels[i]),
+                }, aggr='sum')
+            elif conv_type == constants.GCN:
+                conv = HeteroConv({
+                    (constants.CLAIM, constants.RELATION, constants.CLAIM): GCNConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.CLAIM, constants.RELATION, constants.PREMISE): GCNConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.PREMISE, constants.RELATION, constants.CLAIM): GCNConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.PREMISE, constants.RELATION, constants.PREMISE): GCNConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.PREMISE, constants.RELATION, constants.SUPER_NODE): GCNConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.CLAIM, constants.RELATION, constants.SUPER_NODE): GCNConv(-1, hidden_channels[i], add_self_loops=False),
+                }, aggr='sum')
+            elif conv_type == constants.GAT:
+                conv = HeteroConv({
+                    (constants.CLAIM, constants.RELATION, constants.CLAIM): GATConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.CLAIM, constants.RELATION, constants.PREMISE): GATConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.PREMISE, constants.RELATION, constants.CLAIM): GATConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.PREMISE, constants.RELATION, constants.PREMISE): GATConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.PREMISE, constants.RELATION, constants.SUPER_NODE): GATConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.CLAIM, constants.RELATION, constants.SUPER_NODE): GATConv(-1, hidden_channels[i], add_self_loops=False),
+                }, aggr='sum')
+            else:
+                raise Exception(f'{conv_type} not implemented')
+            self.convs.append(conv)
+
+        self.lin = Linear(hidden_channels[-1], out_channels)
+
+    def forward(self, x_dict, edge_index_dict):
+        for node_type, x in x_dict.items():
+            input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
+            bert_outputs = self.bert_model(
+                input_ids=torch.squeeze(input_ids, dim=1).long(),
+                token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
+                attention_mask=torch.squeeze(attention_mask, dim=1).long(),
+            )
+            x = bert_outputs['last_hidden_state'][:, 0, :]
+            x_dict[node_type] = self.lin_dict[node_type](x).relu_()
+
+        for conv in self.convs:
+            x_dict = conv(x_dict, edge_index_dict)
+            x_dict = {key: x.relu() for key, x in x_dict.items()}
+        return self.lin(x_dict[constants.SUPER_NODE])
+
 def count_parameters(model: torch.nn.Module) -> int:
     """
     Count the number of parameters within the provided model.

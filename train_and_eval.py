@@ -17,11 +17,10 @@ import metrics
 import utils
 import wandb
 from data_loaders import CMVKGDataset, CMVKGHetroDataset, CMVKGHetroDatasetEdges, UKPDataset
-from models import HomophiliousGNN, HGT
+from models import HomophiliousGNN, HGT, HeteroGNN
 import constants
 import argparse
 from tqdm import tqdm
-
 
 """
 Example command:
@@ -43,7 +42,10 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --use_max_pooling "" \
     --use_k_fold_cross_validation True \
     --num_cross_validation_splits 5 \
-    --seed 42
+    --seed 42 \
+    --dropout_probability 0.3 \
+    --positive_example_weight 1
+    
 """
 
 
@@ -51,7 +53,7 @@ parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--data',
                     type=str,
-                    default='UKP',
+                    default='CMV',
                     help="Defines which database to use CMV or UKP")
 parser.add_argument('--encoder_type',
                     type=str,
@@ -60,11 +62,11 @@ parser.add_argument('--encoder_type',
                          "prepositions.")
 parser.add_argument('--hetro',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--hetero_type',
                     type=str,
-                    default='edges',
+                    default='nodes',
                     help="Relevant only if herto is True. Possible values are 'nodes' or 'edges'. "
                          "If the value is 'nodes' then node type is used, if the value is 'edges' then edge type is "
                          "used")
@@ -102,7 +104,7 @@ parser.add_argument('--rounds_between_evals',
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
                     type=bool,
-                    default=False,
+                    default=True,
                     help="Work in debug mode")
 parser.add_argument('--use_max_pooling',
                     type=bool,
@@ -209,7 +211,7 @@ def train(model: torch.nn.Module,
                 batch = None
                 if args.hetero_type == constants.EDGES:
                     batch = sampled_data[constants.NODE].batch
-                out = model(sampled_data.x_dict, sampled_data.edge_index_dict, batch)
+                out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
             else:
                 y = sampled_data.y
                 out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
@@ -245,7 +247,7 @@ def train(model: torch.nn.Module,
                     y = find_labels_for_batch(batch_data=sampled_data)
                     if args.hetero_type == constants.EDGES:
                         batch = sampled_data[constants.NODE].batch
-                    out = model(sampled_data.x_dict, sampled_data.edge_index_dict, batch)
+                    out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
                 else:
                     y = sampled_data.y
                     out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
@@ -309,7 +311,7 @@ def evaluate(
                 y = find_labels_for_batch(batch_data=sampled_data)
                 if args.hetero_type == constants.EDGES:
                     batch = sampled_data[constants.NODE].batch
-                out = model(sampled_data.x_dict, sampled_data.edge_index_dict, batch)
+                out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
             else:
                 y = sampled_data.y
                 out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
@@ -505,10 +507,11 @@ if __name__ == '__main__':
     hidden_dim = list(map(int, args.gcn_hidden_layer_dim.split(" ")))
 
     if hetero:
-        model = HGT(hidden_channels=hidden_dim,
-                    out_channels=num_classes,
-                    hetero_metadata=data.metadata(),
-                    use_max_pooling=args.use_max_pooling)
+        # model = HGT(hidden_channels=hidden_dim,
+        #             out_channels=num_classes,
+        #             hetero_metadata=data.metadata(),
+        #             use_max_pooling=args.use_max_pooling)
+        model = HeteroGNN(hidden_channels=hidden_dim, out_channels=num_classes,hetero_metadata=data.metadata(),conv_type=args.model)
     else:
         model = HomophiliousGNN(hidden_channels=hidden_dim,
                                 out_channels=num_classes,

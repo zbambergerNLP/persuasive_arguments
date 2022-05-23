@@ -243,6 +243,13 @@ class CMVKGHetroDataset(CMVKGDataset):
         edge_list = torch.concat((edge_to_add, edge_list), dim=1)
         return edge_list
 
+    def add_super_node_edges(self, num_of_nodes):
+        edge_list = []
+        for n in range(num_of_nodes):
+            edge_list.append([n,0])
+        edge_list = torch.tensor(edge_list, dtype=torch.long).T
+        return edge_list
+
     def __getitem__(self, index: int) -> HeteroData:
         claim_list = []
         premise_list = []
@@ -291,15 +298,20 @@ class CMVKGHetroDataset(CMVKGDataset):
         stacked_bert_inputs_premise = torch.concat((two_empty_nodes, stacked_bert_inputs_premise), dim=2)
 
         data = HeteroData()
+
         data[constants.CLAIM].x = stacked_bert_inputs_claim.T.long()
         data[constants.CLAIM].y = [self.labels[index]] * data[constants.CLAIM].x.shape[0]
         data[constants.PREMISE].x = stacked_bert_inputs_premise.T.long()
         data[constants.PREMISE].y = [self.labels[index]] * data[constants.PREMISE].x.shape[0]
+        data[constants.SUPER_NODE].x = torch.zeros_like(stacked_bert_inputs_claim[:, :, 0]).unsqueeze(dim=2).T.long() #Todo think maybe to initialize randomly
+        data[constants.SUPER_NODE].y = [self.labels[index]] * data[constants.SUPER_NODE].x.shape[0]
 
-        data[constants.CLAIM, 'relation', constants.CLAIM].edge_index = self.convert_edge_indexes(claim_claim_e)
-        data[constants.CLAIM, 'relation', constants.PREMISE].edge_index = self.convert_edge_indexes(claim_premise_e)
-        data[constants.PREMISE, 'relation', constants.CLAIM].edge_index = self.convert_edge_indexes(premise_claim_e)
-        data[constants.PREMISE, 'relation', constants.PREMISE].edge_index = self.convert_edge_indexes(premise_premise_e)
+        data[constants.CLAIM, constants.RELATION, constants.CLAIM].edge_index = self.convert_edge_indexes(claim_claim_e)
+        data[constants.CLAIM, constants.RELATION, constants.PREMISE].edge_index = self.convert_edge_indexes(claim_premise_e)
+        data[constants.PREMISE, constants.RELATION, constants.CLAIM].edge_index = self.convert_edge_indexes(premise_claim_e)
+        data[constants.PREMISE, constants.RELATION, constants.PREMISE].edge_index = self.convert_edge_indexes(premise_premise_e)
+        data[constants.PREMISE, constants.RELATION, constants.SUPER_NODE].edge_index = self.add_super_node_edges(len(premise_list))
+        data[constants.CLAIM, constants.RELATION, constants.SUPER_NODE].edge_index = self.add_super_node_edges(len(claim_list))
         return data
 
 
