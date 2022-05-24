@@ -519,6 +519,7 @@ class HomophiliousGNN(torch.nn.Module):
         prev_layer_dimension = hidden_channels[0]
         self.lin1 = Linear(constants.BERT_HIDDEN_DIM, prev_layer_dimension)
         self.convs = torch.nn.ModuleList()
+        self.dropout_prob = dropout_prob
         self.dropouts = torch.nn.ModuleList()
         for layer_dim in hidden_channels[1:]:
             if conv_type == constants.GCN:
@@ -564,7 +565,8 @@ class HomophiliousGNN(torch.nn.Module):
 
         for i, conv in enumerate(self.convs):
             node_embeddings = conv(node_embeddings, edge_index).relu()
-            node_embeddings = self.dropouts[i](node_embeddings)
+            if self.dropout_prob > 0:
+                node_embeddings = self.dropouts[i](node_embeddings)
 
         if self.max_pooling:
             node_embeddings = global_max_pool(node_embeddings, batch)

@@ -1,16 +1,16 @@
 program: train_and_eval.py
-name: homophilous_gcn_avg_pooling
+name: homophilous_gnn_ukp
 entity: persuasive_arguments
 project: persuasive_argumentation
 method: grid
 metric:
-  name: eval_test_f1
+  name: eval_test_accuracy
   goal: maximize
 parameters:
   data:
     value: "UKP"
   num_epochs:
-    value: 30
+    value: 100
   batch_size:
     value: 16
   test_percent:
@@ -19,24 +19,18 @@ parameters:
     value: 0.1
   rounds_between_evals:
     value: 1
-  model:
-    value: "GCN"
   debug:
-    value: ""
-  hetro:
-    value: ""
-  use_max_pooling:
     value: ""
   use_k_fold_cross_validation:
     value: ""
-  weight_decay:
-    value: 0.001
-  scheduler_gamma:
-    value: 0.9
+  hetro:
+    values: [ "", "True" ]
+  use_max_pooling:
+    values: [ "", "True" ]
+  model:
+    values: [ "SAGE", "GAT", "GCN" ]
   encoder_type:
-    values:
-      - "bert"
-      - "sbert"
+    values:  ["bert", "sbert"]
   gcn_hidden_layer_dim:
     values:
       - "32 32"
@@ -47,13 +41,17 @@ parameters:
       - "256 128 64 32"
       - "32 32 32 32"
       - "64 64 64 64"
-      - "128 128 128 128"
   seed:
     values: [ 501, 502, 503 ]
   fold_index:
     values: [ 0, 1, 2, 3, 4 ]
   learning_rate:
-    values: [ 0.1, 0.01, 0.001 ]
+    values: [ 0.01, 0.001, 0.0001, 0.00001 ]
+  scheduler_gamma:
+    values: [ 0.9, 0.99 ]
+  dropout_probability:
+    values: [ 0, 0.1, 0.3 ]
+  weight_decay:
+    values: [ 0.1, 0.001 ]
   positive_example_weight:
-    min: 1
-    max: 13
+    values: [1, 10, 20]
