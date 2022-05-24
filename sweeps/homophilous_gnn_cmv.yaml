@@ -4,7 +4,7 @@ entity: persuasive_arguments
 project: persuasive_argumentation
 method: grid
 metric:
-  name: eval_test_accuracy
+  name: eval_validation_f1 measure
   goal: maximize
 parameters:
   data:
@@ -23,8 +23,6 @@ parameters:
     value: ""
   use_k_fold_cross_validation:
     value: ""
-  positive_example_weight:
-    value: 1
   hetro:
     values: [ "", "True" ]
   use_max_pooling:
@@ -35,23 +33,20 @@ parameters:
     values:  ["bert", "sbert"]
   gcn_hidden_layer_dim:
     values:
-      - "32 32"
       - "64 32"
-      - "128 128"
       - "128 64 32"
-      - "64 64 64"
       - "256 128 64 32"
-      - "32 32 32 32"
-      - "64 64 64 64"
   seed:
-    values: [ 501, 502, 503 ]
+    values: [ 501, 502 ]
   fold_index:
     values: [ 0, 1, 2, 3, 4 ]
   learning_rate:
-    values: [ 0.01, 0.001, 0.0001, 0.00001 ]
-  scheduler_gamma:
-    values: [ 0.9, 0.99 ]
+    values: [ 0.001, 0.0001]
   dropout_probability:
     values: [ 0, 0.1, 0.3]
+  scheduler_gamma:
+    value: 0.99
+  positive_example_weight:
+      value: 1
   weight_decay:
-    values: [ 0.1, 0.001 ]
+    value: 0.001
