@@ -482,7 +482,8 @@ class HomophiliousGNN(torch.nn.Module):
                  use_frozen_bert: bool = True,
                  use_max_pooling: bool = True,
                  encoder_type: str = "sbert",
-                 dropout_prob: float = 0.0):
+                 dropout_prob: float = 0.0,
+                 super_node: bool = False):
         """
         Initialize a homophilous graph neural network to predict argument persuasiveness given context.
 
@@ -537,6 +538,7 @@ class HomophiliousGNN(torch.nn.Module):
         self.lin2 = Linear(prev_layer_dimension, out_channels)
         self.loss = nn.BCEWithLogitsLoss()
         self.max_pooling = use_max_pooling
+        self.super_node = super_node
 
     def forward(self, x, edge_index, batch=None):
         """
@@ -568,10 +570,17 @@ class HomophiliousGNN(torch.nn.Module):
             if self.dropout_prob > 0:
                 node_embeddings = self.dropouts[i](node_embeddings)
 
-        if self.max_pooling:
-            node_embeddings = global_max_pool(node_embeddings, batch)
+        if self.super_node:
+            indexes = []
+            for i in range(batch[-1] + 1):
+                index = torch.where(batch == i)
+                indexes.append(float(index[0][0]))
+            node_embeddings = torch.index_select(node_embeddings,dim=0, index=torch.tensor(indexes,dtype=torch.int32))
         else:
-            node_embeddings = global_mean_pool(node_embeddings, batch)
+            if self.max_pooling:
+                node_embeddings = global_max_pool(node_embeddings, batch)
+            else:
+                node_embeddings = global_mean_pool(node_embeddings, batch)
         node_embeddings = self.lin2(node_embeddings)
         return F.log_softmax(node_embeddings, dim=1)
 
@@ -689,15 +698,6 @@ class HeteroGNN(torch.nn.Module):
                     (constants.PREMISE, constants.RELATION, constants.PREMISE): SAGEConv((-1, -1), hidden_channels[i]),
                     (constants.PREMISE, constants.RELATION, constants.SUPER_NODE): SAGEConv((-1, -1), hidden_channels[i]),
                     (constants.CLAIM, constants.RELATION, constants.SUPER_NODE): SAGEConv((-1, -1), hidden_channels[i]),
-                }, aggr='sum')
-            elif conv_type == constants.GCN:
-                conv = HeteroConv({
-                    (constants.CLAIM, constants.RELATION, constants.CLAIM): GCNConv(hidden_channels[i-1], hidden_channels[i], add_self_loops=False),
-                    (constants.CLAIM, constants.RELATION, constants.PREMISE): GCNConv(-1, hidden_channels[i], add_self_loops=False),
-                    (constants.PREMISE, constants.RELATION, constants.CLAIM): GCNConv(-1, hidden_channels[i], add_self_loops=False),
-                    (constants.PREMISE, constants.RELATION, constants.PREMISE): GCNConv(-1, hidden_channels[i], add_self_loops=False),
-                    (constants.PREMISE, constants.RELATION, constants.SUPER_NODE): GCNConv(-1, hidden_channels[i], add_self_loops=False),
-                    (constants.CLAIM, constants.RELATION, constants.SUPER_NODE): GCNConv(-1, hidden_channels[i], add_self_loops=False),
                 }, aggr='sum')
             elif conv_type == constants.GAT:
                 conv = HeteroConv({

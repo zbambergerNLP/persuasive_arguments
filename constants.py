@@ -152,7 +152,7 @@ EDGES_TYPES = 'edges_types'
 SUPPORT = 'support'
 ATTACK = 'attack'
 SUPER_NODE = 'super_node'
-
+initial_range = 0.05
 
 
 # UKP parsing

@@ -24,7 +24,7 @@ parameters:
   use_k_fold_cross_validation:
     value: ""
   hetro:
-    values: [ "", "True" ]
+    value: ""
   use_max_pooling:
     values: [ "", "True" ]
   model:

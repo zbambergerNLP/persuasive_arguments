@@ -1,5 +1,5 @@
 program: train_and_eval.py
-name: homophilous_gnn_ukp
+name: nodes_hetero_gnn_cmv
 entity: persuasive_arguments
 project: persuasive_argumentation
 method: grid
@@ -8,7 +8,7 @@ metric:
   goal: maximize
 parameters:
   data:
-    value: "UKP"
+    value: "CMV"
   num_epochs:
     value: 100
   batch_size:
@@ -24,13 +24,11 @@ parameters:
   use_k_fold_cross_validation:
     value: ""
   hetro:
-    value: ""
-  use_max_pooling:
-    values: [ "", "True" ]
+    value: "True"
   model:
-    values: [ "SAGE", "GAT", "GCN" ]
+    values: [ "SAGE", "GAT" ]
   encoder_type:
-    values: [ "bert", "sbert" ]
+    values:  ["bert", "sbert"]
   gcn_hidden_layer_dim:
     values:
       - "64 32"
@@ -41,12 +39,12 @@ parameters:
   fold_index:
     values: [ 0, 1, 2, 3, 4 ]
   learning_rate:
-    values: [ 0.001, 0.0001 ]
+    values: [ 0.001, 0.0001]
   dropout_probability:
-    values: [ 0, 0.1, 0.3 ]
+    values: [ 0, 0.1, 0.3]
   scheduler_gamma:
     value: 0.99
+  positive_example_weight:
+      value: 1
   weight_decay:
     value: 0.001
-  positive_example_weight:
-    values: [1, 10, 20]

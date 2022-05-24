@@ -64,7 +64,7 @@ parser.add_argument('--encoder_type',
                          "prepositions.")
 parser.add_argument('--hetro',
                     type=bool,
-                    default=True,
+                    default=False,
                     help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--hetero_type',
                     type=str,
@@ -112,6 +112,10 @@ parser.add_argument('--use_max_pooling',
                     type=bool,
                     default=False,
                     help="if True use max pooling in GNN else use average pooling")
+parser.add_argument('--use_super_node',
+                    type=bool,
+                    default=True,
+                    help="if True use super node data loader and GNN architecture else use global pooling")
 parser.add_argument('--model',
                     type=str,
                     default='GAT',
@@ -482,7 +486,7 @@ if __name__ == '__main__':
     else:
         print(f'initializing homophealous {args.data} dataset')
         if args.data == constants.CMV:
-            file_name = f'cmv_{args.encoder_type}_homophelous_dataset.pt'
+            file_name = f'cmv_{args.encoder_type}_super_{args.use_super_node}_homophelous_dataset.pt'
             if os.path.exists(os.path.join(dir_name, file_name)):
                 kg_dataset = torch.load(os.path.join(dir_name, file_name))
             else:
@@ -494,6 +498,7 @@ if __name__ == '__main__':
                         constants.BERT_BASE_CASED if args.encoder_type == 'bert'
                         else "sentence-transformers/all-distilroberta-v1"
                     ),
+                    super_node=args.use_super_node
                 )
                 torch.save(kg_dataset, os.path.join(dir_name, file_name))
         elif args.data == constants.UKP:
@@ -525,6 +530,7 @@ if __name__ == '__main__':
                                 out_channels=num_classes,
                                 conv_type=args.model,
                                 use_max_pooling=args.use_max_pooling,
+                                super_node=args.use_super_node,
                                 encoder_type=args.encoder_type,
                                 dropout_prob=args.dropout_probability)
     # TODO: Create functions which generate model, experiment, and run names for wandb given the relevant parameters
