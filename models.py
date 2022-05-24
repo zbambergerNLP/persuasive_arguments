@@ -600,6 +600,7 @@ class HGT(torch.nn.Module):
         """
         # TODO: Add comments to document the flow of this initialization.
         super().__init__()
+
         self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
         if use_frozen_bert:
             for param in self.bert_model.parameters():
@@ -659,9 +660,13 @@ class HGT(torch.nn.Module):
 
 
 class HeteroGNN(torch.nn.Module):
-    def __init__(self, hidden_channels, out_channels, hetero_metadata,conv_type: str, use_frozen_bert: bool = True ):
+    def __init__(self, hidden_channels, out_channels, hetero_metadata,conv_type: str, use_frozen_bert: bool = True , encoder_type: str = "sbert",dropout_prob: float = 0.0):
         super().__init__()
-        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
+        self.encoder_type = encoder_type
+        if self.encoder_type == 'sbert':
+            self.bert_model = SentenceTransformer('all-distilroberta-v1')
+        else:
+            self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
         if use_frozen_bert:
             for param in self.bert_model.parameters():
                 param.requires_grad = False
@@ -672,7 +677,8 @@ class HeteroGNN(torch.nn.Module):
             self.lin_dict[node_type] = Linear(constants.BERT_HIDDEN_DIM, hidden_channels[0])
 
         self.convs = torch.nn.ModuleList()
-        for i in range(len(hidden_channels)):
+        self.dropouts = torch.nn.ModuleList()
+        for i in range(1,len(hidden_channels)):
             if conv_type == constants.SAGE:
                 conv = HeteroConv({
                     (constants.CLAIM, constants.RELATION, constants.CLAIM): SAGEConv(-1, hidden_channels[i]),
@@ -684,7 +690,7 @@ class HeteroGNN(torch.nn.Module):
                 }, aggr='sum')
             elif conv_type == constants.GCN:
                 conv = HeteroConv({
-                    (constants.CLAIM, constants.RELATION, constants.CLAIM): GCNConv(-1, hidden_channels[i], add_self_loops=False),
+                    (constants.CLAIM, constants.RELATION, constants.CLAIM): GCNConv(hidden_channels[i-1], hidden_channels[i], add_self_loops=False),
                     (constants.CLAIM, constants.RELATION, constants.PREMISE): GCNConv(-1, hidden_channels[i], add_self_loops=False),
                     (constants.PREMISE, constants.RELATION, constants.CLAIM): GCNConv(-1, hidden_channels[i], add_self_loops=False),
                     (constants.PREMISE, constants.RELATION, constants.PREMISE): GCNConv(-1, hidden_channels[i], add_self_loops=False),
@@ -703,6 +709,8 @@ class HeteroGNN(torch.nn.Module):
             else:
                 raise Exception(f'{conv_type} not implemented')
             self.convs.append(conv)
+            dropout_layer = nn.Dropout(p=dropout_prob)
+            self.dropouts.append(dropout_layer)
 
         self.lin = Linear(hidden_channels[-1], out_channels)
 
@@ -717,9 +725,10 @@ class HeteroGNN(torch.nn.Module):
             x = bert_outputs['last_hidden_state'][:, 0, :]
             x_dict[node_type] = self.lin_dict[node_type](x).relu_()
 
-        for conv in self.convs:
+        for i, conv in enumerate(self.convs):
             x_dict = conv(x_dict, edge_index_dict)
             x_dict = {key: x.relu() for key, x in x_dict.items()}
+            x_dict = {key: self.dropouts[i](x) for key, x in x_dict.items()}
         return self.lin(x_dict[constants.SUPER_NODE])
 
 def count_parameters(model: torch.nn.Module) -> int:

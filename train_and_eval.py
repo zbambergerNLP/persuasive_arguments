@@ -112,7 +112,7 @@ parser.add_argument('--use_max_pooling',
                     help="if True use max pooling in GNN else use average pooling")
 parser.add_argument('--model',
                     type=str,
-                    default='GCN',
+                    default='GAT',
                     help="chose which model to run with the options are: GCN, GAT , SAGE")
 parser.add_argument('--use_k_fold_cross_validation',
                     type=bool,
@@ -511,7 +511,9 @@ if __name__ == '__main__':
         #             out_channels=num_classes,
         #             hetero_metadata=data.metadata(),
         #             use_max_pooling=args.use_max_pooling)
-        model = HeteroGNN(hidden_channels=hidden_dim, out_channels=num_classes,hetero_metadata=data.metadata(),conv_type=args.model)
+        model = HeteroGNN(hidden_channels=hidden_dim, out_channels=num_classes,hetero_metadata=data.metadata(),conv_type=args.model,
+                          encoder_type=args.encoder_type,
+                         dropout_prob=args.dropout_probability)
     else:
         model = HomophiliousGNN(hidden_channels=hidden_dim,
                                 out_channels=num_classes,

@@ -303,7 +303,10 @@ class CMVKGHetroDataset(CMVKGDataset):
         data[constants.CLAIM].y = [self.labels[index]] * data[constants.CLAIM].x.shape[0]
         data[constants.PREMISE].x = stacked_bert_inputs_premise.T.long()
         data[constants.PREMISE].y = [self.labels[index]] * data[constants.PREMISE].x.shape[0]
-        data[constants.SUPER_NODE].x = torch.zeros_like(stacked_bert_inputs_claim[:, :, 0]).unsqueeze(dim=2).T.long() #Todo think maybe to initialize randomly
+
+        initial_range = 0.05
+        data[constants.SUPER_NODE].x = torch.empty(stacked_bert_inputs_claim[:, :, 0].shape).unsqueeze(dim=2).T
+        data[constants.SUPER_NODE].x.data.uniform_(-initial_range, initial_range).long()
         data[constants.SUPER_NODE].y = [self.labels[index]] * data[constants.SUPER_NODE].x.shape[0]
 
         data[constants.CLAIM, constants.RELATION, constants.CLAIM].edge_index = self.convert_edge_indexes(claim_claim_e)
