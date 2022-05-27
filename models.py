@@ -42,9 +42,13 @@ srun --gres=gpu:1 -p nlp python models.py \
     --seed 42 
 """
 
-
+# TODO: Assert that values of string flags are permitted. Perform these checks via a dedicated function.
 parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
+parser.add_argument('--data',
+                    type=str,
+                    default='CMV',
+                    help="Defines which dataset to use. Either CMV or UKP.")
 parser.add_argument('--num_epochs',
                     type=int,
                     default=100,
@@ -540,9 +544,15 @@ class HomophiliousGNN(torch.nn.Module):
         self.max_pooling = use_max_pooling
         self.super_node = super_node
 
-    def forward(self, x, edge_index, batch=None):
+    def forward(self,
+                x,
+                edge_index,
+                batch,
+                device):
         """
-        :param data: A collection of node and edge data corresponding to a batch of graphs inputted to the model.
+        :param x: A collection of node and edge data corresponding to a batch of graphs inputted to the model.
+        :param edge_index:
+        :param device:
         :return: A probability distribution over the output labels. A torch tensor of shape
             [batch_size, num_output_labels].
         """
@@ -575,7 +585,12 @@ class HomophiliousGNN(torch.nn.Module):
             for i in range(batch[-1] + 1):
                 index = torch.where(batch == i)
                 indexes.append(float(index[0][0]))
-            node_embeddings = torch.index_select(node_embeddings,dim=0, index=torch.tensor(indexes,dtype=torch.int32))
+            node_embeddings = torch.index_select(
+                node_embeddings,
+                dim=0,
+                index=torch.tensor(indexes,
+                                   dtype=torch.int32).to(device)
+            )
         else:
             if self.max_pooling:
                 node_embeddings = global_max_pool(node_embeddings, batch)
@@ -585,93 +600,24 @@ class HomophiliousGNN(torch.nn.Module):
         return F.log_softmax(node_embeddings, dim=1)
 
 
-# TODO: Document this entire class, and all of it's associated methods.
-class HGT(torch.nn.Module):
-    def __init__(self,
-                 hidden_channels: typing.List[int],
-                 out_channels: int,
-                 hetero_metadata: typing.Tuple[typing.List[str], typing.List[typing.Tuple[str, str, str]]],
-                 use_frozen_bert: bool = True,
-                 use_max_pooling: bool = True):
-        """
-        Initialize an HGT model on top of BERT embeddings to predict argument persuasiveness.
-
-        :param hidden_channels: A list of the hidden dimensions used by this model. The first dimension is used to
-            convert from BERT's hidden dimension to one more suitable for graph convolutions. The remaining dimensions
-            reflect the outputs of the GNN's convolutional layers. There is also a final linear transformation
-            from the final hidden dimension to the label-space dimensionality after pooling/super-node aggregation.
-        :param out_channels: The label-space dimensionality of the downstream task. The number of possible labels this
-            model is tasked to predict among.
-        :param hetero_metadata: The input graph's heterogeneous meta-data, i.e. its node and edge types.
-        :param use_frozen_bert: True if we intend to use a frozen BERT model to produce node embeddings. False if BERT's
-            weights should be updated while training the GNN (such that BERT's embeddings would evolve beyond their
-            pre-trained values).
-        :param use_max_pooling: True if we intend to use max pooling to aggregate node representations.
-            Nodes are aggregated as part of graph-classification before projecting to the label-space dimensionality.
-        """
-        # TODO: Add comments to document the flow of this initialization.
-        super().__init__()
-
-        self.bert_model = transformers.BertModel.from_pretrained(constants.BERT_BASE_CASED)
-        if use_frozen_bert:
-            for param in self.bert_model.parameters():
-                param.requires_grad = False
-        self.node_types = hetero_metadata[0]
-
-        self.lin_dict = torch.nn.ModuleDict()
-        prev_layer_dimension = hidden_channels[0]
-        for node_type in self.node_types:
-            self.lin_dict[node_type] = Linear(constants.BERT_HIDDEN_DIM, hidden_channels[0])
-
-        self.convs = torch.nn.ModuleList()
-        for hidden_layer_dim in hidden_channels[1:]:
-            conv = HGTConv(prev_layer_dimension, hidden_layer_dim, hetero_metadata, group='sum')
-            self.convs.append(conv)
-            prev_layer_dimension = hidden_layer_dim
-
-        self.lin = Linear(prev_layer_dimension, out_channels)
-        self.max_pooling = use_max_pooling
-
-    # TODO: Annotate parameter types and add documentation to this function.
-    def forward(self,
-                x_dict,
-                edge_index_dict,
-                batch=None):
-        """
-
-        :param x_dict:
-        :param edge_index_dict:
-        :param batch:
-        :return:
-        """
-        for node_type, x in x_dict.items():
-            input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
-            bert_outputs = self.bert_model(
-                input_ids=torch.squeeze(input_ids, dim=1).long(),
-                token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
-                attention_mask=torch.squeeze(attention_mask, dim=1).long(),
-            )
-            x = bert_outputs['last_hidden_state'][:, 0, :]
-            x_dict[node_type] = self.lin_dict[node_type](x).relu_()
-
-        for conv in self.convs:
-            x_dict = conv(x_dict, edge_index_dict)
-
-        out = 0
-        for node_type, x in x_dict.items():
-            if self.max_pooling:
-                x_dict[node_type] = global_max_pool(x_dict[node_type], batch)
-            else:
-                x_dict[node_type] = global_mean_pool(x_dict[node_type], batch)
-            # TODO: Introduce functionality for mean/max/sum aggregation of nodes across distinct types.
-            out += x_dict[node_type] / len(self.node_types)
-        out = self.lin(out)
-        return F.log_softmax(out, dim=1)
-
-
-
 class HeteroGNN(torch.nn.Module):
-    def __init__(self, hidden_channels, out_channels, hetero_metadata,conv_type: str, use_frozen_bert: bool = True , encoder_type: str = "sbert",dropout_prob: float = 0.0):
+    def __init__(self, hidden_channels,
+                 out_channels,
+                 hetero_metadata,
+                 conv_type: str,
+                 use_frozen_bert: bool = True,
+                 encoder_type: str = "sbert",
+                 dropout_prob: float = 0.0):
+        """
+
+        :param hidden_channels:
+        :param out_channels:
+        :param hetero_metadata:
+        :param conv_type:
+        :param use_frozen_bert:
+        :param encoder_type:
+        :param dropout_prob:
+        """
         super().__init__()
         self.encoder_type = encoder_type
         if self.encoder_type == 'sbert':
@@ -689,7 +635,7 @@ class HeteroGNN(torch.nn.Module):
 
         self.convs = torch.nn.ModuleList()
         self.dropouts = torch.nn.ModuleList()
-        for i in range(1,len(hidden_channels)):
+        for i in range(1, len(hidden_channels)):
             if conv_type == constants.SAGE:
                 conv = HeteroConv({
                     (constants.CLAIM, constants.RELATION, constants.CLAIM): SAGEConv(-1, hidden_channels[i]),
@@ -716,7 +662,17 @@ class HeteroGNN(torch.nn.Module):
 
         self.lin = Linear(hidden_channels[-1], out_channels)
 
-    def forward(self, x_dict, edge_index_dict):
+    def forward(self,
+                x_dict,
+                edge_index_dict,
+                device):
+        """
+
+        :param x_dict:
+        :param edge_index_dict:
+        :param device:
+        :return:
+        """
         for node_type, x in x_dict.items():
             input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
             bert_outputs = self.bert_model(
@@ -733,6 +689,7 @@ class HeteroGNN(torch.nn.Module):
             x_dict = {key: self.dropouts[i](x) for key, x in x_dict.items()}
         return self.lin(x_dict[constants.SUPER_NODE])
 
+# TODO: Move this to utils.
 def count_parameters(model: torch.nn.Module) -> int:
     """
     Count the number of parameters within the provided model.
@@ -971,9 +928,12 @@ if __name__ == '__main__':
         print(f'{parameter}: {value}')
     utils.set_seed(args.seed)
 
-    examples = preprocessing_knowledge_graph.create_simple_bert_inputs(
-        directory_path=os.path.join(os.getcwd(), 'cmv_modes', 'change-my-view-modes-master'),
-        version=constants.v2_path)
+    if args.data == constants.CMV:
+        examples = preprocessing_knowledge_graph.create_simple_bert_inputs(
+            directory_path=os.path.join(os.getcwd(), 'cmv_modes', 'change-my-view-modes-master'),
+            version=constants.v2_path)
+    else:  # UKP dataset
+        examples = preprocessing_knowledge_graph.create_simple_bert_inputs_ukp()
     features = examples[0]
     labels = examples[1]
     labels = np.array(labels)

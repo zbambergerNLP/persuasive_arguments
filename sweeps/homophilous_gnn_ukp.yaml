@@ -20,13 +20,13 @@ parameters:
   rounds_between_evals:
     value: 1
   debug:
-    value: ""
+    value: "False"
   use_k_fold_cross_validation:
-    value: ""
+    value: "False"
   hetro:
-    value: ""
-  use_max_pooling:
-    values: [ "", "True" ]
+    value: "False"
+  aggregation_type:
+    values: [ "super_node", "avg_pooling", "max_pooling" ]
   model:
     values: [ "SAGE", "GAT", "GCN" ]
   encoder_type:

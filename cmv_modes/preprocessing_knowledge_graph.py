@@ -241,7 +241,15 @@ def create_original_post_plus_reply_dataset_ukp(
     original_post_plus_reply = tuple([original_post_content, reply_text])
     return original_post_plus_reply
 
-def create_simple_bert_inputs_ukp(debug: bool = False) -> tuple[list[Sequence[tuple[str, str]]], list[int]]:
+
+def create_simple_bert_inputs_ukp(
+        debug: bool = False) -> (
+        typing.Tuple[
+            typing.List[
+                Sequence[typing.Tuple[str, str]]
+            ],
+            typing.List[int]
+        ]):
     """
     Create input to BERT by taking relevant text from each ann file.
     :param debug: A boolean denoting whether or not we are in debug mode (in which our input dataset is
@@ -262,6 +270,7 @@ def create_simple_bert_inputs_ukp(debug: bool = False) -> tuple[list[Sequence[tu
                     if len(labels) >= 5:
                         break
     return dataset, labels
+
 #######################################################
 ### Pre-Processing Inputs for Graph Neural Networks ###
 #######################################################

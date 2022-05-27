@@ -7,6 +7,7 @@ import torch
 import os
 import re
 import constants
+import argparse
 
 
 # TODO: Create a function to count the number of examples associated with each label.
@@ -25,6 +26,73 @@ def set_seed(seed: int = 42):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+def create_gnn_run_and_model_names(encoder_type: str,
+                                   use_hetero_graph: bool,
+                                   graph_convolution_type: str,
+                                   use_super_node: bool,
+                                   use_max_pooling: bool,
+                                   dataset_name: str,
+                                   validation_split_index: int,
+                                   learning_rate: float,
+                                   scheduler_gamma: float,
+                                   gcn_hidden_layer_dim: typing.List[int],
+                                   weight_decay: float,
+                                   dropout_probability: float,
+                                   positive_example_weight: int,
+                                   seed: int) -> typing.Tuple[str, str, str]:
+    """
+
+    :param encoder_type:
+    :param use_hetero_graph:
+    :param graph_convolution_type:
+    :param use_max_pooling:
+    :param dataset_name:
+    :param validation_split_index:
+    :param learning_rate:
+    :param scheduler_gamma:
+    :param gcn_hidden_layer_dim:
+    :param weight_decay:
+    :return:
+    """
+    model_name = f"{encoder_type}_" \
+                 f"{'hetero' if use_hetero_graph else 'homophealous'}_{graph_convolution_type}"
+    if use_super_node:
+        model_name = f"{model_name}_supernode"
+    else:
+        model_name = f"{model_name}_{'max' if use_max_pooling else 'average'}_pooling"
+    group_name = f"{model_name} {dataset_name}"
+    group_name = f"{group_name} (" \
+                 f"lr: {learning_rate}, " \
+                 f"seed {seed}, " \
+                 f"gamma: {scheduler_gamma}, " \
+                 f"af_w: {positive_example_weight}, " \
+                 f"dropout: {dropout_probability}, " \
+                 f"hd: {gcn_hidden_layer_dim}, " \
+                 f"wd: {weight_decay})"
+    run_name = f"{group_name} [{validation_split_index}]"
+    return model_name, group_name, run_name
+
+
+def str2bool(value: str) -> bool:
+    """
+    Convert a string value to a boolean value.
+
+    Possible strings equivalent to true boolean values: {"yes", "true", "t", "y", "1"}.
+    Possible strings equivalent to false boolean values: {"no", "false", "f", "n", "0"}.
+
+    :param value: A string value potentially representing a boolean.
+    :return: The boolean equivalent of the string value provided (if such a conversion is possible).
+    """
+    if isinstance(value, bool):
+        return value
+    if value.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif value.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
 def ensure_dir_exists(directory: str):

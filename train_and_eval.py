@@ -17,7 +17,7 @@ import metrics
 import utils
 import wandb
 from data_loaders import CMVKGDataset, CMVKGHetroDataset, CMVKGHetroDatasetEdges, UKPDataset
-from models import HomophiliousGNN, HGT, HeteroGNN
+from models import HomophiliousGNN, HeteroGNN
 import constants
 import argparse
 from tqdm import tqdm
@@ -38,11 +38,11 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --rounds_between_evals 1 \
     --model "GAT" \
     --encoder_type "sbert" \
-    --debug "" \
-    --hetro "" \
+    --debug "false" \
+    --hetro "false" \
+    --aggregation_type "super_node" \
     --hetero_type "nodes" \
-    --use_max_pooling "True" \
-    --use_k_fold_cross_validation True \
+    --use_k_fold_cross_validation "true" \
     --num_cross_validation_splits 5 \
     --seed 42 \
     --dropout_probability 0.3 \
@@ -63,8 +63,8 @@ parser.add_argument('--encoder_type',
                     help="The model used to both tokenize and encode the textual context of argumentative "
                          "prepositions.")
 parser.add_argument('--hetro',
-                    type=bool,
-                    default=False,
+                    type=str,
+                    default="False",
                     help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--hetero_type',
                     type=str,
@@ -105,24 +105,20 @@ parser.add_argument('--rounds_between_evals',
                     default=1,
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
-                    type=bool,
-                    default=True,
+                    type=str,
+                    default="True",
                     help="Work in debug mode")
-parser.add_argument('--use_max_pooling',
-                    type=bool,
-                    default=False,
-                    help="if True use max pooling in GNN else use average pooling")
-parser.add_argument('--use_super_node',
-                    type=bool,
-                    default=True,
-                    help="if True use super node data loader and GNN architecture else use global pooling")
+parser.add_argument('--aggregation_type',
+                    type=str,
+                    default='super_node',
+                    help='The name of the aggregation method for GNN classification.')
 parser.add_argument('--model',
                     type=str,
                     default='GAT',
                     help="chose which model to run with the options are: GCN, GAT , SAGE")
 parser.add_argument('--use_k_fold_cross_validation',
-                    type=bool,
-                    default=False,
+                    type=str,
+                    default="False",
                     help="True if we intend to perform cross validation on the dataset. False otherwise. Using this"
                          "option is advised if the dataset is small.")
 parser.add_argument('--num_cross_validation_splits',
@@ -219,10 +215,16 @@ def train(model: torch.nn.Module,
                 batch = None
                 if args.hetero_type == constants.EDGES:
                     batch = sampled_data[constants.NODE].batch
-                out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
+                out = model.forward(
+                    x_dict=sampled_data.x_dict,
+                    edge_index_dict=sampled_data.edge_index_dict,
+                    device=device)
             else:
                 y = sampled_data.y
-                out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
+                out = model.forward(x=sampled_data.x,
+                                    edge_index=sampled_data.edge_index,
+                                    batch=sampled_data.batch,
+                                    device=device)
             preds = torch.argmax(out, dim=1)
             y_one_hot = F.one_hot(y, 2)
             loss = F.cross_entropy(out.float(), y_one_hot.float().to(device), weight=weights.to(device))
@@ -255,10 +257,16 @@ def train(model: torch.nn.Module,
                     y = find_labels_for_batch(batch_data=sampled_data)
                     if args.hetero_type == constants.EDGES:
                         batch = sampled_data[constants.NODE].batch
-                    out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
+                    out = model.forward(
+                        x_dict=sampled_data.x_dict,
+                        edge_index_dict=sampled_data.edge_index_dict,
+                        device=device)
                 else:
                     y = sampled_data.y
-                    out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
+                    out = model.forward(x=sampled_data.x,
+                                        edge_index=sampled_data.edge_index,
+                                        batch=sampled_data.batch,
+                                        device=device)
                 preds = torch.argmax(out, dim=1)
                 y_one_hot = F.one_hot(y, 2)
                 loss = F.cross_entropy(out.float(), y_one_hot.float().to(device), weight=weights.to(device))
@@ -321,10 +329,16 @@ def evaluate(
                 y = find_labels_for_batch(batch_data=sampled_data)
                 if args.hetero_type == constants.EDGES:
                     batch = sampled_data[constants.NODE].batch
-                out = model(sampled_data.x_dict, sampled_data.edge_index_dict)
-            else:
+                out = model.forward(
+                    x_dict=sampled_data.x_dict,
+                    edge_index_dict=sampled_data.edge_index_dict,
+                    device=device)
+            else:  # Homophilous GNN
                 y = sampled_data.y
-                out = model(sampled_data.x, sampled_data.edge_index, sampled_data.batch)
+                out = model.forward(x=sampled_data.x,
+                                    edge_index=sampled_data.edge_index,
+                                    batch=sampled_data.batch,
+                                    device=device)
             preds = torch.argmax(out, dim=1).cpu()
             preds_list.append(preds)
             targets_list.append(y.cpu())
@@ -382,7 +396,6 @@ def create_dataloaders_for_k_fold_cross_validation(
     return dl_train, dl_val, dl_test
 
 
-
 def create_dataloaders(graph_dataset: Dataset,
                        batch_size: int,
                        val_percent: float,
@@ -428,14 +441,20 @@ def create_dataloaders(graph_dataset: Dataset,
 
 if __name__ == '__main__':
     args = parser.parse_args()
+
     assert args.encoder_type in {"bert", "sbert"}
+    assert args.aggregation_type in {"super_node", "avg_pooling", "max_pooling"}
+
     num_classes = 2
     hetero_type = args.hetero_type
-    hetero = args.hetro
+    hetero = utils.str2bool(args.hetro)
+
+    use_max_pooling = args.aggregation_type == "max_pooling"
+    use_super_node = args.aggregation_type == "super_node"
+
     args_dict = vars(args)
     for parameter, value in args_dict.items():
         print(f'{parameter}: {value}')
-
     utils.set_seed(args.seed)
     num_node_features = constants.BERT_HIDDEN_DIM
     current_path = os.getcwd()
@@ -466,7 +485,7 @@ if __name__ == '__main__':
                 kg_dataset = CMVKGHetroDataset(
                     current_path + "/cmv_modes/change-my-view-modes-master",
                     version=constants.v2_path,
-                    debug=args.debug)
+                    debug=utils.str2bool(args.debug))
                 torch.save(kg_dataset, os.path.join(dir_name, 'hetro_dataset.pt'))
         elif hetero_type == constants.EDGES:
             if os.path.exists(os.path.join(dir_name, 'hetro_edges_dataset.pt')):
@@ -475,30 +494,28 @@ if __name__ == '__main__':
                 kg_dataset = CMVKGHetroDatasetEdges(
                     current_path + "/cmv_modes/change-my-view-modes-master",
                     version=constants.v2_path,
-                    debug=args.debug)
+                    debug=utils.str2bool(args.debug))
                 torch.save(kg_dataset, os.path.join(dir_name, 'hetro_edges_dataset.pt'))
         data = kg_dataset[2]
-
-        # print('Converting model to hetero')
-        # model = to_hetero(model, data.metadata(), aggr='sum')
-        # model = to_hetero_with_bases(model, data.metadata(), num_bases=1)
 
     else:
         print(f'initializing homophealous {args.data} dataset')
         if args.data == constants.CMV:
-            file_name = f'cmv_{args.encoder_type}_super_{args.use_super_node}_homophelous_dataset.pt'
+            file_name = f'cmv_{args.encoder_type}_' \
+                        f'{"supernode_" if use_super_node else ""}_' \
+                        f'homophelous_dataset.pt'
             if os.path.exists(os.path.join(dir_name, file_name)):
                 kg_dataset = torch.load(os.path.join(dir_name, file_name))
             else:
                 kg_dataset = CMVKGDataset(
                     current_path + "/cmv_modes/change-my-view-modes-master",
                     version=constants.v2_path,
-                    debug=args.debug,
+                    debug=utils.str2bool(args.debug),
                     model_name=(
                         constants.BERT_BASE_CASED if args.encoder_type == 'bert'
                         else "sentence-transformers/all-distilroberta-v1"
                     ),
-                    super_node=args.use_super_node
+                    super_node=use_super_node,
                 )
                 torch.save(kg_dataset, os.path.join(dir_name, file_name))
         elif args.data == constants.UKP:
@@ -506,9 +523,7 @@ if __name__ == '__main__':
             if os.path.exists(os.path.join(dir_name, file_name)):
                 kg_dataset = torch.load(os.path.join(dir_name, file_name))
             else:
-                kg_dataset = UKPDataset(
-                    constants.UKP_DIR,
-                    debug=args.debug)
+                kg_dataset = UKPDataset(constants.UKP_DIR)
                 torch.save(kg_dataset, os.path.join(dir_name, file_name))
 
     num_of_examples = len(kg_dataset.dataset)
@@ -518,28 +533,23 @@ if __name__ == '__main__':
     hidden_dim = list(map(int, args.gcn_hidden_layer_dim.split(" ")))
 
     if hetero:
-        # model = HGT(hidden_channels=hidden_dim,
-        #             out_channels=num_classes,
-        #             hetero_metadata=data.metadata(),
-        #             use_max_pooling=args.use_max_pooling)
-        model = HeteroGNN(hidden_channels=hidden_dim, out_channels=num_classes,hetero_metadata=data.metadata(),conv_type=args.model,
+        model = HeteroGNN(hidden_channels=hidden_dim,
+                          out_channels=num_classes,
+                          hetero_metadata=data.metadata(),
+                          conv_type=args.model,
                           encoder_type=args.encoder_type,
-                         dropout_prob=args.dropout_probability)
+                          dropout_prob=args.dropout_probability)
     else:
         model = HomophiliousGNN(hidden_channels=hidden_dim,
                                 out_channels=num_classes,
                                 conv_type=args.model,
-                                use_max_pooling=args.use_max_pooling,
-                                super_node=args.use_super_node,
+                                use_max_pooling=use_max_pooling,
+                                super_node=use_super_node,
                                 encoder_type=args.encoder_type,
                                 dropout_prob=args.dropout_probability)
     # TODO: Create functions which generate model, experiment, and run names for wandb given the relevant parameters
     #  provided via flags.
-    model_name = f"{args.encoder_type}_encoder_" \
-                 f"{'heterophelous' if args.hetro else 'homophealous'}_{args.model}_" \
-                 f"{'max' if args.use_max_pooling else 'average'}_pooling"
-
-    if args.use_k_fold_cross_validation:
+    if utils.str2bool(args.use_k_fold_cross_validation):
         train_metrics = []
         validation_metrics = []
         test_metrics = []
@@ -557,14 +567,26 @@ if __name__ == '__main__':
                 lr=args.learning_rate,
                 weight_decay=args.weight_decay)
             scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.scheduler_gamma)
+            model_name, group_name, run_name = utils.create_gnn_run_and_model_names(
+                encoder_type=args.encoder_type,
+                use_hetero_graph=utils.str2bool(args.hetro),
+                graph_convolution_type=args.model,
+                use_max_pooling=use_max_pooling,
+                dataset_name=args.data,
+                validation_split_index=args.fold_index,
+                learning_rate=args.learning_rate,
+                scheduler_gamma=args.scheduler_gamma,
+                gcn_hidden_layer_dim=args.gcn_hidden_layer_dim,
+                weight_decay=args.weight_decay,
+                dropout_probability=args.dropout_probability,
+                use_super_node=use_super_node,
+                positive_example_weight=args.positive_example_weight,
+                seed=args.seed,
+            )
             run = wandb.init(project="persuasive_arguments",
                              entity="persuasive_arguments",
                              config=args,
-                             name=f"{model_name} {args.data} (split: #{validation_split_index + 1}, "
-                                  f"lr: {args.learning_rate}, "
-                                  f"gamma: {args.scheduler_gamma}, "
-                                  f"hidden_dim: {args.gcn_hidden_layer_dim}, "
-                                  f"weight_decay: {args.weight_decay})",
+                             name=run_name,
                              reinit=True)
             model = train(model=model,
                           training_loader=dl_train,
@@ -635,20 +657,29 @@ if __name__ == '__main__':
 
         # The experiment names are unique within a sweep. Each experiment consists of k runs, where k is the number
         # of k-fold cross validation folds. These k runs within each experiment are grouped.
-        experiment_name = f"{model_name} " \
-                          f"(seed: #{args.seed}, " \
-                          f"lr: {args.learning_rate}, " \
-                          f"gamma: {args.scheduler_gamma}, " \
-                          f"h_d: {args.gcn_hidden_layer_dim}, " \
-                          f"af_w: {args.positive_example_weight}, " \
-                          f"w_d: {args.weight_decay})"
+        model_name, group_name, run_name = utils.create_gnn_run_and_model_names(
+            encoder_type=args.encoder_type,
+            use_hetero_graph=utils.str2bool(args.hetro),
+            graph_convolution_type=args.model,
+            use_max_pooling=use_max_pooling,
+            dataset_name=args.data,
+            validation_split_index=args.fold_index,
+            learning_rate=args.learning_rate,
+            scheduler_gamma=args.scheduler_gamma,
+            gcn_hidden_layer_dim=args.gcn_hidden_layer_dim,
+            weight_decay=args.weight_decay,
+            dropout_probability=args.dropout_probability,
+            use_super_node=use_super_node,
+            positive_example_weight=args.positive_example_weight,
+            seed=args.seed,
+        )
 
         wandb.init(
             project="persuasive_arguments",
             entity="persuasive_arguments",
-            group=experiment_name,
+            group=group_name,
             config=args,
-            name=f"{experiment_name} [{args.fold_index}]",
+            name=run_name,
             dir='.')
         config = wandb.config
         model = train(model=model,
