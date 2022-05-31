@@ -55,7 +55,7 @@ parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--data',
                     type=str,
-                    default='CMV',
+                    default='UKP',
                     help="Defines which database to use CMV or UKP")
 parser.add_argument('--encoder_type',
                     type=str,
@@ -111,7 +111,7 @@ parser.add_argument('--debug',
 parser.add_argument('--aggregation_type',
                     type=str,
                     default='super_node',
-                    help='The name of the aggregation method for GNN classification.')
+                    help='The name of the aggregation method for GNN classification. Options: super_node, max_pooling, avg_pooling')
 parser.add_argument('--model',
                     type=str,
                     default='GAT',
@@ -468,7 +468,7 @@ if __name__ == '__main__':
     if args.data == constants.CMV:
         dir_name = os.path.join(current_path, "cmv_modes", "knowledge_graph_datasets")
     elif args.data == constants.UKP:
-        dir_name = constants.UKP
+        dir_name = os.path.join(current_path, constants.UKP)
     else:
         raise Exception(f'{args.data} not implemented')
 
@@ -476,7 +476,7 @@ if __name__ == '__main__':
 
     # TODO: Remove code duplication below by creating helper functions (either in this file or utils.py).
 
-    if hetero:
+    if hetero: #Todo add and option for hetero and UKP
         print('Initializing heterophealous dataset')
         if hetero_type == constants.NODES:
             if os.path.exists(os.path.join(dir_name, 'hetro_dataset.pt')):
@@ -520,10 +520,16 @@ if __name__ == '__main__':
                 torch.save(kg_dataset, os.path.join(dir_name, file_name))
         elif args.data == constants.UKP:
             file_name = f'ukp_{args.encoder_type}_homophelous_dataset.pt'
+
             if os.path.exists(os.path.join(dir_name, file_name)):
                 kg_dataset = torch.load(os.path.join(dir_name, file_name))
             else:
-                kg_dataset = UKPDataset(constants.UKP_DIR)
+                kg_dataset = UKPDataset(model_name=(
+                        constants.BERT_BASE_CASED if args.encoder_type == 'bert'
+                        else "sentence-transformers/all-distilroberta-v1"
+                    ),
+                debug=args.debug,
+                super_node=use_super_node)
                 torch.save(kg_dataset, os.path.join(dir_name, file_name))
 
     num_of_examples = len(kg_dataset.dataset)

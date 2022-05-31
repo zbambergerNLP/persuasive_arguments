@@ -384,7 +384,9 @@ class UKPDataset(torch.utils.data.Dataset):
 
     """
     def __init__(self,
-                 debug: bool = False):
+                 model_name: str = constants.BERT_BASE_CASED,
+                 debug: bool = False,
+                 super_node: bool = False):
         """
 
         :param directory_path: The string path to the 'change-my-view-modes-master' directory, which contains versions
@@ -394,7 +396,8 @@ class UKPDataset(torch.utils.data.Dataset):
         """
         self.dataset = []
         self.labels = []
-
+        self.model_name = model_name
+        self.super_node = super_node
         for file_name in tqdm(os.listdir(constants.UKP_DATA)):
             if file_name.endswith(constants.ANN):
                 examples = self.make_op_reply_graphs(file_name=file_name)
@@ -417,9 +420,15 @@ class UKPDataset(torch.utils.data.Dataset):
         :param index:
         :return:
         """
+
         bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
                                 f'id_to_{constants.TOKEN_TYPE_IDS}',
                                 f'id_to_{constants.ATTENTION_MASK}']
+
+        # SBERT does not consider two inputs in the way BERT does, so the "token type ID" input is not necessary.
+        if self.model_name == "sentence-transformers/all-distilroberta-v1":
+            bert_input_key_names.pop(1)
+
         formatted_bert_inputs = {}
         for input_name in bert_input_key_names:
             formatted_bert_inputs[input_name] = torch.cat(
@@ -427,7 +436,27 @@ class UKPDataset(torch.utils.data.Dataset):
                 dim=1,
             )
         stacked_bert_inputs = torch.stack([t for t in formatted_bert_inputs.values()], dim=1)
-        return Data(x=stacked_bert_inputs.T,
+
+        if self.super_node:
+            # add super node first
+            super_node_embedding = torch.empty(stacked_bert_inputs[:, :, 0].shape).unsqueeze(dim=2)
+            super_node_embedding.data.uniform_(-constants.initial_range, constants.initial_range).long()
+            stacked_bert_inputs = torch.concat((super_node_embedding, stacked_bert_inputs), dim=2)
+
+            # add edges from all nodes to the super node
+            edges = self.dataset[index][constants.EDGES]
+            edges = torch.tensor(edges) + 1
+            new_edges = torch.concat((torch.tensor(
+                range(1, len(self.dataset[index][constants.INDEX_TO_ID]) + 1)).unsqueeze(dim=1),
+                                      torch.zeros((len(self.dataset[index][constants.INDEX_TO_ID]), 1))), dim=1)
+
+            edges = torch.concat((edges, new_edges))
+            return Data(x=stacked_bert_inputs.T,
+                        edge_index=torch.tensor(edges, dtype=torch.long).T,
+                        y=torch.tensor(self.labels[index]))
+
+        else:
+            return Data(x=stacked_bert_inputs.T,
                     edge_index=torch.tensor(self.dataset[index]['edges']).T,
                     y=torch.tensor(self.labels[index]))
 

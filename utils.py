@@ -75,6 +75,7 @@ def create_gnn_run_and_model_names(encoder_type: str,
     return model_name, group_name, run_name
 
 
+
 def str2bool(value: str) -> bool:
     """
     Convert a string value to a boolean value.

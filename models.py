@@ -544,6 +544,7 @@ class HomophiliousGNN(torch.nn.Module):
         self.max_pooling = use_max_pooling
         self.super_node = super_node
 
+
     def forward(self,
                 x,
                 edge_index,
