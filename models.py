@@ -634,6 +634,7 @@ class HeteroGNN(torch.nn.Module):
         for node_type in self.node_types:
             self.lin_dict[node_type] = Linear(constants.BERT_HIDDEN_DIM, hidden_channels[0])
 
+
         self.convs = torch.nn.ModuleList()
         self.dropouts = torch.nn.ModuleList()
         for i in range(1, len(hidden_channels)):
@@ -675,13 +676,20 @@ class HeteroGNN(torch.nn.Module):
         :return:
         """
         for node_type, x in x_dict.items():
-            input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
-            bert_outputs = self.bert_model(
-                input_ids=torch.squeeze(input_ids, dim=1).long(),
-                token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
-                attention_mask=torch.squeeze(attention_mask, dim=1).long(),
-            )
-            x = bert_outputs['last_hidden_state'][:, 0, :]
+            if self.encoder_type == 'sbert':
+                input_ids, attention_mask = torch.hsplit(x, sections=2)
+                x = self.bert_model({
+                    constants.INPUT_IDS: torch.squeeze(input_ids, dim=1).long(),
+                    constants.ATTENTION_MASK: torch.squeeze(attention_mask, dim=1).long()})['sentence_embedding']
+            else:
+                input_ids, token_type_ids, attention_mask = torch.hsplit(x, sections=3)
+                bert_outputs = self.bert_model(
+                    input_ids=torch.squeeze(input_ids, dim=1).long(),
+                    token_type_ids=torch.squeeze(token_type_ids, dim=1).long(),
+                    attention_mask=torch.squeeze(attention_mask, dim=1).long(),
+                )
+                x = bert_outputs['last_hidden_state'][:, 0, :]
+
             x_dict[node_type] = self.lin_dict[node_type](x).relu_()
 
         for i, conv in enumerate(self.convs):

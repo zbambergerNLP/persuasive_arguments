@@ -138,6 +138,7 @@ NODE = "node"
 NODES = 'nodes'
 PREMISE = "premise"
 CLAIM = "claim"
+MAJOR_CLAIM = "MajorClaim"
 TYPE = "type"
 REPLY = 'reply'
 REFERENCE = 'ref'

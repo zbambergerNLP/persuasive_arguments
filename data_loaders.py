@@ -207,7 +207,7 @@ class CMVKGHetroDataset(CMVKGDataset):
         super(CMVKGHetroDataset, self).__init__(directory_path=directory_path, version=version, debug=debug)
 
     @staticmethod
-    def calc_bert_inputs(dataset_values, relevant_ids=None):
+    def calc_bert_inputs(dataset_values, model_name,relevant_ids=None):
         """
 
         :param dataset_values:
@@ -219,6 +219,12 @@ class CMVKGHetroDataset(CMVKGDataset):
         bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
                                 f'id_to_{constants.TOKEN_TYPE_IDS}',
                                 f'id_to_{constants.ATTENTION_MASK}']
+
+
+        # SBERT does not consider two inputs in the way BERT does, so the "token type ID" input is not necessary.
+        if model_name == "sentence-transformers/all-distilroberta-v1":
+            bert_input_key_names.pop(1)
+
         formatted_bert_inputs = {}
         for input_name in bert_input_key_names:
             for key in dataset_values[input_name]:
@@ -264,7 +270,8 @@ class CMVKGHetroDataset(CMVKGDataset):
         edge_list = torch.concat((edge_to_add, edge_list), dim=1)
         return edge_list
 
-    def add_super_node_edges(self, num_of_nodes):
+    @staticmethod
+    def add_super_node_edges(num_of_nodes):
         edge_list = []
         for n in range(num_of_nodes):
             edge_list.append([n,0])
@@ -282,8 +289,8 @@ class CMVKGHetroDataset(CMVKGDataset):
             else:
                 raise Exception("unknown value = " + key)
 
-        stacked_bert_inputs_claim = self.calc_bert_inputs(self.dataset[index], claim_list)
-        stacked_bert_inputs_premise = self.calc_bert_inputs(self.dataset[index], premise_list)
+        stacked_bert_inputs_claim = self.calc_bert_inputs(self.dataset[index], model_name=self.model_name, relevant_ids=claim_list)
+        stacked_bert_inputs_premise = self.calc_bert_inputs(self.dataset[index], model_name=self.model_name, relevant_ids=premise_list)
 
         claim_claim_e = []
         claim_premise_e = []
@@ -346,7 +353,7 @@ class CMVKGHetroDatasetEdges(CMVKGHetroDataset):
         super(CMVKGHetroDatasetEdges, self).__init__(directory_path=directory_path, version=version, debug=debug)
 
     def __getitem__(self, index: int):
-        stacked_bert_inputs = self.calc_bert_inputs(self.dataset[index])
+        stacked_bert_inputs = self.calc_bert_inputs(self.dataset[index],model_name=self.model_name)
 
         support_e = []
         attack_e = []
@@ -402,8 +409,7 @@ class UKPDataset(torch.utils.data.Dataset):
             if file_name.endswith(constants.ANN):
                 examples = self.make_op_reply_graphs(file_name=file_name)
                 examples = create_bert_inputs([examples],
-                                              tokenizer=transformers.BertTokenizer.from_pretrained(
-                                                  constants.BERT_BASE_CASED))
+                                   tokenizer=transformers.AutoTokenizer.from_pretrained(model_name))
                 self.dataset.extend(examples)
                 example_label = find_label_ukp(file_name)
                 self.labels.append(example_label)
@@ -476,13 +482,24 @@ class UKPDataset(torch.utils.data.Dataset):
         id_to_idx = {constants.TITLE: 0}
         id_to_text = {constants.TITLE: op_txt}
         id_to_node_type = {constants.TITLE: constants.CLAIM}
+        id_to_node_sub_type ={constants.TITLE: constants.CLAIM}
+
+
+        claim_types = ['Claim', 'MajorClaim']
+        premise_types = ['Premise']
+
+
 
         for i, item in enumerate(d[constants.ENTITIES]):
             node_idx = i + 1
             id_to_idx[item] = node_idx
             id_to_text[item] = d[constants.ENTITIES][item].data
-            id_to_node_type[item] = d[constants.ENTITIES][item].type
+            id_to_node_sub_type[item] = d[constants.ENTITIES][item].type
+            id_to_node_type[item] =  constants.CLAIM if d[constants.ENTITIES][item].type  in claim_types else constants.PREMISE if d[constants.ENTITIES][item].type  in premise_types else d[constants.ENTITIES][item].type
 
+            if d[constants.ENTITIES][item].type not in claim_types:
+                if d[constants.ENTITIES][item].type not in premise_types:
+                    raise NotImplementedError(f'{d[constants.ENTITIES][item].type}')
         idx_to_id = {value: key for key, value in id_to_idx.items()}
 
         # Get edges
@@ -505,9 +522,85 @@ class UKPDataset(torch.utils.data.Dataset):
             constants.ID_TO_INDEX: id_to_idx,
             constants.ID_TO_TEXT: id_to_text,
             constants.ID_TO_NODE_TYPE: id_to_node_type,
-            constants.ID_TO_NODE_SUB_TYPE: {},  # No subtypes in UKP database
+            constants.ID_TO_NODE_SUB_TYPE: id_to_node_sub_type,  # No subtypes in UKP database
             constants.INDEX_TO_ID: idx_to_id,
             constants.EDGES: edges,
             constants.EDGES_TYPES: edges_types
         }
         return result
+
+
+class UKPHetroDataset(UKPDataset):
+    def __init__(self,
+                 model_name: str = constants.BERT_BASE_CASED,
+                 debug: bool = False,
+                 super_node: bool = False):
+        super(UKPHetroDataset, self).__init__(model_name=model_name, debug=debug, super_node=super_node)
+
+
+    def __getitem__(self, index: int) -> HeteroData:
+        claim_list = []
+        premise_list = []
+        for key in self.dataset[index][constants.ID_TO_NODE_TYPE]:
+            if self.dataset[index][constants.ID_TO_NODE_TYPE][key] == constants.CLAIM:
+                claim_list.append(self.dataset[index][constants.ID_TO_INDEX][key])
+            elif self.dataset[index][constants.ID_TO_NODE_TYPE][key] == constants.PREMISE:
+                premise_list.append(self.dataset[index][constants.ID_TO_INDEX][key])
+            else:
+                raise Exception("unknown value = " + key)
+
+        stacked_bert_inputs_claim = CMVKGHetroDataset.calc_bert_inputs(self.dataset[index],model_name=self.model_name,relevant_ids=claim_list)
+        stacked_bert_inputs_premise = CMVKGHetroDataset.calc_bert_inputs(self.dataset[index],model_name=self.model_name,relevant_ids=premise_list)
+
+        claim_claim_e = []
+        claim_premise_e = []
+        premise_premise_e = []
+        premise_claim_e = []
+        for e in self.dataset[index][constants.EDGES]:
+            idx_out = e[0]
+            idx_in = e[1]
+            id_out = self.dataset[index][constants.INDEX_TO_ID][idx_out]
+            id_in = self.dataset[index][constants.INDEX_TO_ID][idx_in]
+
+            if self.dataset[index][constants.ID_TO_NODE_TYPE][id_out] == constants.CLAIM:
+                if self.dataset[index][constants.ID_TO_NODE_TYPE][id_in] == constants.CLAIM:
+                    claim_claim_e.append(CMVKGHetroDataset.rearrange_edge_index(claim_list, claim_list, idx_out, idx_in))
+                elif self.dataset[index][constants.ID_TO_NODE_TYPE][id_in] == constants.PREMISE:
+                    claim_premise_e.append(CMVKGHetroDataset.rearrange_edge_index(claim_list, premise_list, idx_out, idx_in))
+                else:
+                    raise Exception(f'not implemented')
+            elif self.dataset[index][constants.ID_TO_NODE_TYPE][id_out] == constants.PREMISE:
+                if self.dataset[index][constants.ID_TO_NODE_TYPE][id_in] == constants.CLAIM:
+                    premise_claim_e.append(CMVKGHetroDataset.rearrange_edge_index(premise_list, claim_list, idx_out, idx_in))
+                elif self.dataset[index][constants.ID_TO_NODE_TYPE][id_in] == constants.PREMISE:
+                    premise_premise_e.append(CMVKGHetroDataset.rearrange_edge_index(premise_list, premise_list, idx_out, idx_in))
+                else:
+                    raise Exception(f'not implemented')
+
+        # Add 2 claim node and 2 premise node
+        two_empty_nodes = torch.concat(
+            (torch.zeros_like(stacked_bert_inputs_claim[:, :, 0]).unsqueeze(dim=2),
+             torch.zeros_like(stacked_bert_inputs_claim[:, :, 0]).unsqueeze(dim=2)),
+            dim=2)
+        stacked_bert_inputs_claim = torch.concat((two_empty_nodes, stacked_bert_inputs_claim), dim=2)
+        stacked_bert_inputs_premise = torch.concat((two_empty_nodes, stacked_bert_inputs_premise), dim=2)
+
+        data = HeteroData()
+
+        data[constants.CLAIM].x = stacked_bert_inputs_claim.T.long()
+        data[constants.CLAIM].y = [self.labels[index]] * data[constants.CLAIM].x.shape[0]
+        data[constants.PREMISE].x = stacked_bert_inputs_premise.T.long()
+        data[constants.PREMISE].y = [self.labels[index]] * data[constants.PREMISE].x.shape[0]
+
+
+        data[constants.SUPER_NODE].x = torch.empty(stacked_bert_inputs_claim[:, :, 0].shape).unsqueeze(dim=2).T
+        data[constants.SUPER_NODE].x.data.uniform_(-constants.initial_range, constants.initial_range).long()
+        data[constants.SUPER_NODE].y = [self.labels[index]] * data[constants.SUPER_NODE].x.shape[0]
+
+        data[constants.CLAIM, constants.RELATION, constants.CLAIM].edge_index = CMVKGHetroDataset.convert_edge_indexes(claim_claim_e)
+        data[constants.CLAIM, constants.RELATION, constants.PREMISE].edge_index = CMVKGHetroDataset.convert_edge_indexes(claim_premise_e)
+        data[constants.PREMISE, constants.RELATION, constants.CLAIM].edge_index = CMVKGHetroDataset.convert_edge_indexes(premise_claim_e)
+        data[constants.PREMISE, constants.RELATION, constants.PREMISE].edge_index = CMVKGHetroDataset.convert_edge_indexes(premise_premise_e)
+        data[constants.PREMISE, constants.RELATION, constants.SUPER_NODE].edge_index = CMVKGHetroDataset.add_super_node_edges(len(premise_list))
+        data[constants.CLAIM, constants.RELATION, constants.SUPER_NODE].edge_index = CMVKGHetroDataset.add_super_node_edges(len(claim_list))
+        return data

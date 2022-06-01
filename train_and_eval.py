@@ -16,7 +16,7 @@ import torch_geometric.loader as geom_data
 import metrics
 import utils
 import wandb
-from data_loaders import CMVKGDataset, CMVKGHetroDataset, CMVKGHetroDatasetEdges, UKPDataset
+from data_loaders import CMVKGDataset, CMVKGHetroDataset, CMVKGHetroDatasetEdges, UKPDataset, UKPHetroDataset
 from models import HomophiliousGNN, HeteroGNN
 import constants
 import argparse
@@ -25,7 +25,7 @@ from tqdm import tqdm
 """
 Example command:
 srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
-    --data CMV \
+    --data UKP \
     --num_epochs 30 \
     --batch_size 16 \
     --learning_rate 1e-3 \
@@ -39,7 +39,7 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --model "GAT" \
     --encoder_type "sbert" \
     --debug "false" \
-    --hetro "false" \
+    --hetro "true" \
     --aggregation_type "super_node" \
     --hetero_type "nodes" \
     --use_k_fold_cross_validation "true" \
@@ -62,9 +62,9 @@ parser.add_argument('--encoder_type',
                     default='bert',
                     help="The model used to both tokenize and encode the textual context of argumentative "
                          "prepositions.")
-parser.add_argument('--hetro',
+parser.add_argument('--hetero',
                     type=str,
-                    default="False",
+                    default="True",
                     help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--hetero_type',
                     type=str,
@@ -106,7 +106,7 @@ parser.add_argument('--rounds_between_evals',
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
                     type=str,
-                    default="True",
+                    default="False",
                     help="Work in debug mode")
 parser.add_argument('--aggregation_type',
                     type=str,
@@ -447,7 +447,7 @@ if __name__ == '__main__':
 
     num_classes = 2
     hetero_type = args.hetero_type
-    hetero = utils.str2bool(args.hetro)
+    hetero = utils.str2bool(args.hetero)
 
     use_max_pooling = args.aggregation_type == "max_pooling"
     use_super_node = args.aggregation_type == "super_node"
@@ -473,21 +473,35 @@ if __name__ == '__main__':
         raise Exception(f'{args.data} not implemented')
 
     utils.ensure_dir_exists(dir_name)
-
+    file_name = f'{"cmv" if args.data == constants.CMV else "ukp"}_{args.encoder_type}_' \
+                f'{"supernode" if use_super_node else ""}_' \
+                f'{"heterophelous" if args.hetero else "homophelous" }_dataset.pt'
     # TODO: Remove code duplication below by creating helper functions (either in this file or utils.py).
 
     if hetero: #Todo add and option for hetero and UKP
         print('Initializing heterophealous dataset')
         if hetero_type == constants.NODES:
-            if os.path.exists(os.path.join(dir_name, 'hetro_dataset.pt')):
-                kg_dataset = torch.load(os.path.join(dir_name, 'hetro_dataset.pt'))
+            if args.data == constants.CMV:
+                if os.path.exists(os.path.join(dir_name, file_name)):
+                    kg_dataset = torch.load(os.path.join(dir_name, file_name))
+                else:
+                    kg_dataset = CMVKGHetroDataset(
+                        current_path + "/cmv_modes/change-my-view-modes-master",
+                        version=constants.v2_path,
+                        debug=utils.str2bool(args.debug))
+                    torch.save(kg_dataset, os.path.join(dir_name, file_name))
             else:
-                kg_dataset = CMVKGHetroDataset(
-                    current_path + "/cmv_modes/change-my-view-modes-master",
-                    version=constants.v2_path,
-                    debug=utils.str2bool(args.debug))
-                torch.save(kg_dataset, os.path.join(dir_name, 'hetro_dataset.pt'))
-        elif hetero_type == constants.EDGES:
+                if os.path.exists(os.path.join(dir_name, file_name)):
+                    kg_dataset = torch.load(os.path.join(dir_name, file_name))
+                else:
+                    kg_dataset = UKPHetroDataset(model_name=(
+                        constants.BERT_BASE_CASED if args.encoder_type == 'bert'
+                        else "sentence-transformers/all-distilroberta-v1"
+                    ),
+                debug=args.debug,
+                super_node=use_super_node)
+                    torch.save(kg_dataset, os.path.join(dir_name, file_name))
+        elif hetero_type == constants.EDGES: #Todo not working
             if os.path.exists(os.path.join(dir_name, 'hetro_edges_dataset.pt')):
                 kg_dataset = torch.load(os.path.join(dir_name, 'hetro_edges_dataset.pt'))
             else:
@@ -500,10 +514,9 @@ if __name__ == '__main__':
 
     else:
         print(f'initializing homophealous {args.data} dataset')
+
         if args.data == constants.CMV:
-            file_name = f'cmv_{args.encoder_type}_' \
-                        f'{"supernode_" if use_super_node else ""}_' \
-                        f'homophelous_dataset.pt'
+
             if os.path.exists(os.path.join(dir_name, file_name)):
                 kg_dataset = torch.load(os.path.join(dir_name, file_name))
             else:
@@ -519,8 +532,6 @@ if __name__ == '__main__':
                 )
                 torch.save(kg_dataset, os.path.join(dir_name, file_name))
         elif args.data == constants.UKP:
-            file_name = f'ukp_{args.encoder_type}_homophelous_dataset.pt'
-
             if os.path.exists(os.path.join(dir_name, file_name)):
                 kg_dataset = torch.load(os.path.join(dir_name, file_name))
             else:
@@ -575,7 +586,7 @@ if __name__ == '__main__':
             scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.scheduler_gamma)
             model_name, group_name, run_name = utils.create_gnn_run_and_model_names(
                 encoder_type=args.encoder_type,
-                use_hetero_graph=utils.str2bool(args.hetro),
+                use_hetero_graph=utils.str2bool(args.hetero),
                 graph_convolution_type=args.model,
                 use_max_pooling=use_max_pooling,
                 dataset_name=args.data,
@@ -665,7 +676,7 @@ if __name__ == '__main__':
         # of k-fold cross validation folds. These k runs within each experiment are grouped.
         model_name, group_name, run_name = utils.create_gnn_run_and_model_names(
             encoder_type=args.encoder_type,
-            use_hetero_graph=utils.str2bool(args.hetro),
+            use_hetero_graph=utils.str2bool(args.hetero),
             graph_convolution_type=args.model,
             use_max_pooling=use_max_pooling,
             dataset_name=args.data,
