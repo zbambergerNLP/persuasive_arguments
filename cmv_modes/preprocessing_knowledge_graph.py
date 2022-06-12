@@ -168,6 +168,7 @@ def create_original_post_plus_reply_dataset(
     examples = []
     for reply in rep_data:
         op_copy_content = copy.deepcopy(original_post_content)
+        # TODO: Do prepositions come in order?
         prepositions = reply.find_all([constants.PREMISE, constants.CLAIM])
         reply_text = ""
         for preposition in prepositions:
@@ -241,7 +242,9 @@ def create_original_post_plus_reply_dataset_ukp(
     original_post_plus_reply = tuple([original_post_content, reply_text])
     return original_post_plus_reply
 
-def create_simple_bert_inputs_ukp(debug: bool = False) -> tuple[list[Sequence[tuple[str, str]]], list[int]]:
+
+def create_simple_bert_inputs_ukp(debug: bool = False) -> (
+        typing.Tuple[typing.List[Sequence[typing.Tuple[str, str]]], typing.List[int]]):
     """
     Create input to BERT by taking relevant text from each ann file.
     :param debug: A boolean denoting whether or not we are in debug mode (in which our input dataset is

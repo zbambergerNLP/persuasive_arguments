@@ -4,9 +4,11 @@ entity: persuasive_arguments
 project: persuasive_argumentation
 method: grid
 metric:
-  name: eval_test_accuracy
+  name: eval_validation_f1 measure
   goal: maximize
 parameters:
+  data:
+    value: "CMV"
   num_epochs:
     value: 100
   batch_size:
@@ -16,9 +18,9 @@ parameters:
   val_percent:
     value: 0.1
   use_k_fold_cross_validation:
-    value: ""
+    value: "False"
   max_num_rounds_no_improvement:
-    value: 10
+    value: 20
   metric_for_early_stopping:
     value: "accuracy"
   weight_decay:
@@ -35,3 +37,5 @@ parameters:
     value: 0.99
   dropout_probability:
     values: [0, 0.1, 0.3]
+  positive_example_weight:
+    value: 1

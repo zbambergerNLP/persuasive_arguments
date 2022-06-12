@@ -28,6 +28,43 @@ def set_seed(seed: int = 42):
     torch.backends.cudnn.benchmark = False
 
 
+def create_baseline_run_and_model_names(
+        dataset_name: str,
+        encoder_type: str,
+        positive_example_weight: int,
+        learning_rate: float,
+        scheduler_gamma: float,
+        weight_decay: float,
+        dropout_probability: float,
+        seed: int,
+        validation_split_index: int,
+) -> typing.Tuple[str, str, str]:
+    """
+
+    :param dataset_name:
+    :param encoder_type:
+    :param positive_example_weight:
+    :param learning_rate:
+    :param scheduler_gamma:
+    :param weight_decay:
+    :param dropout_probability:
+    :param seed:
+    :param validation_split_index:
+    :return:
+    """
+    model_name = f'{encoder_type}_mlp'
+    group_name = f'{model_name} {dataset_name}'
+    group_name = f"{group_name} " \
+                 f"(seed: #{seed}, " \
+                 f"loss_weight: {positive_example_weight}, " \
+                 f"lr: {learning_rate}, " \
+                 f"gamma: {scheduler_gamma}, " \
+                 f"dropout: {dropout_probability}, " \
+                 f"wd: {weight_decay})"
+    run_name = f"{group_name} [{validation_split_index}]"
+    return model_name, group_name, run_name
+
+
 def create_gnn_run_and_model_names(encoder_type: str,
                                    use_hetero_graph: bool,
                                    graph_convolution_type: str,

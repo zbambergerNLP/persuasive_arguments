@@ -4,6 +4,7 @@ import argparse
 import copy
 import math
 import os
+import random
 import typing
 
 import datasets
@@ -11,7 +12,14 @@ import torch
 import torch.nn.functional as F
 import transformers
 from sentence_transformers import SentenceTransformer
-from torch_geometric.nn import GCNConv, global_mean_pool,  GATConv, Linear, SAGEConv, global_max_pool, HeteroConv, HGTConv
+from torch.nn import CrossEntropyLoss
+from torch_geometric.nn import GCNConv
+from torch_geometric.nn import global_mean_pool
+from torch_geometric.nn import GATConv
+from torch_geometric.nn import Linear
+from torch_geometric.nn import SAGEConv
+from torch_geometric.nn import global_max_pool
+from torch_geometric.nn import HeteroConv
 import torch.nn as nn
 import numpy as np
 import tqdm
@@ -22,21 +30,25 @@ import wandb
 import constants
 import metrics
 from cmv_modes import preprocessing_knowledge_graph
+from data_loaders import create_dataloaders_for_k_fold_cross_validation
 from metrics import compute_metrics
 
 """
 Example usage: 
 srun --gres=gpu:1 -p nlp python models.py \
+    --data 'CMV'
     --num_epochs 100 \
     --batch_size 16 \
+    --positive_example_weight 1 \
     --learning_rate 1e-3 \
     --weight_decay 1e-3 \
-    --scheduler_gamma 0.9 \
+    --scheduler_gamma 0.99 \
     --test_percent 0.1 \
     --val_percent 0.1 \
     --debug '' \
-    --use_k_fold_cross_validation 'True' \
+    --use_k_fold_cross_validation 'False' \
     --num_cross_validation_splits 5 \
+    --fold_index 0 \
     --dropout_probability 0.3 \
     --encoder_type 'sbert' \
     --seed 42 
@@ -61,6 +73,10 @@ parser.add_argument('--learning_rate',
                     type=float,
                     default=1e-4,
                     help="The learning rate used by the GCN+BERT model during training.")
+parser.add_argument('--positive_example_weight',
+                    type=int,
+                    default=1,
+                    help="The weight given to positive examples in the loss function")
 parser.add_argument('--weight_decay',
                     type=float,
                     default=5e-4,
@@ -78,8 +94,8 @@ parser.add_argument('--debug',
                     default=False,
                     help="Work in debug mode")
 parser.add_argument('--use_k_fold_cross_validation',
-                    type=bool,
-                    default=False,
+                    type=str,
+                    default="False",
                     help="True if we intend to perform cross validation on the dataset. False otherwise. Using this"
                          "option is advised if the dataset is small.")
 parser.add_argument('--max_num_rounds_no_improvement',
@@ -544,7 +560,6 @@ class HomophiliousGNN(torch.nn.Module):
         self.max_pooling = use_max_pooling
         self.super_node = super_node
 
-
     def forward(self,
                 x,
                 edge_index,
@@ -577,6 +592,13 @@ class HomophiliousGNN(torch.nn.Module):
         node_embeddings = node_embeddings.relu()
 
         for i, conv in enumerate(self.convs):
+            # TODO: Think of how to create a graph at the word level as opposed to the sentence level. This
+            #  might enable greater utilization of BERT encoding. The challenge is how to build a graph from here
+            #  (e.g., how do we define edges in our graph? How do we encode edge or node type? etc...).
+            # TODO: Consider using attention v2. This will yield definitive approaches relative to existing GAT.
+            # TODO: Keep dimensions the same across layers to enable residual connections.
+            # TODO: Consider adding residual embeddings by changing 'node_embeddings = conv(...' to
+            #  'node_embeddings += conv(...'
             node_embeddings = conv(node_embeddings, edge_index).relu()
             if self.dropout_prob > 0:
                 node_embeddings = self.dropouts[i](node_embeddings)
@@ -776,9 +798,10 @@ class EncoderBaseline(torch.nn.Module):
             train_loader: torch.utils.data.DataLoader,
             validation_loader: torch.utils.data.DataLoader,
             num_labels: int,
-            loss_function: typing.Union[torch.nn.BCELoss, torch.nn.CrossEntropyLoss],
+            weight: torch.Tensor,
             num_epochs: int,
             optimizer: torch.optim.Optimizer,
+            experiment_name: str,
             max_num_rounds_no_improvement: int,
             metric_for_early_stopping: str,
             scheduler: typing.Union[torch.optim.lr_scheduler.ExponentialLR,
@@ -808,13 +831,15 @@ class EncoderBaseline(torch.nn.Module):
         epoch_with_optimal_performance = 0
         best_model_dir_path = os.path.join(os.getcwd(), 'tmp')
         utils.ensure_dir_exists(best_model_dir_path)
-        best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_probe.pt')
+        best_model_path = os.path.join(
+            best_model_dir_path,
+            f'optimal_{metric_for_early_stopping}_{experiment_name}.pt')
         for epoch in range(num_epochs):
             self.train()
             train_loss = 0.0
             train_acc = 0.0
             train_num_batches = 0
-            for i, data in enumerate(train_loader, 0):
+            for data in tqdm.tqdm(train_loader):
                 optimizer.zero_grad()
                 targets = data[constants.LABEL].to(device)
                 encoder_inputs = {
@@ -824,9 +849,13 @@ class EncoderBaseline(torch.nn.Module):
                 if self.encoder_type == "bert":
                     encoder_inputs[constants.TOKEN_TYPE_IDS] = data[constants.TOKEN_TYPE_IDS].to(self.device)
 
-                outputs = self(encoder_inputs)
+                outputs = self(encoder_inputs).float().to(device)
                 preds = torch.argmax(outputs, dim=1).to(device)
-                loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
+                loss = F.cross_entropy(
+                    outputs,
+                    target=F.one_hot(targets, num_labels).float().to(device),
+                    weight=weight.to(device),
+                )
                 loss.backward()
                 optimizer.step()
                 num_correct_preds = (preds == targets).sum().float()
@@ -849,7 +878,7 @@ class EncoderBaseline(torch.nn.Module):
                 validation_loss = 0.0
                 validation_acc = 0.0
                 validation_num_batches = 0
-                for i, data in enumerate(validation_loader, 0):
+                for data in tqdm.tqdm(validation_loader):
                     targets = data[constants.LABEL].to(device)
                     encoder_inputs = {
                         constants.INPUT_IDS: data[constants.INPUT_IDS].to(self.device),
@@ -859,7 +888,11 @@ class EncoderBaseline(torch.nn.Module):
                         encoder_inputs[constants.TOKEN_TYPE_IDS] = data[constants.TOKEN_TYPE_IDS].to(self.device)
                     outputs = self(encoder_inputs).to(device)
                     preds = torch.argmax(outputs, dim=1).to(device)
-                    loss = loss_function(outputs, torch.nn.functional.one_hot(targets, num_labels).float())
+                    loss = F.cross_entropy(
+                        outputs,
+                        target=F.one_hot(targets, num_labels).float().to(device),
+                        weight=weight.to(device),
+                    )
                     validation_loss += loss.item()
                     num_correct_preds = (preds == targets).sum().float()
                     accuracy = num_correct_preds / targets.shape[0] * 100
@@ -948,6 +981,8 @@ if __name__ == '__main__':
     labels = np.array(labels)
     print(f'positive_labels: {sum(labels == 1)}\n'
           f'negative_labels: {sum(labels == 0)}')
+
+    # TODO: Observe that op_text and reply_text are coherent.
     op_text = [pair[0] for pair in features]
     reply_text = [pair[1] for pair in features]
 
@@ -992,15 +1027,7 @@ if __name__ == '__main__':
         device=device,
         encoder_type=args.encoder_type,
     )
-    model_name = f'{args.encoder_type}+mlp baseline on {constants.BINARY_CMV_DELTA_PREDICTION}'
-    experiment_name = f"{model_name} " \
-                      f"(seed: #{args.seed}, " \
-                      f"lr: {args.learning_rate}, " \
-                      f"gamma: {args.scheduler_gamma}, " \
-                      f"dropout: {args.dropout_probability}, " \
-                      f"w_d: {args.weight_decay})"
-
-    if args.use_k_fold_cross_validation:
+    if utils.str2bool(args.use_k_fold_cross_validation):
         num_cross_validation_splits = args.num_cross_validation_splits
         train_metrics = []
         validation_metrics = []
@@ -1019,12 +1046,23 @@ if __name__ == '__main__':
             test_set = validation_and_test_sets[constants.TEST]
             training_set = datasets.concatenate_datasets(
                 shards[0:validation_set_index] + shards[validation_set_index + 1:]).shuffle()
+            model_name, group_name, run_name = utils.create_baseline_run_and_model_names(
+                dataset_name=args.data,
+                encoder_type=args.encoder_type,
+                dropout_probability=args.dropout_probability,
+                learning_rate=args.learning_rate,
+                seed=args.seed,
+                validation_split_index=validation_set_index,
+                positive_example_weight=args.positive_example_weight,
+                scheduler_gamma=args.scheduler_gamma,
+                weight_decay=args.weight_decay,
+            )
             run = wandb.init(
                 project="persuasive_arguments",
                 entity="persuasive_arguments",
-                group=experiment_name,
+                group=group_name,
                 config=args,
-                name=f"{experiment_name} [{validation_set_index}]",
+                name=run_name,
                 dir='.')
             # TODO: Create a helper utility function which generates the optimizer and scheduler given the necessary
             #  parameters.
@@ -1040,8 +1078,9 @@ if __name__ == '__main__':
             split_model.fit(
                 train_loader=train_loader,
                 validation_loader=validation_loader,
+                experiment_name=run_name,
                 num_labels=2,
-                loss_function=torch.nn.BCELoss(),
+                weight=torch.Tensor([1, args.positive_example_weight]),
                 num_epochs=args.num_epochs,
                 optimizer=optimizer,
                 max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
@@ -1051,7 +1090,6 @@ if __name__ == '__main__':
                     gamma=args.scheduler_gamma
                 )
             )
-            # TODO: Implement helper function to aggregate metrics across folds during k fold cross validation.
             train_metrics.append(
                 split_model.evaluate(
                     dataloader=train_loader,
@@ -1090,20 +1128,26 @@ if __name__ == '__main__':
             metric_aggregates=test_metric_aggregates,
             split_name=constants.TEST,
             print_results=True)
+
+    # Train and evaluate given a single fold, specified by a provided flag.
     else:
-        partitioned_dataset = dataset.train_test_split(args.val_percent + args.test_percent)
-        training_set = partitioned_dataset[constants.TRAIN]
-        hidden_sets = partitioned_dataset[constants.TEST]
-        partitioned_hidden_sets = hidden_sets.train_test_split(
-            args.val_percent / (args.val_percent + args.test_percent))
-        validation_set = partitioned_hidden_sets[constants.TRAIN]
-        test_set = partitioned_hidden_sets[constants.TEST]
+        model_name, group_name, run_name = utils.create_baseline_run_and_model_names(
+            dataset_name=args.data,
+            encoder_type=args.encoder_type,
+            dropout_probability=args.dropout_probability,
+            learning_rate=args.learning_rate,
+            seed=args.seed,
+            validation_split_index=args.fold_index,
+            positive_example_weight=args.positive_example_weight,
+            scheduler_gamma=args.scheduler_gamma,
+            weight_decay=args.weight_decay,
+        )
         wandb.init(
             project="persuasive_arguments",
             entity="persuasive_arguments",
-            group=experiment_name,
+            group=group_name,
             config=args,
-            name=f"{experiment_name} [{args.fold_index}]",
+            name=run_name,
             dir='.')
         config = wandb.config
         optimizer = torch.optim.Adam(
@@ -1111,16 +1155,23 @@ if __name__ == '__main__':
             lr=args.learning_rate,
             weight_decay=args.weight_decay
         )
-        train_loader, validation_loader, test_loader = utils.create_data_loaders(
-            training_set=training_set,
-            validation_set=validation_set,
-            test_set=test_set,
-            batch_size=args.batch_size)
+        num_of_examples = dataset.num_rows
+        shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
+        train_loader, validation_loader, test_loader = create_dataloaders_for_k_fold_cross_validation(
+            dataset,
+            dataset_type='language_model',
+            num_of_examples=num_of_examples,
+            shuffled_indices=shuffled_indices,
+            batch_size=args.batch_size,
+            val_percent=args.val_percent,
+            test_percent=args.test_percent,
+            k_fold_index=args.fold_index)
         encoder_baseline.fit(
             train_loader=train_loader,
             validation_loader=validation_loader,
+            experiment_name=run_name,
             num_labels=2,
-            loss_function=torch.nn.BCELoss(),
+            weight=torch.Tensor([1, args.positive_example_weight]),
             num_epochs=args.num_epochs,
             optimizer=optimizer,
             max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
@@ -1137,8 +1188,4 @@ if __name__ == '__main__':
             validation_loader=validation_loader,
             test_loader=test_loader
         ))
-
-    # TODO: Implement an option for k-fold cross validation during wandb sweeps via grouping as is done in
-    #  train_and_eval.py
-
     # TODO: Consolidate code across this entire module.

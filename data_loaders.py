@@ -1,17 +1,22 @@
-import os
-import typing
-
-import torch
-import transformers
-import pandas as pd
 from bs4 import BeautifulSoup
+import constants
+import os
+import torch
 from tqdm import tqdm
 from torch_geometric.data import Data
 from torch_geometric.data import HeteroData
+import torch_geometric.loader as geom_data
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import SubsetRandomSampler
+import transformers
+import typing
 
-import constants
-from cmv_modes.preprocessing_knowledge_graph import make_op_reply_graphs, create_bert_inputs, GraphExample, find_op_ukp, \
-    find_label_ukp, parse_ann_file
+from cmv_modes.preprocessing_knowledge_graph import make_op_reply_graphs
+from cmv_modes.preprocessing_knowledge_graph import create_bert_inputs
+from cmv_modes.preprocessing_knowledge_graph import GraphExample
+from cmv_modes.preprocessing_knowledge_graph import find_op_ukp
+from cmv_modes.preprocessing_knowledge_graph import find_label_ukp
+from cmv_modes.preprocessing_knowledge_graph import parse_ann_file
 
 
 # TODO: Ensure that both the BERT model and its corresponding tokenizer are accessible even without internet connection.
@@ -347,13 +352,19 @@ class CMVKGHetroDataset(CMVKGDataset):
 
 
 class CMVKGHetroDatasetEdges(CMVKGHetroDataset):
-    def __init__(self, directory_path: str,
+    def __init__(self,
+                 directory_path: str,
                  version: str,
                  debug: bool = False):
-        super(CMVKGHetroDatasetEdges, self).__init__(directory_path=directory_path, version=version, debug=debug)
+        super(CMVKGHetroDatasetEdges, self).__init__(
+            directory_path=directory_path,
+            version=version,
+            debug=debug)
 
     def __getitem__(self, index: int):
-        stacked_bert_inputs = self.calc_bert_inputs(self.dataset[index],model_name=self.model_name)
+        stacked_bert_inputs = self.calc_bert_inputs(
+            self.dataset[index],
+            model_name=self.model_name)
 
         support_e = []
         attack_e = []
@@ -373,14 +384,11 @@ class CMVKGHetroDatasetEdges(CMVKGHetroDataset):
         two_empty_nodes = torch.concat((torch.zeros_like(stacked_bert_inputs[:, :, 0]).unsqueeze(dim=2),
                                         torch.zeros_like(stacked_bert_inputs[:, :, 0]).unsqueeze(dim=2)), dim=2)
         stacked_bert_inputs = torch.concat((two_empty_nodes, stacked_bert_inputs), dim=2)
-
-
-
         data = HeteroData()
         data[constants.NODE].x = stacked_bert_inputs.T.long()
         data[constants.NODE].y = [self.labels[index]] * data[constants.NODE].x.shape[0]
 
-        data[constants.NODE, constants.SUPPORT, constants.NODE].edge_index =  self.convert_edge_indexes(support_e)
+        data[constants.NODE, constants.SUPPORT, constants.NODE].edge_index = self.convert_edge_indexes(support_e)
         data[constants.NODE, constants.ATTACK, constants.NODE].edge_index = self.convert_edge_indexes(attack_e)
 
         return data
@@ -465,7 +473,6 @@ class UKPDataset(torch.utils.data.Dataset):
             return Data(x=stacked_bert_inputs.T,
                     edge_index=torch.tensor(self.dataset[index]['edges']).T,
                     y=torch.tensor(self.labels[index]))
-
 
 
     def make_op_reply_graphs(self, file_name) -> GraphExample:
@@ -604,3 +611,68 @@ class UKPHetroDataset(UKPDataset):
         data[constants.PREMISE, constants.RELATION, constants.SUPER_NODE].edge_index = CMVKGHetroDataset.add_super_node_edges(len(premise_list))
         data[constants.CLAIM, constants.RELATION, constants.SUPER_NODE].edge_index = CMVKGHetroDataset.add_super_node_edges(len(claim_list))
         return data
+
+
+def create_dataloaders_for_k_fold_cross_validation(
+        dataset: Dataset,
+        dataset_type: str,
+        num_of_examples: int,
+        shuffled_indices,
+        batch_size: int,
+        val_percent: float,
+        test_percent: float,
+        k_fold_index: int,
+        num_workers: int = 0) -> (
+        typing.Union[
+            typing.Tuple[geom_data.DataLoader, geom_data.DataLoader, geom_data.DataLoader],
+            typing.Tuple[DataLoader, DataLoader, DataLoader]]):
+    """
+
+    :param dataset:
+    :param dataset_type:
+    :param num_of_examples:
+    :param shuffled_indices:
+    :param batch_size:
+    :param val_percent:
+    :param test_percent:
+    :param k_fold_index:
+    :param num_workers:
+    :return:
+    """
+    test_len = int(test_percent * num_of_examples)
+    val_len = int(val_percent * num_of_examples)
+    held_out_len = test_len + val_len
+    held_out_indices = shuffled_indices[k_fold_index * held_out_len:(k_fold_index + 1) * held_out_len]
+    train_indices = shuffled_indices[:k_fold_index * held_out_len]
+    train_indices.extend(shuffled_indices[(k_fold_index + 1) * held_out_len:])
+    val_indices = held_out_indices[:val_len]
+    test_indices = held_out_indices[val_len:]
+    if dataset_type == "graph":
+        dl_train = geom_data.DataLoader(dataset,
+                                        batch_size=batch_size,
+                                        num_workers=num_workers,
+                                        sampler=SubsetRandomSampler(train_indices))
+        dl_val = geom_data.DataLoader(dataset,
+                                      batch_size=batch_size,
+                                      num_workers=num_workers,
+                                      sampler=SubsetRandomSampler(val_indices))
+        dl_test = geom_data.DataLoader(dataset,
+                                       batch_size=batch_size,
+                                       num_workers=num_workers,
+                                       sampler=SubsetRandomSampler(test_indices))
+    elif dataset_type == "language_model":
+        dl_train = DataLoader(dataset,
+                              batch_size=batch_size,
+                              num_workers=num_workers,
+                              sampler=SubsetRandomSampler(train_indices))
+        dl_val = DataLoader(dataset,
+                            batch_size=batch_size,
+                            num_workers=num_workers,
+                            sampler=SubsetRandomSampler(val_indices))
+        dl_test = DataLoader(dataset,
+                             batch_size=batch_size,
+                             num_workers=num_workers,
+                             sampler=SubsetRandomSampler(test_indices))
+    else:
+        raise RuntimeError(f"Un-supported dataset type: {dataset_type}")
+    return dl_train, dl_val, dl_test

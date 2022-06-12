@@ -19,11 +19,13 @@ parameters:
     value: 0.1
   rounds_between_evals:
     value: 1
+  max_num_rounds_no_improvement:
+    value: 20
   debug:
     value: "False"
   use_k_fold_cross_validation:
     value: "False"
-  hetro:
+  hetero:
     value: "False"
   aggregation_type:
     values: [ "super_node", "avg_pooling", "max_pooling" ]
@@ -33,6 +35,7 @@ parameters:
     values: [ "bert", "sbert" ]
   gcn_hidden_layer_dim:
     values:
+      - "32 32"
       - "64 32"
       - "128 64 32"
       - "256 128 64 32"

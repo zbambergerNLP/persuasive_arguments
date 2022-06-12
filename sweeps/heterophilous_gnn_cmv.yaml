@@ -1,5 +1,5 @@
 program: train_and_eval.py
-name: homophilous_gnn_cmv
+name: heterophilous_gnn_cmv
 entity: persuasive_arguments
 project: persuasive_argumentation
 method: grid
@@ -26,32 +26,34 @@ parameters:
   use_k_fold_cross_validation:
     value: "False"
   hetero:
-    value: "False"
-  aggregation_type:
-    values: ["super_node", "avg_pooling", "max_pooling"]
+    value: "True"
+#  TODO: add edge hetero type
+  hetero_type:
+    values: ["nodes"]
   model:
-    values: [ "SAGE", "GAT", "GCN" ]
+    values: [ "SAGE", "GAT" ]
+  aggregation_type:
+    value: "super_node"
   encoder_type:
-    values:  ["bert", "sbert"]
+    values: [ "bert", "sbert" ]
   gcn_hidden_layer_dim:
     values:
       - "32 32"
       - "64 32"
-      - "768 768"
       - "128 64 32"
-      - "768 768 768"
       - "256 128 64 32"
   seed:
     values: [ 501, 502 ]
   fold_index:
     values: [ 0, 1, 2, 3, 4 ]
   learning_rate:
-    values: [ 0.001, 0.0001]
+    values: [ 0.001, 0.0001 ]
   dropout_probability:
-    values: [ 0, 0.1, 0.3]
+    values: [ 0, 0.1, 0.3 ]
   scheduler_gamma:
     value: 0.99
   positive_example_weight:
-      value: 1
+    value: 1
   weight_decay:
     value: 0.001
+

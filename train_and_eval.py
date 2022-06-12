@@ -16,6 +16,7 @@ import torch_geometric.loader as geom_data
 import metrics
 import utils
 import wandb
+from data_loaders import create_dataloaders_for_k_fold_cross_validation
 from data_loaders import CMVKGDataset, CMVKGHetroDataset, CMVKGHetroDatasetEdges, UKPDataset, UKPHetroDataset
 from models import HomophiliousGNN, HeteroGNN
 import constants
@@ -25,7 +26,7 @@ from tqdm import tqdm
 """
 Example command:
 srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
-    --data UKP \
+    --data CMV \
     --num_epochs 30 \
     --batch_size 16 \
     --learning_rate 1e-3 \
@@ -39,7 +40,7 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --model "GAT" \
     --encoder_type "sbert" \
     --debug "false" \
-    --hetro "true" \
+    --hetero "true" \
     --aggregation_type "super_node" \
     --hetero_type "nodes" \
     --use_k_fold_cross_validation "true" \
@@ -47,7 +48,6 @@ srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
     --seed 42 \
     --dropout_probability 0.3 \
     --positive_example_weight 1
-    
 """
 
 
@@ -145,6 +145,12 @@ parser.add_argument('--dropout_probability',
                     type=float,
                     default=0.3,
                     help="The dropout probability across each layer of the convolution in the homophilous  model.")
+parser.add_argument('--max_num_rounds_no_improvement',
+                    type=int,
+                    default=10,
+                    help="The permissible number of validation set evaluations in which the desired metric does not "
+                         "improve. If the desired validation metric does not improve within this number of evaluation "
+                         "attempts, then early stopping is performed.")
 # TODO: Fix documentation across this file.
 
 
@@ -170,11 +176,11 @@ def train(model: torch.nn.Module,
           optimizer: torch.optim.Optimizer,
           scheduler: torch.optim.lr_scheduler,
           device,
-          model_name: str,
+          experiment_name: str,
           rounds_between_evals: int = 1,
           hetro: bool = False,
           metric_for_early_stopping: str = constants.ACCURACY,
-          max_num_rounds_no_improvement: int = 10,
+          max_num_rounds_no_improvement: int = 20,
           weights: torch.Tensor = torch.Tensor([1, 1])) -> torch.nn.Module:
     """Train a GCNWithBERTEmbeddings model on examples consisting of persuasive argument knowledge graphs.
 
@@ -185,7 +191,7 @@ def train(model: torch.nn.Module,
     :param optimizer: The torch optimizer used for weight updates during trianing.
     :param scheduler:
     :param device:
-    :param model_name:
+    :param experiment_name:
     :param rounds_between_evals: An integer denoting the number of epcohs that occur between each evaluation run.
     :param hetro:
     :param metric_for_early_stopping:
@@ -200,7 +206,7 @@ def train(model: torch.nn.Module,
     epoch_with_optimal_performance = 0
     best_model_dir_path = os.path.join(os.getcwd(), 'tmp')
     utils.ensure_dir_exists(best_model_dir_path)
-    best_model_path = os.path.join(best_model_dir_path, f'optimal_{metric_for_early_stopping}_{model_name}.pt')
+    best_model_path = os.path.join(best_model_dir_path, f'tmp_{experiment_name}.pt')
     model_improved_on_validation_set = False
     for epoch in range(epochs):
         model.train()
@@ -353,92 +359,6 @@ def evaluate(
         return eval_metrics
 
 
-def create_dataloaders_for_k_fold_cross_validation(
-        graph_dataset: Dataset,
-        shuffled_indices,
-        batch_size: int,
-        val_percent: float,
-        test_percent: float,
-        k_fold_index: int,
-        num_workers: int = 0):
-    """
-
-    :param graph_dataset:
-    :param shuffled_indices:
-    :param batch_size:
-    :param val_percent:
-    :param test_percent:
-    :param k_fold_index:
-    :param num_workers:
-    :return:
-    """
-    num_of_examples = len(graph_dataset.dataset)
-    test_len = int(test_percent * num_of_examples)
-    val_len = int(val_percent * num_of_examples)
-    held_out_len = test_len + val_len
-    held_out_indices = shuffled_indices[k_fold_index * held_out_len:(k_fold_index + 1) * held_out_len]
-    train_indices = shuffled_indices[:k_fold_index * held_out_len]
-    train_indices.extend(shuffled_indices[(k_fold_index + 1) * held_out_len:])
-    val_indices = held_out_indices[:val_len]
-    test_indices = held_out_indices[val_len:]
-    dl_train = geom_data.DataLoader(graph_dataset,
-                                    batch_size=batch_size,
-                                    num_workers=num_workers,
-                                    sampler=SubsetRandomSampler(train_indices))
-    dl_val = geom_data.DataLoader(graph_dataset,
-                                  batch_size=batch_size,
-                                  num_workers=num_workers,
-                                  sampler=SubsetRandomSampler(val_indices))
-    dl_test = geom_data.DataLoader(graph_dataset,
-                                   batch_size=batch_size,
-                                   num_workers=num_workers,
-                                   sampler=SubsetRandomSampler(test_indices))
-    return dl_train, dl_val, dl_test
-
-
-def create_dataloaders(graph_dataset: Dataset,
-                       batch_size: int,
-                       val_percent: float,
-                       test_percent: float,
-                       num_workers: int = 0) -> (
-        (typing.Tuple[
-            torch.utils.data.DataLoader,
-            torch.utils.data.DataLoader,
-            torch.utils.data.DataLoader
-        ])):
-    """Create dataloaders over persuasive argument knowledge graphs.
-
-    :param graph_dataset: A 'CMVKGDataset' instance whose examples correspond to knowledge graphs of persuasive
-        arguments.
-    :param batch_size: The number of examples processed in a single batch as part of training.
-    :param val_percent: The percentage of the original examples dedicated towards the validation set.
-    :param test_percent: The ratio of the original examples dedicated towards a test set.
-    :param num_workers: The number of workers used during training.
-    :return: A 3-tuple of data loaders corresponding to the training loader, validation loader, and test loader
-        respectively.
-    """
-    num_of_examples = len(graph_dataset.dataset)
-    test_len = int(test_percent * num_of_examples)
-    val_len = int(val_percent * num_of_examples)
-    indexes = random.sample(range(num_of_examples), num_of_examples)
-    test_indexes = indexes[:test_len]
-    val_indexes = indexes[test_len:test_len + val_len]
-    train_indexes = indexes[test_len + val_len:-1]
-    dl_train = geom_data.DataLoader(graph_dataset,
-                                    batch_size=batch_size,
-                                    num_workers=num_workers,
-                                    sampler=SubsetRandomSampler(train_indexes))
-    dl_val = geom_data.DataLoader(graph_dataset,
-                                  batch_size=batch_size,
-                                  num_workers=num_workers,
-                                  sampler=SubsetRandomSampler(val_indexes))
-    dl_test = geom_data.DataLoader(graph_dataset,
-                                   batch_size=batch_size,
-                                   num_workers=num_workers,
-                                   sampler=SubsetRandomSampler(test_indexes))
-    return dl_train, dl_val, dl_test
-
-
 if __name__ == '__main__':
     args = parser.parse_args()
 
@@ -475,10 +395,10 @@ if __name__ == '__main__':
     utils.ensure_dir_exists(dir_name)
     file_name = f'{"cmv" if args.data == constants.CMV else "ukp"}_{args.encoder_type}_' \
                 f'{"supernode" if use_super_node else ""}_' \
-                f'{"heterophelous" if args.hetero else "homophelous" }_dataset.pt'
+                f'{"heterophelous" if hetero else "homophelous" }_dataset.pt'
     # TODO: Remove code duplication below by creating helper functions (either in this file or utils.py).
 
-    if hetero: #Todo add and option for hetero and UKP
+    if hetero:  # Todo add and option for hetero and UKP
         print('Initializing heterophealous dataset')
         if hetero_type == constants.NODES:
             if args.data == constants.CMV:
@@ -494,14 +414,15 @@ if __name__ == '__main__':
                 if os.path.exists(os.path.join(dir_name, file_name)):
                     kg_dataset = torch.load(os.path.join(dir_name, file_name))
                 else:
-                    kg_dataset = UKPHetroDataset(model_name=(
-                        constants.BERT_BASE_CASED if args.encoder_type == 'bert'
-                        else "sentence-transformers/all-distilroberta-v1"
-                    ),
-                debug=args.debug,
-                super_node=use_super_node)
+                    kg_dataset = UKPHetroDataset(
+                        model_name=(
+                            constants.BERT_BASE_CASED if args.encoder_type == 'bert'
+                            else "sentence-transformers/all-distilroberta-v1"
+                        ),
+                        debug=utils.str2bool(args.debug),
+                        super_node=use_super_node)
                     torch.save(kg_dataset, os.path.join(dir_name, file_name))
-        elif hetero_type == constants.EDGES: #Todo not working
+        elif hetero_type == constants.EDGES:  # Todo not working
             if os.path.exists(os.path.join(dir_name, 'hetro_edges_dataset.pt')):
                 kg_dataset = torch.load(os.path.join(dir_name, 'hetro_edges_dataset.pt'))
             else:
@@ -510,6 +431,8 @@ if __name__ == '__main__':
                     version=constants.v2_path,
                     debug=utils.str2bool(args.debug))
                 torch.save(kg_dataset, os.path.join(dir_name, 'hetro_edges_dataset.pt'))
+        else:
+            raise RuntimeError(f"Unsupported hetero type: {hetero_type}")
         data = kg_dataset[2]
 
     else:
@@ -535,12 +458,14 @@ if __name__ == '__main__':
             if os.path.exists(os.path.join(dir_name, file_name)):
                 kg_dataset = torch.load(os.path.join(dir_name, file_name))
             else:
-                kg_dataset = UKPDataset(model_name=(
+                kg_dataset = UKPDataset(
+                    model_name=(
                         constants.BERT_BASE_CASED if args.encoder_type == 'bert'
                         else "sentence-transformers/all-distilroberta-v1"
                     ),
-                debug=args.debug,
-                super_node=use_super_node)
+                    debug=utils.str2bool(args.debug),
+                    super_node=use_super_node
+                )
                 torch.save(kg_dataset, os.path.join(dir_name, file_name))
 
     num_of_examples = len(kg_dataset.dataset)
@@ -573,6 +498,8 @@ if __name__ == '__main__':
         for validation_split_index in range(args.num_cross_validation_splits):
             dl_train, dl_val, dl_test = create_dataloaders_for_k_fold_cross_validation(
                 kg_dataset,
+                dataset_type="graph",
+                num_of_examples=num_of_examples,
                 shuffled_indices=shuffled_indices,
                 batch_size=args.batch_size,
                 val_percent=args.val_percent,
@@ -614,7 +541,8 @@ if __name__ == '__main__':
                           rounds_between_evals=args.rounds_between_evals,
                           hetro=hetero,
                           device=device,
-                          model_name=model_name,
+                          experiment_name=run_name,
+                          max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
                           weights=torch.Tensor([1, args.positive_example_weight]))
             train_metrics.append(
                 evaluate(model,
@@ -661,7 +589,9 @@ if __name__ == '__main__':
     else:
         dl_train, dl_val, dl_test = create_dataloaders_for_k_fold_cross_validation(
             kg_dataset,
+            dataset_type="graph",
             shuffled_indices=shuffled_indices,
+            num_of_examples=num_of_examples,
             batch_size=args.batch_size,
             val_percent=args.val_percent,
             test_percent=args.test_percent,
@@ -706,12 +636,14 @@ if __name__ == '__main__':
                       optimizer=optimizer,
                       scheduler=scheduler,
                       rounds_between_evals=args.rounds_between_evals,
+                      max_num_rounds_no_improvement=args.max_num_rounds_no_improvement,
                       hetro=hetero,
                       device=device,
-                      model_name=model_name,
+                      experiment_name=run_name,
                       weights=torch.Tensor([1, config.positive_example_weight]))
         print(metrics.perform_evaluation_on_splits(
-            eval_fn=(lambda dataloader, split_name, device: evaluate(model, dataloader, split_name, hetero, device)),
+            eval_fn=(
+                lambda dataloader, split_name, device: evaluate(model, dataloader, split_name, hetero, device)),
             device=device,
             train_loader=dl_train,
             validation_loader=dl_val,

@@ -1,5 +1,5 @@
-program: train_and_eval.py
-name: nodes_hetero_gnn_cmv
+program: models.py
+name: paragraph_baseline_ukp
 entity: persuasive_arguments
 project: persuasive_argumentation
 method: grid
@@ -8,7 +8,7 @@ metric:
   goal: maximize
 parameters:
   data:
-    value: "CMV"
+    value: "UKP"
   num_epochs:
     value: 100
   batch_size:
@@ -17,34 +17,25 @@ parameters:
     value: 0.1
   val_percent:
     value: 0.1
-  rounds_between_evals:
-    value: 1
-  debug:
-    value: ""
   use_k_fold_cross_validation:
-    value: ""
-  hetro:
-    value: "True"
-  model:
-    values: [ "SAGE", "GAT" ]
+    value: "False"
+  max_num_rounds_no_improvement:
+    value: 20
+  metric_for_early_stopping:
+    value: "accuracy"
+  weight_decay:
+    value:  0.001
   encoder_type:
-    values:  ["bert", "sbert"]
-  gcn_hidden_layer_dim:
-    values:
-      - "64 32"
-      - "128 64 32"
-      - "256 128 64 32"
+    values: ["bert", "sbert"]
   seed:
     values: [ 501, 502 ]
   fold_index:
     values: [ 0, 1, 2, 3, 4 ]
   learning_rate:
-    values: [ 0.001, 0.0001]
-  dropout_probability:
-    values: [ 0, 0.1, 0.3]
+    values: [ 0.001, 0.0001 ]
   scheduler_gamma:
     value: 0.99
+  dropout_probability:
+    values: [0, 0.1, 0.3]
   positive_example_weight:
-      value: 1
-  weight_decay:
-    value: 0.001
+    values: [ 1, 10, 20 ]

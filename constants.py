@@ -181,9 +181,9 @@ if os.name == 'nt':
     if os.getlogin() == "b.noam":
         BASE_DIR = pathlib.PurePath("/home/b.noam/persuasive_arguments")
     else:
-        BASE_DIR = pathlib.PurePath("/home/b.noam/persuasive_arguments") #TODO: Zach please fill this
+        BASE_DIR = pathlib.PurePath("/home/zachary/persuasive_argumentation")
 else:
-    BASE_DIR = pathlib.PurePath("/home/b.noam/persuasive_arguments") #TODO: Zach please fill this
+    BASE_DIR = pathlib.PurePath("/home/zachary/persuasive_argumentation")
 
 UKP_DIR = BASE_DIR / 'UKP'
 UKP_DATA = UKP_DIR / 'brat-project-final'
