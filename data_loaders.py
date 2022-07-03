@@ -201,6 +201,7 @@ class CMVKGHetroDataset(CMVKGDataset):
 
     def __init__(self,
                  directory_path: str,
+                 model_name: str,
                  version: str,
                  debug: bool = False):
         """
@@ -209,10 +210,13 @@ class CMVKGHetroDataset(CMVKGDataset):
         :param version:
         :param debug:
         """
-        super(CMVKGHetroDataset, self).__init__(directory_path=directory_path, version=version, debug=debug)
+        super(CMVKGHetroDataset, self).__init__(directory_path=directory_path,
+                                                model_name=model_name,
+                                                version=version,
+                                                debug=debug)
 
     @staticmethod
-    def calc_bert_inputs(dataset_values, model_name,relevant_ids=None):
+    def calc_bert_inputs(dataset_values, model_name, relevant_ids=None):
         """
 
         :param dataset_values:
@@ -294,8 +298,28 @@ class CMVKGHetroDataset(CMVKGDataset):
             else:
                 raise Exception("unknown value = " + key)
 
-        stacked_bert_inputs_claim = self.calc_bert_inputs(self.dataset[index], model_name=self.model_name, relevant_ids=claim_list)
-        stacked_bert_inputs_premise = self.calc_bert_inputs(self.dataset[index], model_name=self.model_name, relevant_ids=premise_list)
+        # bert_input_key_names = [f'id_to_{constants.INPUT_IDS}',
+        #                         f'id_to_{constants.TOKEN_TYPE_IDS}',
+        #                         f'id_to_{constants.ATTENTION_MASK}']
+        #
+        # # SBERT does not consider two inputs in the way BERT does, so the "token type ID" input is not necessary.
+        # if self.model_name == "sentence-transformers/all-distilroberta-v1":
+        #     bert_input_key_names.pop(1)
+        #
+        # formatted_bert_inputs = {}
+        # for input_name in bert_input_key_names:
+        #     formatted_bert_inputs[input_name] = torch.cat(
+        #         [ids.unsqueeze(dim=1) for ids in self.dataset[index][input_name].values()],
+        #         dim=1,
+        #     )
+        # stacked_bert_inputs = torch.stack([t for t in formatted_bert_inputs.values()], dim=1)
+
+        stacked_bert_inputs_claim = self.calc_bert_inputs(self.dataset[index],
+                                                          model_name=self.model_name,
+                                                          relevant_ids=claim_list)
+        stacked_bert_inputs_premise = self.calc_bert_inputs(self.dataset[index],
+                                                            model_name=self.model_name,
+                                                            relevant_ids=premise_list)
 
         claim_claim_e = []
         claim_premise_e = []
@@ -544,7 +568,6 @@ class UKPHetroDataset(UKPDataset):
                  super_node: bool = False):
         super(UKPHetroDataset, self).__init__(model_name=model_name, debug=debug, super_node=super_node)
 
-
     def __getitem__(self, index: int) -> HeteroData:
         claim_list = []
         premise_list = []
@@ -622,7 +645,9 @@ def create_dataloaders_for_k_fold_cross_validation(
         val_percent: float,
         test_percent: float,
         k_fold_index: int,
-        num_workers: int = 0) -> (
+        num_workers: int = 0,
+        index_mapping: typing.Dict[typing.Tuple[int, int], int] = None,
+        sentence_level: bool = False) -> (
         typing.Union[
             typing.Tuple[geom_data.DataLoader, geom_data.DataLoader, geom_data.DataLoader],
             typing.Tuple[DataLoader, DataLoader, DataLoader]]):
@@ -637,6 +662,8 @@ def create_dataloaders_for_k_fold_cross_validation(
     :param test_percent:
     :param k_fold_index:
     :param num_workers:
+    :param index_mapping:
+    :param sentence_level:
     :return:
     """
     test_len = int(test_percent * num_of_examples)
@@ -661,18 +688,58 @@ def create_dataloaders_for_k_fold_cross_validation(
                                        num_workers=num_workers,
                                        sampler=SubsetRandomSampler(test_indices))
     elif dataset_type == "language_model":
-        dl_train = DataLoader(dataset,
-                              batch_size=batch_size,
-                              num_workers=num_workers,
-                              sampler=SubsetRandomSampler(train_indices))
-        dl_val = DataLoader(dataset,
-                            batch_size=batch_size,
-                            num_workers=num_workers,
-                            sampler=SubsetRandomSampler(val_indices))
-        dl_test = DataLoader(dataset,
-                             batch_size=batch_size,
-                             num_workers=num_workers,
-                             sampler=SubsetRandomSampler(test_indices))
+        if sentence_level:
+            dl_train = DataLoader(dataset,
+                                  batch_size=batch_size,
+                                  num_workers=num_workers,
+                                  sampler=SubsetSequenceRandomSampler(train_indices, index_mapping=index_mapping),
+                                  collate_fn=lambda x: x)
+            dl_val = DataLoader(dataset,
+                                batch_size=batch_size,
+                                num_workers=num_workers,
+                                sampler=SubsetSequenceRandomSampler(val_indices, index_mapping=index_mapping),
+                                collate_fn=lambda x: x)
+            dl_test = DataLoader(dataset,
+                                 batch_size=batch_size,
+                                 num_workers=num_workers,
+                                 sampler=SubsetSequenceRandomSampler(test_indices, index_mapping=index_mapping),
+                                 collate_fn=lambda x: x)
+        else:
+            dl_train = DataLoader(dataset,
+                                  batch_size=batch_size,
+                                  num_workers=num_workers,
+                                  sampler=SubsetRandomSampler(train_indices))
+            dl_val = DataLoader(dataset,
+                                batch_size=batch_size,
+                                num_workers=num_workers,
+                                sampler=SubsetRandomSampler(val_indices))
+            dl_test = DataLoader(dataset,
+                                 batch_size=batch_size,
+                                 num_workers=num_workers,
+                                 sampler=SubsetRandomSampler(test_indices))
     else:
         raise RuntimeError(f"Un-supported dataset type: {dataset_type}")
     return dl_train, dl_val, dl_test
+
+
+class SubsetSequenceRandomSampler(SubsetRandomSampler):
+    def __init__(self,
+                 example_indices: typing.List[int],
+                 index_mapping: typing.Mapping[int, typing.List[int]],
+                 random_generator: torch.Generator = None) -> None:
+        # Initialize 'indices' and 'generator' fields for sampler.
+        super(SubsetSequenceRandomSampler, self).__init__(indices=example_indices, generator=random_generator)
+        self.index_mapping = index_mapping
+
+    def __iter__(self) -> typing.Iterator:
+        """
+        We override the SubsetRandomSampler's __iter__ function in order to ensure that all sequences corresponding
+        to a chosen example are returned.
+
+        :return: Indices of sequences within the flattened dataset which correspond with the sampled example.
+        """
+        # Map an example index to all sequences associated with that example within the flattened dataset.
+        for i in torch.randperm(len(self.indices), generator=self.generator):
+            example = self.indices[i]
+            example_flattened_indices = self.index_mapping[example]
+            yield example_flattened_indices

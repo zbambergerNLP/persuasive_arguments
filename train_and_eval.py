@@ -9,8 +9,6 @@ import os
 import random
 
 import torch_geometric.data
-from torch.utils.data import Dataset
-from torch.utils.data import SubsetRandomSampler
 import torch_geometric.loader as geom_data
 
 import metrics
@@ -261,8 +259,9 @@ def train(model: torch.nn.Module,
                 sampled_data.to(device)
                 if hetro:
                     y = find_labels_for_batch(batch_data=sampled_data)
+                    # TODO: Enable support for heterophilous edge GNNs.
                     if args.hetero_type == constants.EDGES:
-                        batch = sampled_data[constants.NODE].batch
+                        raise NotImplementedError('Heterophilous Edge GNNs are not yet supported.')
                     out = model.forward(
                         x_dict=sampled_data.x_dict,
                         edge_index_dict=sampled_data.edge_index_dict,
@@ -306,6 +305,7 @@ def train(model: torch.nn.Module,
                       f'Optimal model obtained from epoch #{epoch_with_optimal_performance}')
                 if model_improved_on_validation_set:
                     model.load_state_dict(torch.load(best_model_path))
+                    os.remove(best_model_path)
                 break
     return model
 
@@ -408,7 +408,12 @@ if __name__ == '__main__':
                     kg_dataset = CMVKGHetroDataset(
                         current_path + "/cmv_modes/change-my-view-modes-master",
                         version=constants.v2_path,
-                        debug=utils.str2bool(args.debug))
+                        debug=utils.str2bool(args.debug),
+                        model_name=(
+                            constants.BERT_BASE_CASED if args.encoder_type == 'bert'
+                            else "sentence-transformers/all-distilroberta-v1"
+                        ),
+                    )
                     torch.save(kg_dataset, os.path.join(dir_name, file_name))
             else:
                 if os.path.exists(os.path.join(dir_name, file_name)):

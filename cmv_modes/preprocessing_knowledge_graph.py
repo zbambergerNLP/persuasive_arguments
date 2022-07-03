@@ -97,6 +97,10 @@ OriginalPostPlusReplySequence = typing.Sequence[OriginalPostPlusReply]
 # Entry 0 is the pair of texts fed into a BERT model during training. Entry 1 is the label associated with the pair.
 OriginalPostPlusReplyDataset = typing.Tuple[OriginalPostPlusReplySequence, typing.Sequence[int]]
 
+# A sequence of utterances (usually sentences) consisting of the title, OP's utterances, and the utterances in the
+# argumentative reply.
+SentenceLevelDataset = typing.Tuple[typing.Sequence[OriginalPostContent], typing.Sequence[int]]
+
 
 def create_original_post_content(
         bs_data: BeautifulSoup,
@@ -180,7 +184,9 @@ def create_original_post_plus_reply_dataset(
 
 def create_simple_bert_inputs(directory_path: str,
                               version: str,
-                              debug: bool = False) -> OriginalPostPlusReplyDataset:
+                              debug: bool = False,
+                              sentence_level: str = False) -> (
+        typing.Union[SentenceLevelDataset, OriginalPostPlusReplyDataset]):
     """
     Create input to BERT by taking relevant text from each xml file.
 
@@ -208,6 +214,15 @@ def create_simple_bert_inputs(directory_path: str,
                         bs_data=bs_data,
                         file_name=file_name,
                         is_positive=(sign == constants.POSITIVE))
+                    if sentence_level:
+                        new_examples = [] 
+                        for context, reply in examples:
+                            context = list(filter(lambda text: len(text) > 0,
+                                             [sentence.strip() for sentence in context.split('.')]))
+                            reply = list(filter(lambda text: len(text) > 0,
+                                                [sentence.strip() for sentence in reply.split('.')]))
+                            new_examples.append(context + reply)
+                        examples = new_examples
                     dataset.extend(examples)
                     example_labels = list(map(lambda example: 0 if sign == 'negative' else 1, examples))
                     labels.extend(example_labels)
@@ -218,8 +233,7 @@ def create_simple_bert_inputs(directory_path: str,
 
 
 def create_original_post_plus_reply_dataset_ukp(
-        file_name: str = None,
-        include_title: bool = True) -> OriginalPostPlusReplySequence:
+        file_name: str = None) -> OriginalPostPlusReplySequence:
     """Create a collection of textual examples, where each consists of a post and a reply.
 
     Process ann data into examples for language models. A single example consists of:
@@ -227,12 +241,10 @@ def create_original_post_plus_reply_dataset_ukp(
     2. A reply to the original post. This reply is represented as a single string.
 
     :param file_name: The name of the .ann file which we've parsed.
-    :param include_title: True if the text of the title should be included in OP's component of the BERT input. False
-        otherwise.
     :return: examples - a list of data examples extracted from file_name in the following construction:
         [[op text], reply text]
     """
-    original_post_content =find_op_ukp(file_name)
+    original_post_content = find_op_ukp(file_name)
 
     d = parse_ann_file(file_name)
     reply_text = ""
@@ -243,8 +255,9 @@ def create_original_post_plus_reply_dataset_ukp(
     return original_post_plus_reply
 
 
-def create_simple_bert_inputs_ukp(debug: bool = False) -> (
-        typing.Tuple[typing.List[Sequence[typing.Tuple[str, str]]], typing.List[int]]):
+def create_simple_bert_inputs_ukp(debug: bool = False,
+                                  sentence_level: str = False) -> (
+        typing.Union[SentenceLevelDataset, OriginalPostPlusReplyDataset]):
     """
     Create input to BERT by taking relevant text from each ann file.
     :param debug: A boolean denoting whether or not we are in debug mode (in which our input dataset is
@@ -258,6 +271,15 @@ def create_simple_bert_inputs_ukp(debug: bool = False) -> (
     for file_name in tqdm(os.listdir(constants.UKP_DATA)):
         if file_name.endswith(constants.ANN):
                 examples = create_original_post_plus_reply_dataset_ukp(file_name=file_name)
+                if sentence_level:
+                    new_examples = []
+                    for context, reply in examples:
+                        context = list(filter(lambda text: len(text) > 0,
+                                              [sentence.strip() for sentence in context.split('.')]))
+                        reply = list(filter(lambda text: len(text) > 0,
+                                            [sentence.strip() for sentence in reply.split('.')]))
+                        new_examples.append(context.extend(reply))
+                    examples = new_examples
                 dataset.append(examples)
                 example_labels = find_label_ukp(file_name)
                 labels.extend([example_labels])
@@ -265,6 +287,7 @@ def create_simple_bert_inputs_ukp(debug: bool = False) -> (
                     if len(labels) >= 5:
                         break
     return dataset, labels
+
 #######################################################
 ### Pre-Processing Inputs for Graph Neural Networks ###
 #######################################################

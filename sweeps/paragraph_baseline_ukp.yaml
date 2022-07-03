@@ -1,4 +1,4 @@
-program: models.py
+program: baseline_encoders.py
 name: paragraph_baseline_ukp
 entity: persuasive_arguments
 project: persuasive_argumentation
@@ -21,6 +21,8 @@ parameters:
     value: "False"
   max_num_rounds_no_improvement:
     value: 20
+  max_sentence_length:
+    value: 50
   metric_for_early_stopping:
     value: "accuracy"
   weight_decay:
