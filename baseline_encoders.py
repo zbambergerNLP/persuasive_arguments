@@ -139,7 +139,7 @@ parser.add_argument('--fold_index',
                     help="The partition index of the held out data as part of k-fold cross validation.")
 parser.add_argument('--encoder_type',
                     type=str,
-                    default='sbert',
+                    default=constants.SBERT,
                     help="The model used to both tokenize and encode the textual context of argumentative "
                          "prepositions.")
 
@@ -150,7 +150,7 @@ class SentenceEncoderBaseline(torch.nn.Module):
                  hidden_channels: typing.List[int],
                  device: torch.device,
                  output_dim: int = 2,
-                 encoder_type: str = "bert",
+                 encoder_type: str = constants.BERT,
                  dropout_prob: float = 0):
         """
         Initialize a persuasiveness prediction baseline model.
@@ -170,12 +170,12 @@ class SentenceEncoderBaseline(torch.nn.Module):
         self.encoder_type = encoder_type
 
         # Initialize appropriate encoder.
-        if self.encoder_type == "bert":
+        if self.encoder_type == constants.BERT:
             self._encoder_model = transformers.BertForSequenceClassification.from_pretrained(
                 constants.BERT_BASE_CASED,
                 num_labels=constants.NUM_LABELS).to(device)
-        elif self.encoder_type == "sbert":
-            self._encoder_model = SentenceTransformer("all-distilroberta-v1").to(device)
+        elif self.encoder_type == constants.SBERT:
+            self._encoder_model = SentenceTransformer(constants.ROBERTA_HUGGINGFACE_MODEL_NAME).to(device)
         else:
             raise RuntimeError(f"Unsupported encoder type: {self.encoder_type}")
 
@@ -207,7 +207,7 @@ class SentenceEncoderBaseline(torch.nn.Module):
         :return: A tensor with shape [batch_size, num_labels].
         """
         # Compute hidden representations for context + argument pairs.
-        if self.encoder_type == "bert":
+        if self.encoder_type == constants.BERT:
             pooled_embeddings = []
             for example in encoder_inputs:
                 encoder_outputs = self._encoder_model.forward(
@@ -231,7 +231,7 @@ class SentenceEncoderBaseline(torch.nn.Module):
             for example in encoder_inputs:
                 sequence_embeddings = self._encoder_model({
                     constants.INPUT_IDS: example[constants.INPUT_IDS],
-                    constants.ATTENTION_MASK: example[constants.ATTENTION_MASK]})['sentence_embedding']
+                    constants.ATTENTION_MASK: example[constants.ATTENTION_MASK]})[constants.SBERT_SENTENCE_EMBEDDING]
                 pooled_embeddings.append(
                     self.pooling(
                         torch.transpose(
@@ -286,7 +286,7 @@ class SentenceEncoderBaseline(torch.nn.Module):
         utils.ensure_dir_exists(best_model_dir_path)
         best_model_path = os.path.join(
             best_model_dir_path,
-            f'optimal_{metric_for_early_stopping}_{experiment_name}.pt')
+            f'optimal_{metric_for_early_stopping}_{experiment_name}.{constants.PYTORCH}')
         for epoch in range(num_epochs):
             self.train()
             train_loss = 0.0
@@ -299,8 +299,9 @@ class SentenceEncoderBaseline(torch.nn.Module):
                 for example in data:
                     input_dict = {constants.INPUT_IDS: torch.tensor(example[constants.INPUT_IDS]).to(device),
                                   constants.ATTENTION_MASK: torch.tensor(example[constants.ATTENTION_MASK]).to(device)}
-                    if self.encoder_type == 'bert':
-                        input_dict[constants.TOKEN_TYPE_IDS] = torch.tensor(example[constants.TOKEN_TYPE_IDS]).to(device)
+                    if self.encoder_type == constants.BERT:
+                        input_dict[constants.TOKEN_TYPE_IDS] = torch.tensor(
+                            example[constants.TOKEN_TYPE_IDS]).to(device)
                     encoder_inputs.append(input_dict)
                 outputs = self(encoder_inputs).float().to(device)
                 preds = torch.argmax(outputs, dim=1).to(device)
@@ -322,7 +323,7 @@ class SentenceEncoderBaseline(torch.nn.Module):
                 f"{constants.TRAIN} {constants.ACCURACY}": train_acc / train_num_batches,
                 f"{constants.TRAIN} {constants.EPOCH}": epoch,
                 f"{constants.TRAIN} {constants.LOSS}": train_loss / train_num_batches,
-                "learning rate": learning_rate
+                f"{constants.LEARNING_RATE}": learning_rate
             })
 
             # Perform Evaluation
@@ -338,7 +339,7 @@ class SentenceEncoderBaseline(torch.nn.Module):
                         input_dict = {constants.INPUT_IDS: torch.tensor(example[constants.INPUT_IDS]).to(device),
                                       constants.ATTENTION_MASK: torch.tensor(example[constants.ATTENTION_MASK]).to(
                                           device)}
-                        if self.encoder_type == 'bert':
+                        if self.encoder_type == constants.BERT:
                             input_dict[constants.TOKEN_TYPE_IDS] = torch.tensor(example[constants.TOKEN_TYPE_IDS]).to(
                                 device)
                         encoder_inputs.append(input_dict)
@@ -380,7 +381,17 @@ class SentenceEncoderBaseline(torch.nn.Module):
         self.load_state_dict(torch.load(best_model_path))
         os.remove(best_model_path)
     
-    def evaluate(self, dataloader, split_name):
+    def evaluate(self,
+                 dataloader,
+                 split_name,
+                 device):
+        """
+
+        :param dataloader:
+        :param split_name:
+        :param device:
+        :return:
+        """
         self.eval()
         self.to(device)
         with torch.no_grad():
@@ -393,7 +404,7 @@ class SentenceEncoderBaseline(torch.nn.Module):
                     input_dict = {constants.INPUT_IDS: torch.tensor(example[constants.INPUT_IDS]).to(device),
                                   constants.ATTENTION_MASK: torch.tensor(example[constants.ATTENTION_MASK]).to(
                                       device)}
-                    if self.encoder_type == 'bert':
+                    if self.encoder_type == constants.BERT:
                         input_dict[constants.TOKEN_TYPE_IDS] = torch.tensor(example[constants.TOKEN_TYPE_IDS]).to(
                             device)
                     encoder_inputs.append(input_dict)
@@ -417,7 +428,7 @@ class ParagraphEncoderBaseline(torch.nn.Module):
                  use_frozen_encoder: bool,
                  mlp_layers: torch.nn.Sequential,
                  device: torch.device,
-                 encoder_type: str = "bert"):
+                 encoder_type: str = constants.BERT):
         """
         Initialize a persuasiveness prediction baseline model.
 
@@ -435,12 +446,12 @@ class ParagraphEncoderBaseline(torch.nn.Module):
         self.encoder_type = encoder_type
 
         # Initialize appropriate encoder.
-        if self.encoder_type == "bert":
+        if self.encoder_type == constants.BERT:
             self._encoder_model = transformers.BertForSequenceClassification.from_pretrained(
                 constants.BERT_BASE_CASED,
                 num_labels=constants.NUM_LABELS).to(device)
-        elif self.encoder_type == "sbert":
-            self._encoder_model = SentenceTransformer("all-distilroberta-v1").to(device)
+        elif self.encoder_type == constants.SBERT:
+            self._encoder_model = SentenceTransformer(constants.ROBERTA_HUGGINGFACE_MODEL_NAME).to(device)
         else:
             raise RuntimeError(f"Unsupported encoder type: {self.encoder_type}")
 
@@ -458,7 +469,7 @@ class ParagraphEncoderBaseline(torch.nn.Module):
         :return: A tensor with shape [batch_size, num_labels].
         """
         # Compute hidden representations for context + argument pairs.
-        if self.encoder_type == "bert":
+        if self.encoder_type == constants.BERT:
             encoder_outputs = self._encoder_model.forward(
                 input_ids=encoder_inputs[constants.INPUT_IDS],
                 attention_mask=encoder_inputs[constants.ATTENTION_MASK],
@@ -467,9 +478,12 @@ class ParagraphEncoderBaseline(torch.nn.Module):
             )
             sequence_embeddings = encoder_outputs.hidden_states[-1].to(self.device)[:, 0, :]
         else:
-            sequence_embeddings = self._encoder_model({
-                constants.INPUT_IDS: encoder_inputs[constants.INPUT_IDS],
-                constants.ATTENTION_MASK: encoder_inputs[constants.ATTENTION_MASK]})['sentence_embedding']
+            sequence_embeddings = self._encoder_model(
+                {
+                    constants.INPUT_IDS: encoder_inputs[constants.INPUT_IDS],
+                    constants.ATTENTION_MASK: encoder_inputs[constants.ATTENTION_MASK],
+                }
+            )[constants.SBERT_SENTENCE_EMBEDDING]
 
         logits = self._mlp(sequence_embeddings)
         label_probabilities = F.softmax(logits, dim=1)
@@ -514,7 +528,7 @@ class ParagraphEncoderBaseline(torch.nn.Module):
         utils.ensure_dir_exists(best_model_dir_path)
         best_model_path = os.path.join(
             best_model_dir_path,
-            f'optimal_{metric_for_early_stopping}_{experiment_name}.pt')
+            f'optimal_{metric_for_early_stopping}_{experiment_name}.{constants.PYTORCH}')
         for epoch in range(num_epochs):
             self.train()
             train_loss = 0.0
@@ -527,7 +541,7 @@ class ParagraphEncoderBaseline(torch.nn.Module):
                     constants.INPUT_IDS: data[constants.INPUT_IDS].to(self.device),
                     constants.ATTENTION_MASK: data[constants.ATTENTION_MASK].to(self.device)
                 }
-                if self.encoder_type == "bert":
+                if self.encoder_type == constants.BERT:
                     encoder_inputs[constants.TOKEN_TYPE_IDS] = data[constants.TOKEN_TYPE_IDS].to(self.device)
 
                 outputs = self(encoder_inputs).float().to(device)
@@ -550,7 +564,7 @@ class ParagraphEncoderBaseline(torch.nn.Module):
                 f"{constants.TRAIN} {constants.ACCURACY}": train_acc / train_num_batches,
                 f"{constants.TRAIN} {constants.EPOCH}": epoch,
                 f"{constants.TRAIN} {constants.LOSS}": train_loss / train_num_batches,
-                "learning rate": learning_rate
+                f"{constants.LEARNING_RATE}": learning_rate
             })
 
             # Perform Evaluation
@@ -565,7 +579,7 @@ class ParagraphEncoderBaseline(torch.nn.Module):
                         constants.INPUT_IDS: data[constants.INPUT_IDS].to(self.device),
                         constants.ATTENTION_MASK: data[constants.ATTENTION_MASK].to(self.device)
                     }
-                    if self.encoder_type == "bert":
+                    if self.encoder_type == constants.BERT:
                         encoder_inputs[constants.TOKEN_TYPE_IDS] = data[constants.TOKEN_TYPE_IDS].to(self.device)
                     outputs = self(encoder_inputs).to(device)
                     preds = torch.argmax(outputs, dim=1).to(device)
@@ -613,7 +627,7 @@ class ParagraphEncoderBaseline(torch.nn.Module):
 
         :param dataloader: The dataloader instance containing the dataset on which the model is evaluated.
         :param split_name: One of {"train", "validation", "test"}
-        :param device: The device
+        :param device:
         :return: A dictionary mapping metric names to their float values.
         """
         self.eval()
@@ -627,7 +641,7 @@ class ParagraphEncoderBaseline(torch.nn.Module):
                     constants.INPUT_IDS: batch[constants.INPUT_IDS].to(self.device),
                     constants.ATTENTION_MASK: batch[constants.ATTENTION_MASK].to(self.device)
                 }
-                if self.encoder_type == "bert":
+                if self.encoder_type == constants.BERT:
                     encoder_inputs[constants.TOKEN_TYPE_IDS] = batch[constants.TOKEN_TYPE_IDS].to(self.device)
                 outputs = self(encoder_inputs).to(device)
                 preds = torch.argmax(outputs, dim=1).cpu()
@@ -671,11 +685,11 @@ if __name__ == '__main__':
     # Initialize tokenizer and dataset feature columns.
 
     feature_columns = [constants.INPUT_IDS, constants.ATTENTION_MASK]
-    if args.encoder_type == "bert":
+    if args.encoder_type == constants.BERT:
         tokenizer = transformers.BertTokenizer.from_pretrained(constants.BERT_BASE_CASED)
         feature_columns.append(constants.TOKEN_TYPE_IDS)
-    elif args.encoder_type == "sbert":
-        tokenizer = transformers.AutoTokenizer.from_pretrained("sentence-transformers/all-distilroberta-v1")
+    elif args.encoder_type == constants.SBERT:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(constants.ROBERTA_HUGGINGFACE_PATH)
     else:
         raise RuntimeError(f"invalid encoder type: {args.encoder_type}")
     columns = copy.deepcopy(feature_columns)
@@ -688,8 +702,8 @@ if __name__ == '__main__':
         # Truncate and pad sentences to a fixed, pre-specified length.
         dataset = {column_name: [] for column_name in columns}
         dataset.update({
-            'batch_index': [],
-            'sequence_index': [],
+            constants.BATCH_INDEX: [],
+            constants.SEQUENCE_INDEX: [],
             constants.LABEL: [],
         })
         index_mapping = {}
@@ -697,14 +711,14 @@ if __name__ == '__main__':
         for batch_index, sequences in enumerate(features):
             tokenized_sequences = tokenizer(
                 sequences,
-                padding='max_length',
+                padding=constants.MAX_LENGTH,
                 max_length=args.max_sentence_length,
                 truncation=True,
-                return_tensors="pt")
+                return_tensors=constants.PYTORCH)
 
             for sequence_index in range(len(tokenized_sequences[constants.INPUT_IDS])):
-                dataset['batch_index'].append(batch_index)
-                dataset['sequence_index'].append(sequence_index)
+                dataset[constants.BATCH_INDEX].append(batch_index)
+                dataset[constants.SEQUENCE_INDEX].append(sequence_index)
                 dataset[constants.LABEL].append(labels[batch_index])
                 for input_name, input_value in tokenized_sequences.items():  # Add features for language model
                     dataset[input_name].append(input_value[sequence_index])
@@ -726,7 +740,7 @@ if __name__ == '__main__':
         dataset_dict = {input_name: input_value for input_name, input_value in tokenized_inputs.items()}
         dataset_dict[constants.LABEL] = labels
         dataset = datasets.Dataset.from_dict(dataset_dict)
-        dataset.set_format(type='torch', columns=columns)
+        dataset.set_format(type=constants.TORCH, columns=columns)
 
     # TODO: Create an MLP as a function of a desired model size. This should correspond with the size of a parallel
     #  GNN model, and be passed via flag.
@@ -740,7 +754,7 @@ if __name__ == '__main__':
         torch.nn.Dropout(args.dropout_probability),
         torch.nn.Linear(512, constants.NUM_LABELS),
     )
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    device = torch.device(constants.CUDA) if torch.cuda.is_available() else torch.device(constants.CPU)
     if sentence_level:
         encoder_baseline = SentenceEncoderBaseline(
             use_frozen_encoder=True,
@@ -759,12 +773,11 @@ if __name__ == '__main__':
         )
 
     if utils.str2bool(args.use_k_fold_cross_validation):
-        # TODO: modify the below sections
-        num_of_examples = len(set(dataset['batch_index']))
+        num_of_examples = len(set(dataset[constants.BATCH_INDEX]))
         shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
         train_loader, validation_loader, test_loader = create_dataloaders_for_k_fold_cross_validation(
             dataset,
-            dataset_type='language_model',
+            dataset_type=constants.LANGUAGE_MODEL,
             num_of_examples=num_of_examples,
             shuffled_indices=shuffled_indices,
             batch_size=args.batch_size,
@@ -776,16 +789,14 @@ if __name__ == '__main__':
         train_metrics = []
         validation_metrics = []
         test_metrics = []
-        # shards = [dataset.shard(num_cross_validation_splits, i, contiguous=True)
-        #           for i in range(num_cross_validation_splits)]
-        num_of_examples = len(set(dataset['batch_index']))
+        num_of_examples = len(set(dataset[constants.BATCH_INDEX]))
         shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
         for validation_set_index in range(num_cross_validation_splits):
-            num_of_examples = len(set(dataset['batch_index'])) if sentence_level else dataset.num_rows
+            num_of_examples = len(set(dataset[constants.BATCH_INDEX])) if sentence_level else dataset.num_rows
             shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
             train_loader, validation_loader, test_loader = create_dataloaders_for_k_fold_cross_validation(
                 dataset,
-                dataset_type='language_model',
+                dataset_type=constants.LANGUAGE_MODEL,
                 num_of_examples=num_of_examples,
                 shuffled_indices=shuffled_indices,
                 batch_size=args.batch_size,
@@ -795,16 +806,6 @@ if __name__ == '__main__':
                 index_mapping=index_mapping,
                 sentence_level=sentence_level)
             split_model = copy.deepcopy(encoder_baseline).to(device)
-            # validation_and_test_sets = shards[validation_set_index].train_test_split(
-            #     args.val_percent / (args.val_percent + args.test_percent))
-            # validation_set = validation_and_test_sets[constants.TRAIN]
-            # print(f'Validation set ({validation_set_index}) positive labels: '
-            #       f'{sum(validation_set[constants.LABEL].numpy() == 1)}')
-            # print(f'Validation set ({validation_set_index}) negative labels: '
-            #       f'{sum(validation_set[constants.LABEL].numpy() == 0)}')
-            # test_set = validation_and_test_sets[constants.TEST]
-            # training_set = datasets.concatenate_datasets(
-            #     shards[0:validation_set_index] + shards[validation_set_index + 1:]).shuffle()
             model_name, group_name, run_name = utils.create_baseline_run_and_model_names(
                 dataset_name=args.data,
                 encoder_type=args.encoder_type,
@@ -830,11 +831,6 @@ if __name__ == '__main__':
                 split_model.parameters(),
                 lr=args.learning_rate,
                 weight_decay=args.weight_decay)
-            # train_loader, validation_loader, test_loader = utils.create_data_loaders(
-            #     training_set=training_set,
-            #     validation_set=validation_set,
-            #     test_set=test_set,
-            #     batch_size=args.batch_size)
             split_model.fit(
                 train_loader=train_loader,
                 validation_loader=validation_loader,
@@ -915,11 +911,11 @@ if __name__ == '__main__':
             lr=args.learning_rate,
             weight_decay=args.weight_decay
         )
-        num_of_examples = len(set(dataset['batch_index'])) if sentence_level else dataset.num_rows
+        num_of_examples = len(set(dataset[constants.BATCH_INDEX])) if sentence_level else dataset.num_rows
         shuffled_indices = random.sample(range(num_of_examples), num_of_examples)
         train_loader, validation_loader, test_loader = create_dataloaders_for_k_fold_cross_validation(
             dataset,
-            dataset_type='language_model',
+            dataset_type=constants.LANGUAGE_MODEL,
             num_of_examples=num_of_examples,
             shuffled_indices=shuffled_indices,
             batch_size=args.batch_size,
