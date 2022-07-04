@@ -1,7 +1,8 @@
 import copy
 import os
 from typing import Tuple, Dict, Union, Any, List, Sequence
-
+import sys
+sys.path.append('/home/b.noam/persuasive_arguments')
 import torch
 import transformers
 from bs4 import BeautifulSoup
@@ -236,11 +237,14 @@ def create_original_post_plus_reply_dataset_ukp(
 
     d = parse_ann_file(file_name)
     reply_text = ""
+    num_of_words_in_sentence = []
     for i, item in enumerate(d[constants.ENTITIES]):
         reply_text = reply_text + " " + d[constants.ENTITIES][item].data
-
+        num_of_words_in_sentence.append(len(d[constants.ENTITIES][item].data.split()))
     original_post_plus_reply = tuple([original_post_content, reply_text])
-    return original_post_plus_reply
+    avg_num_of_words_in_sentence = sum(num_of_words_in_sentence) / len(num_of_words_in_sentence)
+    stats = tuple([len(d[constants.ENTITIES]),avg_num_of_words_in_sentence])
+    return original_post_plus_reply, stats
 
 
 def create_simple_bert_inputs_ukp(debug: bool = False) -> (
@@ -255,15 +259,23 @@ def create_simple_bert_inputs_ukp(debug: bool = False) -> (
     """
     dataset = []
     labels = []
+    num_of_sentences_in_exmaple = []
+    avg_of_words_in_sentences_in_example = []
     for file_name in tqdm(os.listdir(constants.UKP_DATA)):
         if file_name.endswith(constants.ANN):
-                examples = create_original_post_plus_reply_dataset_ukp(file_name=file_name)
+                examples, stats = create_original_post_plus_reply_dataset_ukp(file_name=file_name)
+                num_of_sentences_in_exmaple.append(stats[0])
+                avg_of_words_in_sentences_in_example.append(stats[1])
                 dataset.append(examples)
                 example_labels = find_label_ukp(file_name)
                 labels.extend([example_labels])
                 if debug:
                     if len(labels) >= 5:
                         break
+    avg_num_of_sentences_in_example = sum(num_of_sentences_in_exmaple) / len(num_of_sentences_in_exmaple)
+    avg_of_avg_of_words_in_sentences_in_example = sum(avg_of_words_in_sentences_in_example) / len(avg_of_words_in_sentences_in_example)
+    print(f'Avg number of sentences in examples = {avg_num_of_sentences_in_example}')
+    print(f'Avg number of words in each sentence in each example = {avg_of_avg_of_words_in_sentences_in_example}')
     return dataset, labels
 #######################################################
 ### Pre-Processing Inputs for Graph Neural Networks ###
@@ -434,10 +446,32 @@ def make_op_reply_graph(reply_data: BeautifulSoup,
     }
     return result
 
+def convert_to_inter_nodes(reply: GraphDataset):
+    num_of_nodes = len(reply[constants.ID_TO_INDEX])
+    ind = num_of_nodes
+    orig_edges = reply[constants.EDGES]
+    orig_edges_type = reply[constants.EDGES_TYPES]
+    reply[constants.EDGES] = []
+    reply[constants.EDGES_TYPES] = []
+    for i, edge in enumerate(orig_edges):
+        reply[constants.ID_TO_INDEX][str(ind)] = ind
+        reply[constants.ID_TO_NODE_SUB_TYPE][str(ind)] = orig_edges_type[i]
+        reply[constants.ID_TO_NODE_TYPE][str(ind)] = orig_edges_type[i]
+        reply[constants.ID_TO_TEXT][str(ind)] = orig_edges_type[i]
+        reply[constants.INDEX_TO_ID][ind] = str(ind)
+        reply[constants.EDGES].append([edge[0],ind])
+        reply[constants.EDGES].append([ind, edge[1]])
+        reply[constants.EDGES_TYPES].append(orig_edges_type[i])
+        reply[constants.EDGES_TYPES].append(orig_edges_type[i])
+        ind+=1
+    return reply
+
+
 
 def make_op_reply_graphs(bs_data: BeautifulSoup,
                          file_name: str = None,
-                         is_positive: bool = None) -> GraphDataset:
+                         is_positive: bool = None,
+                         inter_nodes: bool = False) -> GraphDataset:
     """Generate a dataset where each example is a knowledge graph representing an argument.
 
     Each example of the knowledge graph consists of nodes and edges corresponding to the original post and some reply.
@@ -483,6 +517,8 @@ def make_op_reply_graphs(bs_data: BeautifulSoup,
             id_to_node_sub_type=id_to_node_sub_type,
             edges=edges,
             edges_types=edges_types)
+        if inter_nodes:
+            reply_examples = convert_to_inter_nodes(reply_examples)
         examples.append(reply_examples)
     return examples
 
@@ -519,7 +555,7 @@ def create_bert_inputs(
 
 
 if __name__ == '__main__':
-    d, l =create_simple_bert_inputs_ukp(debug=True)
+    d, l =create_simple_bert_inputs_ukp(debug=False)
     exit()
     claims_lst = []
     premises_lst = []

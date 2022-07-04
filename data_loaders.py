@@ -109,7 +109,8 @@ class CMVKGDataset(torch.utils.data.Dataset):
                  version: str,
                  model_name: str = constants.BERT_BASE_CASED,
                  debug: bool = False,
-                 super_node: bool = False):
+                 super_node: bool = False,
+                 iter_nodes: bool = False):
         """
 
         :param directory_path: The string path to the 'change-my-view-modes-master' directory, which contains versions
@@ -136,7 +137,8 @@ class CMVKGDataset(torch.utils.data.Dataset):
                         examples = make_op_reply_graphs(
                             bs_data=bs_data,
                             file_name=file_name,
-                            is_positive=(sign == constants.POSITIVE))
+                            is_positive=(sign == constants.POSITIVE),
+                            inter_nodes = iter_nodes)
                         examples = create_bert_inputs(examples,
                                                       tokenizer=transformers.AutoTokenizer.from_pretrained(model_name))
                         self.dataset.extend(examples)
@@ -170,7 +172,7 @@ class CMVKGDataset(torch.utils.data.Dataset):
                 dim=1,
             )
         stacked_bert_inputs = torch.stack([t for t in formatted_bert_inputs.values()], dim=1)
-        if self.super_node:
+        if self.super_node: #TODO remove edges from intermidate nodes
             #add super node first
             super_node_embedding = torch.empty(stacked_bert_inputs[:, :, 0].shape).unsqueeze(dim=2)
             super_node_embedding.data.uniform_(-constants.initial_range, constants.initial_range).long()

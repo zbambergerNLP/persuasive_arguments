@@ -55,7 +55,7 @@ parser = argparse.ArgumentParser(
     description='Process flags for experiments on processing graphical representations of arguments through GNNs.')
 parser.add_argument('--data',
                     type=str,
-                    default='UKP',
+                    default='CMV',
                     help="Defines which database to use CMV or UKP")
 parser.add_argument('--encoder_type',
                     type=str,
@@ -64,7 +64,7 @@ parser.add_argument('--encoder_type',
                          "prepositions.")
 parser.add_argument('--hetero',
                     type=str,
-                    default="True",
+                    default="False",
                     help="Use heterophilous graphs if true and homophilous if False")
 parser.add_argument('--hetero_type',
                     type=str,
@@ -106,7 +106,7 @@ parser.add_argument('--rounds_between_evals',
                     help="An integer denoting the number of epcohs that occur between each evaluation run.")
 parser.add_argument('--debug',
                     type=str,
-                    default="False",
+                    default="True",
                     help="Work in debug mode")
 parser.add_argument('--aggregation_type',
                     type=str,
@@ -151,6 +151,10 @@ parser.add_argument('--max_num_rounds_no_improvement',
                     help="The permissible number of validation set evaluations in which the desired metric does not "
                          "improve. If the desired validation metric does not improve within this number of evaluation "
                          "attempts, then early stopping is performed.")
+parser.add_argument('--inter_nodes',
+                    type=bool,
+                    default=True,
+                    help="Add intermidated nodes representing the edge types. Works in homophilous type")
 # TODO: Fix documentation across this file.
 
 
@@ -439,7 +443,17 @@ if __name__ == '__main__':
         print(f'initializing homophealous {args.data} dataset')
 
         if args.data == constants.CMV:
-
+            kg_dataset = CMVKGDataset( #TODO remove once done creating intermidiate edges
+                current_path + "/cmv_modes/change-my-view-modes-master",
+                version=constants.v2_path,
+                debug=utils.str2bool(args.debug),
+                model_name=(
+                    constants.BERT_BASE_CASED if args.encoder_type == 'bert'
+                    else "sentence-transformers/all-distilroberta-v1"
+                ),
+                super_node=use_super_node,
+                iter_nodes=args.inter_nodes
+            )
             if os.path.exists(os.path.join(dir_name, file_name)):
                 kg_dataset = torch.load(os.path.join(dir_name, file_name))
             else:
