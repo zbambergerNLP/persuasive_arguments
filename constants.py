@@ -33,6 +33,7 @@ EPOCH = "epoch"
 LOSS = "loss"
 ACCURACY = "accuracy"
 PRECISION = "precision"
+LEARNING_RATE = "learning_rate"
 RECALL = "recall"
 F1 = "f1 measure"
 CONFUSION_MATRIX = "confusion_matrix"
@@ -85,7 +86,6 @@ INITIAL_PREMISE_TYPES_TO_CONSIDER = 3
 OP_COMMENT = 'op_comment'
 LABEL = 'label'
 
-
 # CMV Premise Mode Dataset
 BINARY_PREMISE_MODE_PREDICTION = 'binary_premise_mode_prediction'
 PREMISE_TEXT = 'premise_text'
@@ -113,6 +113,9 @@ PARQUET = "parquet"
 XML = "xml"
 ANN = "ann"
 TXT = "txt"
+
+# Dataset Format Types
+TORCH = 'torch'
 
 # Wandb constants
 RESULTS = 'results'
@@ -155,6 +158,24 @@ ATTACK = 'attack'
 SUPER_NODE = 'super_node'
 initial_range = 0.05
 
+# Language Models
+BERT = 'bert'
+SBERT = 'sbert'
+ROBERTA_HUGGINGFACE_PATH = 'sentence-transformers/all-distilroberta-v1'
+ROBERTA_HUGGINGFACE_MODEL_NAME = 'all-distilroberta-v1'
+SBERT_SENTENCE_EMBEDDING = 'sentence_embedding'
+MAX_LENGTH = 'max_length'
+
+# Baseline Constants
+LANGUAGE_MODEL = 'language_model'
+
+# Index Types
+BATCH_INDEX = 'batch_index'
+SEQUENCE_INDEX = 'sequence_index'
+
+# Devices
+CUDA = 'cuda'
+CPU = 'cpu'
 
 # UKP parsing
 UKP = "UKP"
@@ -177,6 +198,7 @@ DELTA_CSV = "DELTA"
 ###################
 ###### PATH  ######
 ###################
+# TODO: Remove this logic.
 if os.name == 'nt':
     if os.getlogin() == "b.noam":
         BASE_DIR = pathlib.PurePath("/home/b.noam/persuasive_arguments")
