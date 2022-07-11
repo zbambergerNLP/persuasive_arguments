@@ -183,7 +183,7 @@ if os.name == 'nt':
     else:
         BASE_DIR = pathlib.PurePath("/home/zachary/persuasive_argumentation")
 else:
-    BASE_DIR = pathlib.PurePath("/home/zachary/persuasive_argumentation")
+    BASE_DIR = pathlib.PurePath("/home/b.noam/persuasive_arguments")
 
 UKP_DIR = BASE_DIR / 'UKP'
 UKP_DATA = UKP_DIR / 'brat-project-final'

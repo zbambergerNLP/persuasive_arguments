@@ -147,6 +147,23 @@ class CMVKGDataset(torch.utils.data.Dataset):
                         if debug:
                             if len(self.labels) >= 20:
                                 break
+        print('done')
+    def stats(self):
+        num_of_examples = len(self.dataset)
+        print(f"num of positive examples ={sum(self.labels)}")
+        print(f"num of negative examples ={num_of_examples-sum(self.labels)}")
+        num_of_nodes = []
+        num_of_edges = []
+        num_of_words = []
+        for e in self.dataset:
+            num_of_nodes.append(len(e['id_to_idx']))
+            num_of_edges.append(len(e['edges']))
+            for t in e["id_to_text"].keys():
+                num_of_words.append(len(e["id_to_text"][t].split()))
+
+        print(f"avg num of nodes = {sum(num_of_nodes) /num_of_examples}")
+        print(f"avg num of edges = {sum(num_of_edges) /num_of_examples}")
+        print(f"avg num of words in nodes ={sum(num_of_words)/ sum(num_of_nodes)}")
 
     def __len__(self):
         return len(self.dataset)
@@ -189,6 +206,13 @@ class CMVKGDataset(torch.utils.data.Dataset):
             return Data(x=stacked_bert_inputs.T,
                         edge_index=torch.tensor(edges, dtype=torch.long).T,
                         y=torch.tensor(self.labels[index]))
+
+            # import matplotlib.pyplot as plt
+            # import networkx as nx
+            # import torch_geometric
+            # g = torch_geometric.utils.to_networkx(d)
+            # nx.draw(g, arrows=True, with_labels=True, node_size=400, node_color ='#419fde')
+            # plt.show()
 
         else:
             return Data(x=stacked_bert_inputs.T,
@@ -450,6 +474,23 @@ class UKPDataset(torch.utils.data.Dataset):
                 if debug:
                     if len(self.labels) >= 20:
                         break
+        print("done")
+    def stats(self):
+        num_of_examples = len(self.dataset)
+        print(f"num of positive examples ={sum(self.labels)}")
+        print(f"num of negative examples ={num_of_examples-sum(self.labels)}")
+        num_of_nodes = []
+        num_of_edges = []
+        num_of_words = []
+        for e in self.dataset:
+            num_of_nodes.append(len(e['id_to_idx']))
+            num_of_edges.append(len(e['edges']))
+            for t in e["id_to_text"].keys():
+                num_of_words.append(len(e["id_to_text"][t].split()))
+
+        print(f"avg num of nodes = {sum(num_of_nodes) /num_of_examples}")
+        print(f"avg num of edges = {sum(num_of_edges) /num_of_examples}")
+        print(f"avg num of words in nodes ={sum(num_of_words)/ sum(num_of_nodes)}")
 
     def __len__(self):
         return len(self.dataset)
