@@ -166,6 +166,10 @@ ROBERTA_HUGGINGFACE_MODEL_NAME = 'all-distilroberta-v1'
 SBERT_SENTENCE_EMBEDDING = 'sentence_embedding'
 MAX_LENGTH = 'max_length'
 
+# Pooling
+MAX_POOLING = 'max_pooling'
+AVG_POOLING = 'avg_pooling'
+
 # Baseline Constants
 LANGUAGE_MODEL = 'language_model'
 
@@ -205,7 +209,7 @@ if os.name == 'nt':
     else:
         BASE_DIR = pathlib.PurePath("/home/zachary/persuasive_argumentation")
 else:
-    BASE_DIR = pathlib.PurePath("/home/b.noam/persuasive_arguments")
+    BASE_DIR = pathlib.PurePath("/home/zbamberger/persuasive_arguments")
 
 UKP_DIR = BASE_DIR / 'UKP'
 UKP_DATA = UKP_DIR / 'brat-project-final'

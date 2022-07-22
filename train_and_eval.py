@@ -449,52 +449,33 @@ if __name__ == '__main__':
         print(f'initializing homophealous {args.data} dataset')
 
         if args.data == constants.CMV:
-            kg_dataset = CMVKGDataset( #TODO remove once done creating intermidiate edges
-                current_path + "/cmv_modes/change-my-view-modes-master",
-                version=constants.v2_path,
-                debug=utils.str2bool(args.debug),
-                model_name=(
-                    constants.BERT_BASE_CASED if args.encoder_type == 'bert'
-                    else "sentence-transformers/all-distilroberta-v1"
-                ),
-                super_node=use_super_node,
-                iter_nodes=args.inter_nodes
-            )
-            # if os.path.exists(os.path.join(dir_name, file_name)):
-            #     kg_dataset = torch.load(os.path.join(dir_name, file_name))
-            # else:
-            #     kg_dataset = CMVKGDataset(
-            #         current_path + "/cmv_modes/change-my-view-modes-master",
-            #         version=constants.v2_path,
-            #         debug=utils.str2bool(args.debug),
-            #         model_name=(
-            #             constants.BERT_BASE_CASED if args.encoder_type == 'bert'
-            #             else "sentence-transformers/all-distilroberta-v1"
-            #         ),
-            #         super_node=use_super_node,
-            #     )
-            #     torch.save(kg_dataset, os.path.join(dir_name, file_name))
+            if os.path.exists(os.path.join(dir_name, file_name)):
+                kg_dataset = torch.load(os.path.join(dir_name, file_name))
+            else:
+                kg_dataset = CMVKGDataset(
+                    current_path + "/cmv_modes/change-my-view-modes-master",
+                    version=constants.v2_path,
+                    debug=utils.str2bool(args.debug),
+                    model_name=(
+                        constants.BERT_BASE_CASED if args.encoder_type == 'bert'
+                        else "sentence-transformers/all-distilroberta-v1"
+                    ),
+                    super_node=use_super_node,
+                )
+                torch.save(kg_dataset, os.path.join(dir_name, file_name))
         elif args.data == constants.UKP:
-            kg_dataset = UKPDataset( #Todo change back to save file option
-                model_name=(
-                    constants.BERT_BASE_CASED if args.encoder_type == 'bert'
-                    else "sentence-transformers/all-distilroberta-v1"
-                ),
-                debug=utils.str2bool(args.debug),
-                super_node=use_super_node
-            )
-            # if os.path.exists(os.path.join(dir_name, file_name)):
-            #     kg_dataset = torch.load(os.path.join(dir_name, file_name))
-            # else:
-            #     kg_dataset = UKPDataset(
-            #         model_name=(
-            #             constants.BERT_BASE_CASED if args.encoder_type == 'bert'
-            #             else "sentence-transformers/all-distilroberta-v1"
-            #         ),
-            #         debug=utils.str2bool(args.debug),
-            #         super_node=use_super_node
-            #     )
-            #     torch.save(kg_dataset, os.path.join(dir_name, file_name))
+            if os.path.exists(os.path.join(dir_name, file_name)):
+                kg_dataset = torch.load(os.path.join(dir_name, file_name))
+            else:
+                kg_dataset = UKPDataset(
+                    model_name=(
+                        constants.BERT_BASE_CASED if args.encoder_type == 'bert'
+                        else "sentence-transformers/all-distilroberta-v1"
+                    ),
+                    debug=utils.str2bool(args.debug),
+                    super_node=use_super_node
+                )
+                torch.save(kg_dataset, os.path.join(dir_name, file_name))
 
     num_of_examples = len(kg_dataset.dataset)
     shuffled_indices = random.sample(range(num_of_examples), num_of_examples)

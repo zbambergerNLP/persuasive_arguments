@@ -1,0 +1,47 @@
+program: baseline_encoders.py
+name: sentence_baseline_ukp
+entity: persuasive_arguments
+project: persuasive_argumentation
+method: grid
+metric:
+  name: eval_validation_f1 measure
+  goal: maximize
+parameters:
+  data:
+    value: "UKP"
+  model_type:
+    value: "sentence_pooling"
+  num_epochs:
+    value: 100
+  batch_size:
+    value: 16
+  test_percent:
+    value: 0.1
+  val_percent:
+    value: 0.1
+  use_k_fold_cross_validation:
+    value: "False"
+  max_num_rounds_no_improvement:
+    value: 20
+  max_sentence_length:
+    value: 50
+  metric_for_early_stopping:
+    value: "accuracy"
+  weight_decay:
+    value:  0.001
+  encoder_type:
+    values: ["bert", "sbert"]
+  pooling_type:
+    values: [ "max_pooling", "avg_pooling" ]
+  seed:
+    values: [ 501, 502 ]
+  fold_index:
+    values: [ 0, 1, 2, 3, 4 ]
+  learning_rate:
+    values: [ 0.001, 0.0001 ]
+  scheduler_gamma:
+    value: 0.99
+  dropout_probability:
+    values: [0, 0.1, 0.3]
+  positive_example_weight:
+    values: [ 1, 10, 20 ]

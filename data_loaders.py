@@ -155,15 +155,21 @@ class CMVKGDataset(torch.utils.data.Dataset):
         num_of_nodes = []
         num_of_edges = []
         num_of_words = []
+        num_of_words_in_example = []
         for e in self.dataset:
+            example_words = 0
             num_of_nodes.append(len(e['id_to_idx']))
             num_of_edges.append(len(e['edges']))
             for t in e["id_to_text"].keys():
-                num_of_words.append(len(e["id_to_text"][t].split()))
-
-        print(f"avg num of nodes = {sum(num_of_nodes) /num_of_examples}")
-        print(f"avg num of edges = {sum(num_of_edges) /num_of_examples}")
-        print(f"avg num of words in nodes ={sum(num_of_words)/ sum(num_of_nodes)}")
+                num_words_in_node = len(e["id_to_text"][t].split())
+                num_of_words.append(num_words_in_node)
+                example_words += num_words_in_node
+            num_of_words_in_example.append(example_words)
+        print(f"avg num of nodes = {sum(num_of_nodes) / num_of_examples}, std: {np.std(num_of_nodes)}")
+        print(f"avg num of edges = {sum(num_of_edges) / num_of_examples}, std: {np.std(num_of_edges)}")
+        print(f"avg num of words in nodes = {sum(num_of_words) / sum(num_of_nodes)}, std: {np.std(num_of_words)}")
+        print(f"avg num of words in examples = {sum(num_of_words_in_example) / num_of_examples}, "
+              f"std: {np.std(num_of_words_in_example)}")
 
     def __len__(self):
         return len(self.dataset)
@@ -467,7 +473,7 @@ class UKPDataset(torch.utils.data.Dataset):
             if file_name.endswith(constants.ANN):
                 examples = self.make_op_reply_graphs(file_name=file_name)
                 examples = create_bert_inputs([examples],
-                                   tokenizer=transformers.AutoTokenizer.from_pretrained(model_name))
+                                              tokenizer=transformers.AutoTokenizer.from_pretrained(model_name))
                 self.dataset.extend(examples)
                 example_label = find_label_ukp(file_name)
                 self.labels.append(example_label)
@@ -475,22 +481,29 @@ class UKPDataset(torch.utils.data.Dataset):
                     if len(self.labels) >= 20:
                         break
         print("done")
+
     def stats(self):
         num_of_examples = len(self.dataset)
         print(f"num of positive examples ={sum(self.labels)}")
-        print(f"num of negative examples ={num_of_examples-sum(self.labels)}")
+        print(f"num of negative examples ={num_of_examples - sum(self.labels)}")
         num_of_nodes = []
         num_of_edges = []
         num_of_words = []
+        num_of_words_in_example = []
         for e in self.dataset:
+            example_words = 0
             num_of_nodes.append(len(e['id_to_idx']))
             num_of_edges.append(len(e['edges']))
             for t in e["id_to_text"].keys():
-                num_of_words.append(len(e["id_to_text"][t].split()))
-
-        print(f"avg num of nodes = {sum(num_of_nodes) /num_of_examples}")
-        print(f"avg num of edges = {sum(num_of_edges) /num_of_examples}")
-        print(f"avg num of words in nodes ={sum(num_of_words)/ sum(num_of_nodes)}")
+                num_words_in_node = len(e["id_to_text"][t].split())
+                num_of_words.append(num_words_in_node)
+                example_words += num_words_in_node
+            num_of_words_in_example.append(example_words)
+        print(f"avg num of nodes = {sum(num_of_nodes) / num_of_examples}, std: {np.std(num_of_nodes)}")
+        print(f"avg num of edges = {sum(num_of_edges) / num_of_examples}, std: {np.std(num_of_edges)}")
+        print(f"avg num of words in nodes = {sum(num_of_words) / sum(num_of_nodes)}, std: {np.std(num_of_words)}")
+        print(f"avg num of words in examples = {sum(num_of_words_in_example) / num_of_examples}, "
+              f"std: {np.std(num_of_words_in_example)}")
 
     def __len__(self):
         return len(self.dataset)

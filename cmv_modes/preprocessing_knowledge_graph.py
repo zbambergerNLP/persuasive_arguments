@@ -255,7 +255,7 @@ def create_original_post_plus_reply_dataset_ukp(
         num_of_words_in_sentence.append(len(d[constants.ENTITIES][item].data.split()))
     original_post_plus_reply = tuple([original_post_content, reply_text])
     avg_num_of_words_in_sentence = sum(num_of_words_in_sentence) / len(num_of_words_in_sentence)
-    stats = tuple([len(d[constants.ENTITIES]),avg_num_of_words_in_sentence])
+    stats = tuple([len(d[constants.ENTITIES]), avg_num_of_words_in_sentence])
     return original_post_plus_reply, stats
 
 

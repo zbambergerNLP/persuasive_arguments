@@ -23,12 +23,11 @@ import metrics
 from cmv_modes import preprocessing_knowledge_graph
 from data_loaders import create_dataloaders_for_k_fold_cross_validation
 
-
 """
 Example usage: 
 srun --gres=gpu:1 -p nlp python baseline_encoders.py \
     --data 'CMV' \
-    --model_type 'paragraph' \
+    --model_type 'sentence_pooling' \
     --num_epochs 100 \
     --batch_size 16 \
     --positive_example_weight 1 \
@@ -62,7 +61,12 @@ parser.add_argument('--model_type',
                          'the embedding of each utterance to an example-level representation.\n'
                          'Finally, the sentence_concat model computes sentence embeddings as in sentence_pooling. '
                          'However, in the sentence_concat model, we compute an example-level representation by '
-                         'concatenating the representations of the first 10 utterances. ')
+                         'concatenating the representations of the first 10 utterances.')
+parser.add_argument('--pooling_type',
+                    type=str,
+                    default=constants.MAX_POOLING,
+                    help='One of the following pre-defined types: {max_pooling, avg_pooling}. '
+                         'The method used to pools embedding of each utterance into an example-level representation.\n')
 parser.add_argument('--max_sentence_length',
                     type=int,
                     default=50,
@@ -151,6 +155,7 @@ class SentenceEncoderBaseline(torch.nn.Module):
                  device: torch.device,
                  output_dim: int = 2,
                  encoder_type: str = constants.BERT,
+                 pooling_type: str = constants.MAX_POOLING,
                  dropout_prob: float = 0):
         """
         Initialize a persuasiveness prediction baseline model.
@@ -184,7 +189,12 @@ class SentenceEncoderBaseline(torch.nn.Module):
                 param.requires_grad = False
 
         # Create a pooled representation for sentences.
-        self.pooling = torch.nn.AdaptiveMaxPool1d(output_size=1, return_indices=False)
+        if pooling_type == constants.MAX_POOLING:
+            self.pooling = torch.nn.AdaptiveMaxPool1d(output_size=1, return_indices=False)
+        elif pooling_type == constants.AVG_POOLING:
+            self.pooling = torch.nn.AdaptiveAvgPool1d(output_size=1)
+        else:
+            raise RuntimeError(f"Unsupported pooling type: {pooling_type}")
 
         # Create a MLP to process pooled representations for sentences.
         prev_layer_dimension = constants.BERT_HIDDEN_DIM
@@ -761,6 +771,7 @@ if __name__ == '__main__':
             hidden_channels=[constants.BERT_HIDDEN_DIM, 512],
             device=device,
             encoder_type=args.encoder_type,
+            pooling_type=args.pooling_type,
             dropout_prob=args.dropout_probability
         )
 
