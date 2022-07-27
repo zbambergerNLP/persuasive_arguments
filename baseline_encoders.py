@@ -711,6 +711,7 @@ if __name__ == '__main__':
     # Tokenize encoder inputs
     verbosity = transformers.logging.get_verbosity()
     transformers.logging.set_verbosity_error()
+    index_mapping = {}
     if sentence_level:
         # Truncate and pad sentences to a fixed, pre-specified length.
         dataset = {column_name: [] for column_name in columns}
@@ -719,7 +720,6 @@ if __name__ == '__main__':
             constants.SEQUENCE_INDEX: [],
             constants.LABEL: [],
         })
-        index_mapping = {}
         instance_counter = 0
         for batch_index, sequences in enumerate(features):
             tokenized_sequences = tokenizer(

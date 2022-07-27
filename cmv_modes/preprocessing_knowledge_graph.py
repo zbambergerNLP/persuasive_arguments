@@ -251,7 +251,7 @@ def create_original_post_plus_reply_dataset_ukp(
     reply_text = ""
     num_of_words_in_sentence = []
     for i, item in enumerate(d[constants.ENTITIES]):
-        reply_text = reply_text + " " + d[constants.ENTITIES][item].data
+        reply_text = reply_text + " " + d[constants.ENTITIES][item].data.strip() + "."
         num_of_words_in_sentence.append(len(d[constants.ENTITIES][item].data.split()))
     original_post_plus_reply = tuple([original_post_content, reply_text])
     avg_num_of_words_in_sentence = sum(num_of_words_in_sentence) / len(num_of_words_in_sentence)
