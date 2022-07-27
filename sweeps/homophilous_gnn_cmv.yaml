@@ -42,7 +42,7 @@ parameters:
       - "768 768 768"
       - "256 128 64 32"
   seed:
-    values: [ 501, 502 ]
+    value: 300
   fold_index:
     values: [ 0, 1, 2, 3, 4 ]
   learning_rate:

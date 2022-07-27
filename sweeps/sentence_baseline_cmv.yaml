@@ -34,7 +34,7 @@ parameters:
   pooling_type:
     values: ["max_pooling", "avg_pooling"]
   seed:
-    values: [ 501, 502 ]
+    value: 300
   fold_index:
     values: [ 0, 1, 2, 3, 4 ]
   learning_rate:

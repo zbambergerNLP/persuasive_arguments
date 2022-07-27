@@ -38,6 +38,7 @@ def create_baseline_run_and_model_names(
         dropout_probability: float,
         seed: int,
         validation_split_index: int,
+        pooling_type: str = None,
 ) -> typing.Tuple[str, str, str]:
     """
 
@@ -50,9 +51,10 @@ def create_baseline_run_and_model_names(
     :param dropout_probability:
     :param seed:
     :param validation_split_index:
+    :param pooling_type:
     :return:
     """
-    model_name = f'{encoder_type}_mlp'
+    model_name = f'{encoder_type}_{pooling_type}_pooling' if pooling_type else f'{encoder_type}_paragraph'
     group_name = f'{model_name} {dataset_name}'
     group_name = f"{group_name} " \
                  f"(seed: #{seed}, " \
@@ -99,8 +101,7 @@ def create_gnn_run_and_model_names(encoder_type: str,
         model_name = f"{model_name}_supernode"
     else:
         model_name = f"{model_name}_{'max' if use_max_pooling else 'average'}_pooling"
-    group_name = f"{model_name} {dataset_name}"
-    group_name = f"{group_name} (" \
+    group_name = f"{model_name} {dataset_name} (" \
                  f"lr: {learning_rate}, " \
                  f"seed {seed}, " \
                  f"gamma: {scheduler_gamma}, " \

@@ -24,29 +24,29 @@ from tqdm import tqdm
 """
 Example command:
 srun --gres=gpu:1 -p nlp python3 train_and_eval.py \
-    --data CMV \
-    --num_epochs 30 \
+    --data UKP \
+    --num_epochs 100 \
     --batch_size 16 \
     --learning_rate 1e-3 \
     --weight_decay 1e-3 \
     --scheduler_gamma 0.9 \
-    --dropout_probability 0.05 \
+    --dropout_probability 0.1 \
     --gcn_hidden_layer_dim "128 64 32" \
     --test_percent 0.1 \
     --val_percent 0.1 \
     --rounds_between_evals 1 \
-    --model "GAT" \
+    --model "SAGE" \
     --encoder_type "sbert" \
     --debug "false" \
-    --hetero "true" \
-    --aggregation_type "super_node" \
+    --hetero "false" \
+    --aggregation_type "max_pooling" \
     --hetero_type "nodes" \
     --use_k_fold_cross_validation "true" \
     --num_cross_validation_splits 5 \
-    --seed 42 \
+    --seed 300 \
     --dropout_probability 0.3 \
     --positive_example_weight 1\
-    --inter_nodes True
+    --inter_nodes "false"
 """
 
 
@@ -151,8 +151,8 @@ parser.add_argument('--max_num_rounds_no_improvement',
                          "improve. If the desired validation metric does not improve within this number of evaluation "
                          "attempts, then early stopping is performed.")
 parser.add_argument('--inter_nodes',
-                    type=bool,
-                    default=False,
+                    type=str,
+                    default="False",
                     help="Add intermidated nodes representing the edge types. Works in homophilous type")
 # TODO: Fix documentation across this file.
 
@@ -445,7 +445,7 @@ if __name__ == '__main__':
             raise RuntimeError(f"Unsupported hetero type: {hetero_type}")
         data = kg_dataset[2]
 
-    else:
+    else:  # Initialze homophilous graph
         print(f'initializing homophealous {args.data} dataset')
 
         if args.data == constants.CMV:

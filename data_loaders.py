@@ -148,6 +148,7 @@ class CMVKGDataset(torch.utils.data.Dataset):
                             if len(self.labels) >= 20:
                                 break
         print('done')
+
     def stats(self):
         num_of_examples = len(self.dataset)
         print(f"num of positive examples ={sum(self.labels)}")

@@ -26,11 +26,11 @@ from data_loaders import create_dataloaders_for_k_fold_cross_validation
 """
 Example usage: 
 srun --gres=gpu:1 -p nlp python baseline_encoders.py \
-    --data 'CMV' \
-    --model_type 'sentence_pooling' \
+    --data 'UKP' \
+    --model_type 'paragraph' \
     --num_epochs 100 \
     --batch_size 16 \
-    --positive_example_weight 1 \
+    --positive_example_weight 10 \
     --learning_rate 1e-3 \
     --weight_decay 1e-3 \
     --scheduler_gamma 0.99 \
@@ -41,6 +41,7 @@ srun --gres=gpu:1 -p nlp python baseline_encoders.py \
     --num_cross_validation_splits 5 \
     --fold_index 0 \
     --dropout_probability 0.3 \
+    --max_num_rounds_no_improvement 20 \
     --encoder_type 'sbert' \
     --seed 42 
 """
@@ -675,19 +676,21 @@ if __name__ == '__main__':
         print(f'{parameter}: {value}')
     utils.set_seed(args.seed)
     sentence_level = args.model_type != 'paragraph'
+    print(f'sentence level: {sentence_level}')
 
     if args.data == constants.CMV:
-        examples = preprocessing_knowledge_graph.create_simple_bert_inputs(
+        features, labels = preprocessing_knowledge_graph.create_simple_bert_inputs(
             directory_path=os.path.join(os.getcwd(), 'cmv_modes', 'change-my-view-modes-master'),
             version=constants.v2_path,
             sentence_level=sentence_level)
-
     else:  # UKP dataset
-        examples = preprocessing_knowledge_graph.create_simple_bert_inputs_ukp(sentence_level=sentence_level)
-    features = examples[0]
-    labels = np.array(examples[1])
+        features, labels = preprocessing_knowledge_graph.create_simple_bert_inputs_ukp(sentence_level=sentence_level)
+    features = np.array(features)
+    print(f'features head:')
+    print(features[:10])
+    labels = np.array(labels)
     assert len(features) == len(labels), f'We expect the same number of features and labels.\n' \
-                                         f'Number of feature entries: {len(examples)}.\n' \
+                                         f'Number of feature entries: {len(features)}.\n' \
                                          f'Number of label enties: {len(labels)}'
     print(f'positive_labels: {sum(labels == 1)}\n'
           f'negative_labels: {sum(labels == 0)}')

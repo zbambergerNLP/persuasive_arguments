@@ -219,7 +219,7 @@ def create_simple_bert_inputs(directory_path: str,
                         new_examples = []
                         for context, reply in examples:
                             context = list(filter(lambda text: len(text) > 0,
-                                             [sentence.strip() for sentence in context.split('.')]))
+                                                  [sentence.strip() for sentence in context.split('.')]))
                             reply = list(filter(lambda text: len(text) > 0,
                                                 [sentence.strip() for sentence in reply.split('.')]))
                             new_examples.append(context + reply)
@@ -243,7 +243,7 @@ def create_original_post_plus_reply_dataset_ukp(
 
     :param file_name: The name of the .ann file which we've parsed.
     :return: examples - a list of data examples extracted from file_name in the following construction:
-        [[op text], reply text]
+        (op text, reply text)
     """
     original_post_content = find_op_ukp(file_name)
 
@@ -266,38 +266,31 @@ def create_simple_bert_inputs_ukp(debug: bool = False,
     Create input to BERT by taking relevant text from each ann file.
     :param debug: A boolean denoting whether or not we are in debug mode (in which our input dataset is
         significantly smaller).
-    :return: dataset - a list of data examples in the following construction:
-        [[title text, op text], reply text ]
+    :return: dataset - a list of data examples in one of the following construction:
+        1. Paragraph Level: [[[title text, op text], reply text], label]
+        2. Sentence Level: [[sentence_1, ..., sentence_m], label]
+
+        sentence_i - the sentence at index i after concatenating reply sentences to context sentences.
         labels - the label of the data examples 1 for positive and 0 for negative
     """
     dataset = []
     labels = []
-    num_of_sentences_in_exmaple = []
-    avg_of_words_in_sentences_in_example = []
     for file_name in tqdm(os.listdir(constants.UKP_DATA)):
         if file_name.endswith(constants.ANN):
-                examples, stats = create_original_post_plus_reply_dataset_ukp(file_name=file_name)
-                num_of_sentences_in_exmaple.append(stats[0])
-                avg_of_words_in_sentences_in_example.append(stats[1])
-                if sentence_level:
-                    new_examples = []
-                    for context, reply in examples:
-                        context = list(filter(lambda text: len(text) > 0,
-                                              [sentence.strip() for sentence in context.split('.')]))
-                        reply = list(filter(lambda text: len(text) > 0,
-                                            [sentence.strip() for sentence in reply.split('.')]))
-                        new_examples.append(context.extend(reply))
-                    examples = new_examples
-                dataset.append(examples)
-                example_labels = find_label_ukp(file_name)
-                labels.extend([example_labels])
-                if debug:
-                    if len(labels) >= 5:
-                        break
-    avg_num_of_sentences_in_example = sum(num_of_sentences_in_exmaple) / len(num_of_sentences_in_exmaple)
-    avg_of_avg_of_words_in_sentences_in_example = sum(avg_of_words_in_sentences_in_example) / len(avg_of_words_in_sentences_in_example)
-    print(f'Avg number of sentences in examples = {avg_num_of_sentences_in_example}')
-    print(f'Avg number of words in each sentence in each example = {avg_of_avg_of_words_in_sentences_in_example}')
+            (context, reply), stats = create_original_post_plus_reply_dataset_ukp(file_name=file_name)
+            example_label = find_label_ukp(file_name)
+            if sentence_level:
+                print(f'context: {context}')
+                print(f'reply: {reply}')
+                context = list(filter(lambda text: len(text) > 0,
+                                      [sentence.strip() for sentence in context.split('.')]))
+                reply = list(filter(lambda text: len(text) > 0,
+                                    [sentence.strip() for sentence in reply.split('.')]))
+                dataset.append(context + reply)
+                labels.append(example_label)
+            else:
+                dataset.append((context, reply))
+                labels.append(example_label)
     return dataset, labels
 
 #######################################################

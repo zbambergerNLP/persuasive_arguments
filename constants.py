@@ -202,15 +202,8 @@ DELTA_CSV = "DELTA"
 ###################
 ###### PATH  ######
 ###################
-# TODO: Remove this logic.
-if os.name == 'nt':
-    if os.getlogin() == "b.noam":
-        BASE_DIR = pathlib.PurePath("/home/b.noam/persuasive_arguments")
-    else:
-        BASE_DIR = pathlib.PurePath("/home/zachary/persuasive_argumentation")
-else:
-    BASE_DIR = pathlib.PurePath("/home/zbamberger/persuasive_arguments")
 
-UKP_DIR = BASE_DIR / 'UKP'
-UKP_DATA = UKP_DIR / 'brat-project-final'
-UKP_LABELS_FILE = UKP_DIR / 'all_labeled_data.csv'
+BASE_DIR = os.getcwd()
+UKP_DIR = os.path.join(BASE_DIR, 'UKP')
+UKP_DATA = os.path.join(UKP_DIR,  'brat-project-final')
+UKP_LABELS_FILE = os.path.join(UKP_DIR, 'all_labeled_data.csv')
